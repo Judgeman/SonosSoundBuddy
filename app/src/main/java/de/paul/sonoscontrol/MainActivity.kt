@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Inhalt bis unter die Statusleiste zeichnen, damit der Cover-Verlauf den ganzen Bildschirm füllt
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         handleIntent(intent)
 
@@ -92,6 +95,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
 
         Screen.Settings -> {
             BackHandler(onBack = viewModel::closeSettings)
+            StatusBarIcons(light = !isSystemInDarkTheme())
             SettingsScreen(
                 speakers = viewModel.speakerConfigs,
                 availablePlayerIds = viewModel.availablePlayerIds,

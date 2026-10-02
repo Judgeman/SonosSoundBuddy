@@ -48,6 +48,12 @@ Bei Sonos muss als Redirect-URI exakt `WORKER_CALLBACK_URL` hinterlegt sein.
   Track (`POST /groups/{id}/playback/togglePlayPause`, `skipToPreviousTrack`,
   `skipToNextTrack`). Skip-Knöpfe sind ausgegraut, wenn die Quelle es nicht
   erlaubt (z. B. Radio).
+- Der Hintergrund passt sich dem Cover an (wie bei Apple Music): Aus dem
+  Cover werden per `androidx.palette` Farben extrahiert, daraus entsteht ein
+  dunkler Verlauf mit weißer Schrift und einer hellen Akzentfarbe für
+  Knöpfe und Fortschrittsbalken. Beim Track-Wechsel blenden die Farben
+  sanft über. Die App zeichnet dafür bis unter die Statusleiste
+  (Edge-to-Edge).
 - Die Daten kommen aus `GET /households/{id}/groups` (Gruppe des Players),
   `GET /groups/{id}/playback`, `GET /groups/{id}/playbackMetadata` und
   `GET /players/{id}/playerVolume`. Abgefragt wird alle 5 s, solange die App

@@ -46,6 +46,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +56,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -81,47 +84,54 @@ fun HomeScreen(
     onRetryClick: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val showsPlayback = state is UiState.SpeakerList && selectedSpeaker != null
+    val coverColors = rememberCoverColors(if (showsPlayback) nowPlaying?.imageUrl else null)
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Sound Buddy") },
-                actions = {
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "Menü")
-                        }
-                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Einstellungen") },
-                                leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onOpenSettings()
-                                }
-                            )
+    CoverTheme(colors = if (showsPlayback) coverColors else null) { background ->
+        Scaffold(
+            containerColor = Color.Transparent,
+            modifier = Modifier.background(background),
+            topBar = {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    title = { Text("Sound Buddy") },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Rounded.MoreVert, contentDescription = "Menü")
+                            }
+                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Einstellungen") },
+                                    leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onOpenSettings()
+                                    }
+                                )
+                            }
                         }
                     }
-                }
-            )
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentAlignment = Alignment.Center
-        ) {
-            when (state) {
-                is UiState.LoggedOut -> LoggedOutContent(onLoginClick)
-                is UiState.LoadingSpeakers -> CircularProgressIndicator()
-                is UiState.Error -> ErrorContent(state.message, onRetryClick)
-                is UiState.SpeakerList -> SpeakerHomeContent(
-                    speakers = speakers,
-                    selectedSpeaker = selectedSpeaker,
-                    nowPlaying = nowPlaying,
-                    playbackError = playbackError,
-                    onSelectSpeaker = onSelectSpeaker,
-                    controls = controls
                 )
+            }
+        ) { padding ->
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                when (state) {
+                    is UiState.LoggedOut -> LoggedOutContent(onLoginClick)
+                    is UiState.LoadingSpeakers -> CircularProgressIndicator()
+                    is UiState.Error -> ErrorContent(state.message, onRetryClick)
+                    is UiState.SpeakerList -> SpeakerHomeContent(
+                        speakers = speakers,
+                        selectedSpeaker = selectedSpeaker,
+                        nowPlaying = nowPlaying,
+                        playbackError = playbackError,
+                        onSelectSpeaker = onSelectSpeaker,
+                        controls = controls
+                    )
+                }
             }
         }
     }
@@ -355,6 +365,7 @@ private fun NowPlayingContent(
             progress = {
                 if (duration == null) 0f else (positionMillis.toFloat() / duration).coerceIn(0f, 1f)
             },
+            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(10.dp)
@@ -446,11 +457,14 @@ private fun PlaybackButtons(nowPlaying: NowPlaying, controls: PlaybackControls) 
     }
 }
 
+private val CoverShape = RoundedCornerShape(28.dp)
+
 @Composable
 private fun CoverImage(imageUrl: String?, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(32.dp))
+            .shadow(elevation = 24.dp, shape = CoverShape)
+            .clip(CoverShape)
             .background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center
     ) {
@@ -465,7 +479,7 @@ private fun CoverImage(imageUrl: String?, modifier: Modifier = Modifier) {
                 model = imageUrl,
                 contentDescription = "Cover",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize().clip(CoverShape)
             )
         }
     }

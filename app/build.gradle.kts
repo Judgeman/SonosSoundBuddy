@@ -67,6 +67,8 @@ dependencies {
 
     // Cover-Bilder laden
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Farben aus dem Cover für den Homescreen-Hintergrund
+    implementation("androidx.palette:palette-ktx:1.0.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
