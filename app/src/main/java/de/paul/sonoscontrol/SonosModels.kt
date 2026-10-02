@@ -70,13 +70,36 @@ data class PlaybackMetadata(
     val container: MetadataContainer? = null,
     val currentItem: MetadataItem? = null,
     val streamInfo: String? = null
+) {
+    /**
+     * Cover des aktuellen Titels. Je nach Quelle liefert Sonos es als `imageUrl`
+     * oder nur in der `images`-Liste, am Track oder nur am Container (Album/Sender).
+     */
+    val coverUrl: String?
+        get() = currentItem?.track?.let { it.imageUrl.orNullIfBlank() ?: it.images.largestUrl() }
+            ?: container?.let { it.imageUrl.orNullIfBlank() ?: it.images.largestUrl() }
+}
+
+@Serializable
+data class MetadataImage(
+    val url: String? = null,
+    val width: Int? = null,
+    val height: Int? = null
 )
+
+private fun String?.orNullIfBlank(): String? = this?.takeIf { it.isNotBlank() }
+
+private fun List<MetadataImage>.largestUrl(): String? =
+    filter { !it.url.isNullOrBlank() }
+        .maxByOrNull { (it.width ?: 0) * (it.height ?: 0) }
+        ?.url
 
 @Serializable
 data class MetadataContainer(
     val name: String? = null,
     val type: String? = null,
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    val images: List<MetadataImage> = emptyList()
 )
 
 @Serializable
@@ -88,6 +111,7 @@ data class MetadataItem(
 data class Track(
     val name: String? = null,
     val imageUrl: String? = null,
+    val images: List<MetadataImage> = emptyList(),
     val durationMillis: Long? = null,
     val artist: NamedItem? = null,
     val album: NamedItem? = null

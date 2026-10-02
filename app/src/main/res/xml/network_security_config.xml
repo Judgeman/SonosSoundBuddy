@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Sonos liefert Cover je nach Quelle (z. B. AirPlay, Line-In, manche Dienste)
+        als unverschlüsselte URL direkt vom Speaker im Heimnetz, etwa
+        http://192.168.x.x:1400/getaa?... . Android blockiert http standardmäßig,
+        dann bleibt nur das Platzhalter-Bild. IP-Bereiche lassen sich hier nicht
+        eingrenzen, daher ist Klartext allgemein erlaubt. Die Sonos-API selbst
+        läuft weiterhin ausschließlich über https.
+    -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

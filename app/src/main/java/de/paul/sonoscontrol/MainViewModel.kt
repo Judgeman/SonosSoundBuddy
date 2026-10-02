@@ -274,7 +274,7 @@ class MainViewModel(
                 subtitle = track?.artist?.name
                     ?: meta.streamInfo
                     ?: meta.container?.name?.takeIf { track?.name != null },
-                imageUrl = track?.imageUrl ?: meta.container?.imageUrl,
+                imageUrl = meta.coverUrl,
                 playbackState = playback.playbackState,
                 positionMillis = playback.positionMillis,
                 durationMillis = track?.durationMillis?.takeIf { it > 0 },

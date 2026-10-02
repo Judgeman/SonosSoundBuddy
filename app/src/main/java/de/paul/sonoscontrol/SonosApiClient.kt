@@ -1,5 +1,6 @@
 package de.paul.sonoscontrol
 
+import android.util.Log
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import okhttp3.Call
@@ -25,6 +26,7 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
     private val json = Json { ignoreUnknownKeys = true }
     private val baseUrl = "https://api.ws.sonos.com/control/api/v1"
     private val jsonMediaType = "application/json".toMediaType()
+    private var lastLoggedMetadataWithoutCover: String? = null
 
     suspend fun getFirstHouseholdId(): String {
         val body = get("$baseUrl/households")
@@ -48,7 +50,13 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
 
     suspend fun getPlaybackMetadata(groupId: String): PlaybackMetadata {
         val body = get("$baseUrl/groups/$groupId/playbackMetadata")
-        return json.decodeFromString(PlaybackMetadata.serializer(), body)
+        val metadata = json.decodeFromString(PlaybackMetadata.serializer(), body)
+        // Hilft bei der Fehlersuche, wenn eine Quelle kein Cover liefert (nur bei Änderung loggen)
+        if (metadata.coverUrl == null && body != lastLoggedMetadataWithoutCover) {
+            lastLoggedMetadataWithoutCover = body
+            Log.d(TAG, "Kein Cover in playbackMetadata für Gruppe $groupId: $body")
+        }
+        return metadata
     }
 
     suspend fun getPlayerVolume(playerId: String): PlayerVolume {
@@ -107,4 +115,8 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
                 }
             })
         }
+
+    companion object {
+        private const val TAG = "SonosApi"
+    }
 }

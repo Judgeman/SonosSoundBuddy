@@ -1,5 +1,6 @@
 package de.paul.sonoscontrol
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -479,6 +480,7 @@ private fun CoverImage(imageUrl: String?, modifier: Modifier = Modifier) {
                 model = imageUrl,
                 contentDescription = "Cover",
                 contentScale = ContentScale.Crop,
+                onError = { Log.w("Cover", "Cover konnte nicht geladen werden: $imageUrl", it.result.throwable) },
                 modifier = Modifier.fillMaxSize().clip(CoverShape)
             )
         }
