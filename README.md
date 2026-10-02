@@ -92,10 +92,21 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`):
 - `app_setting` — Key-Value: Passwort-Hash/-Salt, Passwortschutz an/aus,
   zuletzt gewählter Speaker
 
+## Anmeldung erneuern
+
+Sonos-Access-Tokens laufen nach 24 h ab. `SonosApiClient` erneuert sie
+selbstständig über den Worker (`POST /refresh`, siehe SonosSoundBuddyRelay),
+weil dafür das Client-Secret nötig ist, das nicht in die App gehört:
+
+- vorab, wenn die Ablaufzeit (`expires_in`) bekannt ist und in < 5 min erreicht wird
+- sonst bei einer 401-Antwort — danach wird die Anfrage einmal wiederholt
+- parallele Anfragen lösen nur einen Refresh aus
+- lehnt Sonos den Refresh-Token ab (Zugriff widerrufen o.ä.), zeigt die App
+  den Login mit einem Hinweis; bei Netz- oder Worker-Fehlern bleibt die
+  Anmeldung erhalten und es wird beim nächsten Öffnen erneut versucht
+
 ## Noch nicht enthalten (bewusst, für den nächsten Schritt)
 
-- Token-Refresh (aktuell: bei abgelaufenem Access-Token → Fehleranzeige →
-  erneuter Login-Flow)
 - Mehrere Households
 
 ## Bekannte Stolpersteine

@@ -123,7 +123,7 @@ fun HomeScreen(
                 contentAlignment = Alignment.Center
             ) {
                 when (state) {
-                    is UiState.LoggedOut -> LoggedOutContent(onLoginClick)
+                    is UiState.LoggedOut -> LoggedOutContent(state.reason, onLoginClick)
                     is UiState.LoadingSpeakers -> CircularProgressIndicator()
                     is UiState.Error -> ErrorContent(state.message, onRetryClick)
                     is UiState.SpeakerList -> SpeakerHomeContent(
@@ -142,9 +142,12 @@ fun HomeScreen(
 }
 
 @Composable
-private fun LoggedOutContent(onLoginClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Nicht mit Sonos verbunden")
+private fun LoggedOutContent(reason: String?, onLoginClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(24.dp)
+    ) {
+        Text(reason ?: "Nicht mit Sonos verbunden", textAlign = TextAlign.Center)
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = onLoginClick) {
             Text("Mit Sonos anmelden")

@@ -17,7 +17,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 sealed interface UiState {
-    data object LoggedOut : UiState
+    /** [reason] erklärt, warum neu angemeldet werden muss (z. B. Anmeldung abgelaufen). */
+    data class LoggedOut(val reason: String? = null) : UiState
     data object LoadingSpeakers : UiState
     data class SpeakerList(val players: List<SonosPlayer>) : UiState
     data class Error(val message: String) : UiState
@@ -56,10 +57,10 @@ class MainViewModel(
 ) : ViewModel() {
 
     val authManager = SonosAuthManager()
-    private val apiClient = SonosApiClient { tokenStore.accessToken }
+    private val apiClient = SonosApiClient(tokenStore)
 
     var uiState: UiState by mutableStateOf(
-        if (tokenStore.accessToken != null) UiState.LoadingSpeakers else UiState.LoggedOut
+        if (tokenStore.accessToken != null) UiState.LoadingSpeakers else UiState.LoggedOut()
     )
         private set
 
@@ -153,8 +154,11 @@ class MainViewModel(
             return
         }
 
-        tokenStore.accessToken = accessToken
-        tokenStore.refreshToken = refreshToken
+        tokenStore.saveTokens(
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            expiresInSeconds = uri.getQueryParameter("expires_in")?.toLongOrNull()
+        )
 
         loadSpeakers()
     }
@@ -170,6 +174,9 @@ class MainViewModel(
                 UiState.SpeakerList(players)
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
+                return@launch
             } catch (e: Exception) {
                 UiState.Error(e.message ?: "Unbekannter Fehler beim Laden der Speaker")
             }
@@ -177,13 +184,21 @@ class MainViewModel(
         }
     }
 
-    fun logout() {
+    fun logout() = signOut(reason = null)
+
+    /** Die Anmeldung ließ sich nicht erneuern → zurück zum Login, mit Hinweis warum. */
+    private fun handleSessionExpired(e: SessionExpiredException) = signOut(reason = e.message)
+
+    private fun signOut(reason: String?) {
         tokenStore.clear()
         stopPolling()
+        volumeJob?.cancel()
         householdId = null
         selectedPlayerId = null
+        nowPlaying = null
+        playbackError = null
         screen = Screen.Home
-        uiState = UiState.LoggedOut
+        uiState = UiState.LoggedOut(reason)
     }
 
     // --- Speaker-Auswahl -------------------------------------------------
@@ -224,7 +239,12 @@ class MainViewModel(
 
     fun onForegroundChanged(foreground: Boolean) {
         isInForeground = foreground
-        if (foreground) restartPolling() else stopPolling()
+        if (!foreground) {
+            stopPolling()
+            return
+        }
+        // Lag beim letzten Mal z. B. kein Netz an, beim Zurückkommen still neu versuchen
+        if (uiState is UiState.Error && tokenStore.accessToken != null) loadSpeakers() else restartPolling()
     }
 
     private fun stopPolling() {
@@ -259,6 +279,9 @@ class MainViewModel(
                     playbackError = null
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: SessionExpiredException) {
+                    handleSessionExpired(e)
+                    return@launch
                 } catch (e: Exception) {
                     playbackError = e.message ?: "Wiedergabe konnte nicht geladen werden"
                 }
@@ -344,6 +367,8 @@ class MainViewModel(
                 lastCommandAtMillis = SystemClock.elapsedRealtime()
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
             } catch (e: Exception) {
                 playbackError = e.message ?: "Lautstärke konnte nicht geändert werden"
             }
@@ -366,6 +391,8 @@ class MainViewModel(
                 }
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
             } catch (e: Exception) {
                 playbackError = e.message ?: "Befehl konnte nicht gesendet werden"
             }

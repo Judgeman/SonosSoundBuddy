@@ -6,6 +6,9 @@ object SonosConfig {
 
     const val WORKER_CALLBACK_URL = "https://sonos-relay.82n2ck5mhv.workers.dev/callback"
 
+    /** Endpunkt des Workers zum Erneuern abgelaufener Access-Tokens. */
+    val WORKER_REFRESH_URL = WORKER_CALLBACK_URL.removeSuffix("/callback") + "/refresh"
+
     const val OAUTH_SCOPE = "playback-control-all"
 
     /** Muss mit dem Intent-Filter in AndroidManifest.xml übereinstimmen. */

@@ -2,6 +2,11 @@ package de.paul.sonoscontrol
 
 import android.util.Log
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Call
 import okhttp3.Callback
@@ -14,19 +19,38 @@ import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class SonosApiException(message: String) : Exception(message)
+class SonosApiException(message: String, val httpCode: Int? = null) : Exception(message)
+
+/** Die Anmeldung lässt sich nicht mehr erneuern (Refresh-Token ungültig/widerrufen). */
+class SessionExpiredException :
+    Exception("Die Anmeldung bei Sonos ist abgelaufen. Bitte einmal neu anmelden.")
+
+@Serializable
+private data class RefreshResponse(
+    @SerialName("access_token") val accessToken: String,
+    @SerialName("refresh_token") val refreshToken: String? = null,
+    @SerialName("expires_in") val expiresIn: Long? = null
+)
 
 /**
  * Minimaler Client für die offizielle Sonos Control API
  * (https://api.ws.sonos.com/control/api/v1).
+ *
+ * Access-Tokens laufen nach 24 h ab. Der Client erneuert sie selbstständig
+ * über den Worker (POST /refresh): vorab, wenn die Ablaufzeit bekannt ist,
+ * und sonst bei einer 401-Antwort — danach wird die Anfrage einmal wiederholt.
  */
-class SonosApiClient(private val accessTokenProvider: () -> String?) {
+class SonosApiClient(
+    private val tokenStore: TokenStore,
+    private val baseUrl: String = "https://api.ws.sonos.com/control/api/v1",
+    private val refreshUrl: String = SonosConfig.WORKER_REFRESH_URL
+) {
 
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
-    private val baseUrl = "https://api.ws.sonos.com/control/api/v1"
     private val jsonMediaType = "application/json".toMediaType()
     private var lastLoggedMetadataWithoutCover: String? = null
+    private val refreshMutex = Mutex()
 
     suspend fun getFirstHouseholdId(): String {
         val body = get("$baseUrl/households")
@@ -76,23 +100,66 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
         post("$baseUrl/groups/$groupId/playback/skipToPreviousTrack")
     }
 
-    private suspend fun get(url: String): String =
-        executeAsync(authorizedRequest(url).get().build())
-
     suspend fun setPlayerVolume(playerId: String, volume: Int) {
         post("$baseUrl/players/$playerId/playerVolume", """{"volume":${volume.coerceIn(0, 100)}}""")
     }
 
+    private suspend fun get(url: String): String =
+        authorizedCall(url) { get() }
+
     private suspend fun post(url: String, body: String = "{}"): String =
-        executeAsync(authorizedRequest(url).post(body.toRequestBody(jsonMediaType)).build())
+        authorizedCall(url) { post(body.toRequestBody(jsonMediaType)) }
 
-    private fun authorizedRequest(url: String): Request.Builder {
-        val token = accessTokenProvider()
-            ?: throw SonosApiException("Kein Access-Token vorhanden — bitte erneut anmelden")
-
-        return Request.Builder()
+    private suspend fun authorizedCall(url: String, withMethod: Request.Builder.() -> Request.Builder): String {
+        fun request(token: String) = Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $token")
+            .withMethod()
+            .build()
+
+        val token = validAccessToken()
+        try {
+            return executeAsync(request(token))
+        } catch (e: SonosApiException) {
+            if (e.httpCode != 401) throw e
+        }
+        // Token wurde abgelehnt (z. B. Ablaufzeit unbekannt) → erneuern und einmal wiederholen
+        return executeAsync(request(refreshAccessToken(rejectedToken = token)))
+    }
+
+    private suspend fun validAccessToken(): String {
+        val token = tokenStore.accessToken ?: throw SessionExpiredException()
+        return if (tokenStore.isAccessTokenExpiringSoon) refreshAccessToken(rejectedToken = token) else token
+    }
+
+    /**
+     * Holt über den Worker einen neuen Access-Token. Laufen mehrere Anfragen
+     * gleichzeitig in einen abgelaufenen Token, erneuert nur die erste — die
+     * anderen bekommen danach direkt den neuen Token.
+     */
+    private suspend fun refreshAccessToken(rejectedToken: String): String = refreshMutex.withLock {
+        val current = tokenStore.accessToken
+        if (current != null && current != rejectedToken && !tokenStore.isAccessTokenExpiringSoon) {
+            return@withLock current
+        }
+        val refreshToken = tokenStore.refreshToken ?: throw SessionExpiredException()
+
+        val request = Request.Builder()
+            .url(refreshUrl)
+            .post(json.encodeToString(mapOf("refresh_token" to refreshToken)).toRequestBody(jsonMediaType))
+            .build()
+        val body = try {
+            executeAsync(request)
+        } catch (e: SonosApiException) {
+            // Nur 401 heißt "Refresh-Token ungültig" — alles andere ist vorübergehend
+            if (e.httpCode == 401) throw SessionExpiredException()
+            throw SonosApiException("Anmeldung konnte nicht erneuert werden (HTTP ${e.httpCode})", e.httpCode)
+        }
+
+        val tokens = json.decodeFromString(RefreshResponse.serializer(), body)
+        tokenStore.saveTokens(tokens.accessToken, tokens.refreshToken, tokens.expiresIn)
+        Log.d(TAG, "Access-Token erneuert")
+        tokens.accessToken
     }
 
     private suspend fun executeAsync(request: Request): String =
@@ -110,7 +177,7 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
                         val bodyString = it.body?.string().orEmpty()
                         if (!it.isSuccessful) {
                             continuation.resumeWithException(
-                                SonosApiException("HTTP ${it.code}: $bodyString")
+                                SonosApiException("HTTP ${it.code}: $bodyString", it.code)
                             )
                         } else {
                             continuation.resume(bodyString)
