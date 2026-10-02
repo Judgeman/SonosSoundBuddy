@@ -6,6 +6,21 @@ Tablet, das von Kindern bedient wird: große Knöpfe, bunte Icons, eine
 Lautstärke-Leiste mit Obergrenze und passwortgeschützte Einstellungen für
 die Eltern.
 
+## Zugehöriges Projekt: Relay
+
+Die App braucht den Cloudflare-Worker
+**[SonosSoundBuddyRelay](https://github.com/Judgeman/SonosSoundBuddyRelay)**.
+Er hält das Sonos-Client-Secret, das nicht in die App gehört, und übernimmt
+alle Token-Anfragen bei Sonos:
+
+- `GET /callback` — tauscht beim Login den Authorization-Code gegen Tokens
+  und leitet zurück in die App (`sonoscontrol://callback?…`)
+- `POST /refresh` — erneuert abgelaufene Access-Tokens
+
+Setup, Deploy (auch ohne Wrangler über das Cloudflare-Dashboard) und Tests
+sind im README des Relay-Projekts beschrieben. Die Worker-URL wird in der
+App in `SonosConfig.kt` eingetragen (siehe unten).
+
 ## Funktionen
 
 - **Homescreen**
@@ -164,8 +179,3 @@ kotlinx.serialization.
   Titel und Menü kommen aus der Compose-TopAppBar.
 - Der Worker MUSS exakt dieselbe `redirect_uri` verwenden wie die App beim
   Auth-Request — sonst lehnt Sonos den Token-Exchange ab.
-
-## Noch nicht enthalten
-
-- Mehrere Households
-- Lautstärke-Obergrenze, während die App geschlossen ist
