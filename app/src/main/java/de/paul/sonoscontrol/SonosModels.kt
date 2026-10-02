@@ -41,7 +41,8 @@ data class GroupsResponse(
 @Serializable
 data class PlaybackStatus(
     val playbackState: String? = null,
-    val positionMillis: Long = 0
+    val positionMillis: Long = 0,
+    val availablePlaybackActions: PlaybackActions? = null
 ) {
     val isPlaying: Boolean get() = playbackState == STATE_PLAYING
     val isBuffering: Boolean get() = playbackState == STATE_BUFFERING
@@ -53,6 +54,15 @@ data class PlaybackStatus(
         const val STATE_PAUSED = "PLAYBACK_STATE_PAUSED"
     }
 }
+
+/** Welche Steuerbefehle die aktuelle Quelle erlaubt (z. B. kein Skip bei Radio). */
+@Serializable
+data class PlaybackActions(
+    val canSkip: Boolean = true,
+    val canSkipBack: Boolean = true,
+    val canPlay: Boolean = true,
+    val canPause: Boolean = true
+)
 
 /** Antwort von GET /groups/{groupId}/playbackMetadata */
 @Serializable

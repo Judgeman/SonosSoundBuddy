@@ -4,8 +4,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 import kotlin.coroutines.resume
@@ -22,6 +24,7 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
     private val baseUrl = "https://api.ws.sonos.com/control/api/v1"
+    private val jsonMediaType = "application/json".toMediaType()
 
     suspend fun getFirstHouseholdId(): String {
         val body = get("$baseUrl/households")
@@ -53,17 +56,31 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
         return json.decodeFromString(PlayerVolume.serializer(), body)
     }
 
-    private suspend fun get(url: String): String {
+    suspend fun togglePlayPause(groupId: String) {
+        post("$baseUrl/groups/$groupId/playback/togglePlayPause")
+    }
+
+    suspend fun skipToNextTrack(groupId: String) {
+        post("$baseUrl/groups/$groupId/playback/skipToNextTrack")
+    }
+
+    suspend fun skipToPreviousTrack(groupId: String) {
+        post("$baseUrl/groups/$groupId/playback/skipToPreviousTrack")
+    }
+
+    private suspend fun get(url: String): String =
+        executeAsync(authorizedRequest(url).get().build())
+
+    private suspend fun post(url: String): String =
+        executeAsync(authorizedRequest(url).post("{}".toRequestBody(jsonMediaType)).build())
+
+    private fun authorizedRequest(url: String): Request.Builder {
         val token = accessTokenProvider()
             ?: throw SonosApiException("Kein Access-Token vorhanden — bitte erneut anmelden")
 
-        val request = Request.Builder()
+        return Request.Builder()
             .url(url)
             .header("Authorization", "Bearer $token")
-            .get()
-            .build()
-
-        return executeAsync(request)
     }
 
     private suspend fun executeAsync(request: Request): String =

@@ -1,6 +1,5 @@
 package de.paul.sonoscontrol
 
-import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,10 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -30,6 +26,8 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -38,6 +36,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -75,6 +75,7 @@ fun HomeScreen(
     nowPlaying: NowPlaying?,
     playbackError: String?,
     onSelectSpeaker: (String) -> Unit,
+    controls: PlaybackControls,
     onOpenSettings: () -> Unit,
     onLoginClick: () -> Unit,
     onRetryClick: () -> Unit
@@ -118,7 +119,8 @@ fun HomeScreen(
                     selectedSpeaker = selectedSpeaker,
                     nowPlaying = nowPlaying,
                     playbackError = playbackError,
-                    onSelectSpeaker = onSelectSpeaker
+                    onSelectSpeaker = onSelectSpeaker,
+                    controls = controls
                 )
             }
         }
@@ -154,12 +156,12 @@ private fun SpeakerHomeContent(
     selectedSpeaker: SpeakerConfig?,
     nowPlaying: NowPlaying?,
     playbackError: String?,
-    onSelectSpeaker: (String) -> Unit
+    onSelectSpeaker: (String) -> Unit,
+    controls: PlaybackControls
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -173,11 +175,16 @@ private fun SpeakerHomeContent(
             selectedSpeaker = selectedSpeaker,
             onSelectSpeaker = onSelectSpeaker
         )
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         when {
             selectedSpeaker == null -> HintText("Wähle oben einen Speaker aus.")
-            nowPlaying != null -> NowPlayingContent(nowPlaying, playbackError)
+            nowPlaying != null -> NowPlayingContent(
+                nowPlaying = nowPlaying,
+                playbackError = playbackError,
+                controls = controls,
+                modifier = Modifier.weight(1f)
+            )
             playbackError != null -> HintText(playbackError)
             else -> CircularProgressIndicator(modifier = Modifier.padding(32.dp))
         }
@@ -275,43 +282,60 @@ private fun SpeakerDropdown(
     }
 }
 
+/** Steuer-Callbacks für die Wiedergabe-Knöpfe. */
+class PlaybackControls(
+    val onTogglePlayPause: () -> Unit,
+    val onSkipToPrevious: () -> Unit,
+    val onSkipToNext: () -> Unit
+)
+
+/**
+ * Füllt den restlichen Bildschirm: Das Cover bekommt den gesamten Platz, der
+ * nach Titel, Fortschritt und Knöpfen übrig bleibt, und bleibt dabei quadratisch.
+ */
 @Composable
-private fun NowPlayingContent(nowPlaying: NowPlaying, playbackError: String?) {
+private fun NowPlayingContent(
+    nowPlaying: NowPlaying,
+    playbackError: String?,
+    controls: PlaybackControls,
+    modifier: Modifier = Modifier
+) {
     // Zwischen den Abfragen läuft die Position lokal weiter, damit der Balken flüssig bleibt.
-    val positionMillis by produceState(nowPlaying.positionMillis, nowPlaying) {
+    val positionMillis by produceState(nowPlaying.currentPositionMillis(), nowPlaying) {
         while (true) {
-            val elapsed = if (nowPlaying.isPlaying) {
-                SystemClock.elapsedRealtime() - nowPlaying.fetchedAtMillis
-            } else {
-                0L
-            }
-            val position = nowPlaying.positionMillis + elapsed
-            value = nowPlaying.durationMillis?.let { position.coerceAtMost(it) } ?: position
+            value = nowPlaying.currentPositionMillis()
             delay(500)
         }
     }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.widthIn(max = 480.dp)
+        modifier = modifier.fillMaxWidth()
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            CoverImage(nowPlaying.imageUrl)
-            PlaybackStateBadge(
-                playbackState = nowPlaying.playbackState,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp)
-            )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            Box(modifier = Modifier.aspectRatio(1f, matchHeightConstraintsFirst = true)) {
+                CoverImage(nowPlaying.imageUrl, modifier = Modifier.fillMaxSize())
+                PlaybackStateBadge(
+                    playbackState = nowPlaying.playbackState,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(16.dp)
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = nowPlaying.title ?: "Gerade läuft nichts",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         nowPlaying.subtitle?.let {
@@ -325,7 +349,7 @@ private fun NowPlayingContent(nowPlaying: NowPlaying, playbackError: String?) {
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         val duration = nowPlaying.durationMillis
         LinearProgressIndicator(
             progress = {
@@ -337,8 +361,15 @@ private fun NowPlayingContent(nowPlaying: NowPlaying, playbackError: String?) {
                 .clip(RoundedCornerShape(5.dp))
         )
         Spacer(modifier = Modifier.height(6.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(formatDuration(positionMillis), style = MaterialTheme.typography.labelLarge)
+            Spacer(modifier = Modifier.weight(1f))
+            nowPlaying.volume?.let { volume ->
+                VolumeLabel(volume = volume, muted = nowPlaying.muted)
+            }
             Spacer(modifier = Modifier.weight(1f))
             Text(
                 text = duration?.let(::formatDuration) ?: "Live",
@@ -346,50 +377,79 @@ private fun NowPlayingContent(nowPlaying: NowPlaying, playbackError: String?) {
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            nowPlaying.volume?.let { volume ->
-                Icon(
-                    imageVector = if (nowPlaying.muted) {
-                        Icons.AutoMirrored.Rounded.VolumeOff
-                    } else {
-                        Icons.AutoMirrored.Rounded.VolumeUp
-                    },
-                    contentDescription = "Lautstärke",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "$volume %",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        Spacer(modifier = Modifier.height(8.dp))
+        PlaybackButtons(nowPlaying = nowPlaying, controls = controls)
 
         if (playbackError != null) {
-            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = playbackError,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
 @Composable
-private fun CoverImage(imageUrl: String?) {
+private fun VolumeLabel(volume: Int, muted: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = if (muted) Icons.AutoMirrored.Rounded.VolumeOff else Icons.AutoMirrored.Rounded.VolumeUp,
+            contentDescription = "Lautstärke",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "$volume %",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** Große, kinderfreundliche Knöpfe: vorheriger Track, Play/Pause, nächster Track. */
+@Composable
+private fun PlaybackButtons(nowPlaying: NowPlaying, controls: PlaybackControls) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        FilledTonalIconButton(
+            onClick = controls.onSkipToPrevious,
+            enabled = nowPlaying.canSkipBack,
+            modifier = Modifier.size(64.dp)
+        ) {
+            Icon(Icons.Rounded.SkipPrevious, contentDescription = "Vorheriger Track", modifier = Modifier.size(40.dp))
+        }
+        FilledIconButton(
+            onClick = controls.onTogglePlayPause,
+            modifier = Modifier.size(88.dp)
+        ) {
+            Icon(
+                imageVector = if (nowPlaying.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (nowPlaying.isPlaying) "Pause" else "Abspielen",
+                modifier = Modifier.size(56.dp)
+            )
+        }
+        FilledTonalIconButton(
+            onClick = controls.onSkipToNext,
+            enabled = nowPlaying.canSkip,
+            modifier = Modifier.size(64.dp)
+        ) {
+            Icon(Icons.Rounded.SkipNext, contentDescription = "Nächster Track", modifier = Modifier.size(40.dp))
+        }
+    }
+}
+
+@Composable
+private fun CoverImage(imageUrl: String?, modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
+        modifier = modifier
             .clip(RoundedCornerShape(32.dp))
             .background(MaterialTheme.colorScheme.secondaryContainer),
         contentAlignment = Alignment.Center

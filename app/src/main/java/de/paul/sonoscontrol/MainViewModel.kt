@@ -27,6 +27,7 @@ enum class Screen { Home, Settings }
 
 /** Aktuelle Wiedergabe des ausgewählten Speakers, wie sie der Homescreen anzeigt. */
 data class NowPlaying(
+    val groupId: String,
     val title: String?,
     val subtitle: String?,
     val imageUrl: String?,
@@ -35,10 +36,18 @@ data class NowPlaying(
     val durationMillis: Long?,
     val volume: Int?,
     val muted: Boolean,
+    val canSkip: Boolean,
+    val canSkipBack: Boolean,
     /** SystemClock.elapsedRealtime() zum Zeitpunkt der Abfrage — für die Positions-Interpolation. */
     val fetchedAtMillis: Long
 ) {
     val isPlaying: Boolean get() = playbackState == PlaybackStatus.STATE_PLAYING
+
+    /** Position inklusive der seit der letzten Abfrage vergangenen Zeit. */
+    fun currentPositionMillis(now: Long = SystemClock.elapsedRealtime()): Long {
+        val position = positionMillis + if (isPlaying) now - fetchedAtMillis else 0L
+        return durationMillis?.let { position.coerceAtMost(it) } ?: position
+    }
 }
 
 class MainViewModel(
@@ -82,6 +91,7 @@ class MainViewModel(
     private var settingsLoaded = false
     private var isInForeground = false
     private var pollJob: Job? = null
+    private var lastCommandAtMillis = 0L
 
     /** Speaker, die auf dem Homescreen gewählt werden dürfen und gerade im Haushalt verfügbar sind. */
     val selectableSpeakers: List<SpeakerConfig>
@@ -225,7 +235,11 @@ class MainViewModel(
         pollJob = viewModelScope.launch {
             while (isActive) {
                 try {
-                    nowPlaying = fetchNowPlaying(household, playerId)
+                    val fetched = fetchNowPlaying(household, playerId)
+                    // Kurz nach einem Befehl kann Sonos noch den alten Stand liefern
+                    if (SystemClock.elapsedRealtime() - lastCommandAtMillis > COMMAND_REFRESH_DELAY_MS) {
+                        nowPlaying = fetched
+                    }
                     playbackError = null
                 } catch (e: CancellationException) {
                     throw e
@@ -253,7 +267,9 @@ class MainViewModel(
             val playback = status.await()
             val playerVolume = volume.await()
 
+            val actions = playback.availablePlaybackActions
             NowPlaying(
+                groupId = group.id,
                 title = track?.name ?: meta.container?.name,
                 subtitle = track?.artist?.name
                     ?: meta.streamInfo
@@ -264,9 +280,54 @@ class MainViewModel(
                 durationMillis = track?.durationMillis?.takeIf { it > 0 },
                 volume = playerVolume?.volume,
                 muted = playerVolume?.muted ?: false,
+                canSkip = actions?.canSkip ?: true,
+                canSkipBack = actions?.canSkipBack ?: true,
                 fetchedAtMillis = SystemClock.elapsedRealtime()
             )
         }
+
+    fun togglePlayPause() {
+        val current = nowPlaying ?: return
+        // Sofort umschalten, damit der Knopf direkt reagiert — die nächste Abfrage korrigiert ggf.
+        nowPlaying = current.copy(
+            playbackState = if (current.isPlaying) PlaybackStatus.STATE_PAUSED else PlaybackStatus.STATE_PLAYING,
+            positionMillis = current.currentPositionMillis(),
+            fetchedAtMillis = SystemClock.elapsedRealtime()
+        )
+        sendPlaybackCommand { apiClient.togglePlayPause(current.groupId) }
+    }
+
+    fun skipToNext() {
+        val current = nowPlaying ?: return
+        sendPlaybackCommand { apiClient.skipToNextTrack(current.groupId) }
+    }
+
+    fun skipToPrevious() {
+        val current = nowPlaying ?: return
+        sendPlaybackCommand { apiClient.skipToPreviousTrack(current.groupId) }
+    }
+
+    private fun sendPlaybackCommand(command: suspend () -> Unit) {
+        val playerId = selectedPlayerId ?: return
+        val household = householdId ?: return
+        lastCommandAtMillis = SystemClock.elapsedRealtime()
+        viewModelScope.launch {
+            try {
+                command()
+                lastCommandAtMillis = SystemClock.elapsedRealtime()
+                // Sonos braucht einen Moment, bis Track und Status aktualisiert sind
+                delay(COMMAND_REFRESH_DELAY_MS)
+                if (selectedPlayerId == playerId) {
+                    nowPlaying = fetchNowPlaying(household, playerId)
+                    playbackError = null
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                playbackError = e.message ?: "Befehl konnte nicht gesendet werden"
+            }
+        }
+    }
 
     // --- Settings & Passwort ---------------------------------------------
 
@@ -328,6 +389,7 @@ class MainViewModel(
 
     companion object {
         private const val POLL_INTERVAL_MS = 5_000L
+        private const val COMMAND_REFRESH_DELAY_MS = 600L
     }
 }
 

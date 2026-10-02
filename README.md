@@ -41,9 +41,13 @@ Bei Sonos muss als Redirect-URI exakt `WORKER_CALLBACK_URL` hinterlegt sein.
 - Ist in den Settings nur **ein** Speaker freigegeben, ist er automatisch
   gewählt (kein Dropdown-Pfeil). Ansonsten wird beim Start der zuletzt
   gewählte Speaker wiederhergestellt.
-- Darunter die aktuelle Wiedergabe: großes Cover, Status (Läuft / Pausiert),
-  Titel + Interpret, Fortschrittsbalken mit Position und Dauer, klein die
-  Lautstärke in Prozent.
+- Darunter die aktuelle Wiedergabe über den restlichen Bildschirm (kein
+  Scrollen): Das Cover wächst mit dem freien Platz, darunter Titel +
+  Interpret, Fortschrittsbalken mit Position, Lautstärke in Prozent und
+  Dauer sowie große Knöpfe für vorherigen Track, Play/Pause und nächsten
+  Track (`POST /groups/{id}/playback/togglePlayPause`, `skipToPreviousTrack`,
+  `skipToNextTrack`). Skip-Knöpfe sind ausgegraut, wenn die Quelle es nicht
+  erlaubt (z. B. Radio).
 - Die Daten kommen aus `GET /households/{id}/groups` (Gruppe des Players),
   `GET /groups/{id}/playback`, `GET /groups/{id}/playbackMetadata` und
   `GET /players/{id}/playerVolume`. Abgefragt wird alle 5 s, solange die App
@@ -77,7 +81,7 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`):
 
 - Token-Refresh (aktuell: bei abgelaufenem Access-Token → Fehleranzeige →
   erneuter Login-Flow)
-- Playback-Steuerung (Play/Pause/Volume ändern)
+- Lautstärke ändern
 - Mehrere Households
 
 ## Bekannte Stolpersteine

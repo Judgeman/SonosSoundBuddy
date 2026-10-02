@@ -13,6 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
@@ -77,6 +78,13 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
             nowPlaying = viewModel.nowPlaying,
             playbackError = viewModel.playbackError,
             onSelectSpeaker = viewModel::selectSpeaker,
+            controls = remember(viewModel) {
+                PlaybackControls(
+                    onTogglePlayPause = viewModel::togglePlayPause,
+                    onSkipToPrevious = viewModel::skipToPrevious,
+                    onSkipToNext = viewModel::skipToNext
+                )
+            },
             onOpenSettings = viewModel::openSettings,
             onLoginClick = onLoginClick,
             onRetryClick = viewModel::loadSpeakers
