@@ -79,13 +79,15 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
             speakers = viewModel.selectableSpeakers,
             selectedSpeaker = viewModel.selectedSpeaker,
             nowPlaying = viewModel.nowPlaying,
+            maxVolume = viewModel.selectedMaxVolume,
             playbackError = viewModel.playbackError,
             onSelectSpeaker = viewModel::selectSpeaker,
             controls = remember(viewModel) {
                 PlaybackControls(
                     onTogglePlayPause = viewModel::togglePlayPause,
                     onSkipToPrevious = viewModel::skipToPrevious,
-                    onSkipToNext = viewModel::skipToNext
+                    onSkipToNext = viewModel::skipToNext,
+                    onVolumeChange = viewModel::setVolume
                 )
             },
             onOpenSettings = viewModel::openSettings,
@@ -104,6 +106,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                 onBack = viewModel::closeSettings,
                 onSpeakerEnabledChange = viewModel::setSpeakerEnabled,
                 onSpeakerIconChange = viewModel::setSpeakerIcon,
+                onSpeakerMaxVolumeChange = viewModel::setSpeakerMaxVolume,
                 onSavePassword = viewModel::savePassword,
                 onRemovePassword = viewModel::removePassword,
                 onPasswordRequiredChange = viewModel::setPasswordRequired,

@@ -60,6 +60,9 @@ class SettingsRepository(database: AppDatabase) {
     suspend fun setSpeakerIcon(playerId: String, icon: SpeakerIcon) =
         speakerDao.setIcon(playerId, icon.name)
 
+    suspend fun setSpeakerMaxVolume(playerId: String, maxVolume: Int) =
+        speakerDao.setMaxVolume(playerId, maxVolume.coerceIn(0, 100))
+
     suspend fun setLastSelectedPlayer(playerId: String) =
         settingDao.put(AppSetting(KEY_LAST_SELECTED_PLAYER, playerId))
 

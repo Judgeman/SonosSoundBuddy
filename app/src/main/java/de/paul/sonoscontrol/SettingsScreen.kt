@@ -35,12 +35,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 private const val MIN_PASSWORD_LENGTH = 4
 
@@ -65,6 +68,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onSpeakerEnabledChange: (String, Boolean) -> Unit,
     onSpeakerIconChange: (String, SpeakerIcon) -> Unit,
+    onSpeakerMaxVolumeChange: (String, Int) -> Unit,
     onSavePassword: (String) -> Unit,
     onRemovePassword: () -> Unit,
     onPasswordRequiredChange: (Boolean) -> Unit,
@@ -91,8 +95,8 @@ fun SettingsScreen(
             item {
                 SectionHeader(
                     title = "Speaker",
-                    description = "Lege fest, welche Speaker auf dem Startbildschirm auswählbar sind. " +
-                        "Tippe auf ein Icon, um es zu ändern."
+                    description = "Lege fest, welche Speaker auf dem Startbildschirm auswählbar sind " +
+                        "und wie laut sie höchstens werden dürfen. Tippe auf ein Icon, um es zu ändern."
                 )
             }
             if (speakers.isEmpty()) {
@@ -114,7 +118,13 @@ fun SettingsScreen(
                     },
                     headlineContent = { Text(speaker.name, style = MaterialTheme.typography.titleMedium) },
                     supportingContent = {
-                        Text(if (reachable) speaker.icon.label else "Gerade nicht erreichbar")
+                        Column {
+                            Text(if (reachable) speaker.icon.label else "Gerade nicht erreichbar")
+                            MaxVolumeSlider(
+                                maxVolume = speaker.maxVolume,
+                                onMaxVolumeChange = { onSpeakerMaxVolumeChange(speaker.playerId, it) }
+                            )
+                        }
                     },
                     trailingContent = {
                         Switch(
@@ -167,6 +177,30 @@ fun SettingsScreen(
                 iconPickerFor = null
             },
             onDismiss = { iconPickerFor = null }
+        )
+    }
+}
+
+/** Maximal-Lautstärke in 5-%-Schritten; gespeichert wird erst beim Loslassen. */
+@Composable
+private fun MaxVolumeSlider(maxVolume: Int, onMaxVolumeChange: (Int) -> Unit) {
+    var value by remember(maxVolume) { mutableFloatStateOf(maxVolume.toFloat()) }
+
+    Column(modifier = Modifier.padding(top = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Maximale Lautstärke", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(
+                "${value.roundToInt()} %",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = { value = it },
+            onValueChangeFinished = { onMaxVolumeChange(value.roundToInt()) },
+            valueRange = 5f..100f,
+            steps = 18
         )
     }
 }

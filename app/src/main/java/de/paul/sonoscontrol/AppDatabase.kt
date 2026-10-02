@@ -1,6 +1,7 @@
 package de.paul.sonoscontrol
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -9,6 +10,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 /** Pro Sonos-Player: darf er auf dem Homescreen gewählt werden und welches Icon bekommt er. */
@@ -17,7 +20,9 @@ data class SpeakerConfig(
     @PrimaryKey val playerId: String,
     val name: String,
     val enabled: Boolean,
-    val iconKey: String
+    val iconKey: String,
+    /** Obergrenze für die Lautstärke-Leiste auf dem Homescreen (0–100). */
+    @ColumnInfo(defaultValue = "100") val maxVolume: Int = 100
 )
 
 val SpeakerConfig.icon: SpeakerIcon get() = SpeakerIcon.fromKey(iconKey)
@@ -45,6 +50,9 @@ interface SpeakerConfigDao {
 
     @Query("UPDATE speaker_config SET iconKey = :iconKey WHERE playerId = :playerId")
     suspend fun setIcon(playerId: String, iconKey: String)
+
+    @Query("UPDATE speaker_config SET maxVolume = :maxVolume WHERE playerId = :playerId")
+    suspend fun setMaxVolume(playerId: String, maxVolume: Int)
 }
 
 @Dao
@@ -64,7 +72,7 @@ interface AppSettingDao {
 
 @Database(
     entities = [SpeakerConfig::class, AppSetting::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -72,6 +80,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun appSettingDao(): AppSettingDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE speaker_config ADD COLUMN maxVolume INTEGER NOT NULL DEFAULT 100")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -81,7 +95,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "sound_buddy.db"
-                ).build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { instance = it }
             }
     }
 }

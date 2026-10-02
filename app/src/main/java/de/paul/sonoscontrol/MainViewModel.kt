@@ -92,6 +92,7 @@ class MainViewModel(
     private var isInForeground = false
     private var pollJob: Job? = null
     private var lastCommandAtMillis = 0L
+    private var volumeJob: Job? = null
 
     /** Speaker, die auf dem Homescreen gewählt werden dürfen und gerade im Haushalt verfügbar sind. */
     val selectableSpeakers: List<SpeakerConfig>
@@ -107,6 +108,13 @@ class MainViewModel(
 
     val selectedSpeaker: SpeakerConfig?
         get() = speakerConfigs.firstOrNull { it.playerId == selectedPlayerId }
+
+    /** Obergrenze der Lautstärke-Leiste für den gewählten Speaker. */
+    val selectedMaxVolume: Int
+        get() = selectedPlayerId?.let(::maxVolumeFor) ?: 100
+
+    private fun maxVolumeFor(playerId: String): Int =
+        speakerConfigs.firstOrNull { it.playerId == playerId }?.maxVolume ?: 100
 
     init {
         viewModelScope.launch {
@@ -235,7 +243,15 @@ class MainViewModel(
         pollJob = viewModelScope.launch {
             while (isActive) {
                 try {
-                    val fetched = fetchNowPlaying(household, playerId)
+                    var fetched = fetchNowPlaying(household, playerId)
+                    // Wurde die Lautstärke woanders (Sonos-App, Taste am Speaker) über das
+                    // Maximum gestellt, wird sie wieder auf das Maximum begrenzt.
+                    val max = maxVolumeFor(playerId)
+                    val volume = fetched.volume
+                    if (volume != null && volume > max) {
+                        apiClient.setPlayerVolume(playerId, max)
+                        fetched = fetched.copy(volume = max)
+                    }
                     // Kurz nach einem Befehl kann Sonos noch den alten Stand liefern
                     if (SystemClock.elapsedRealtime() - lastCommandAtMillis > COMMAND_REFRESH_DELAY_MS) {
                         nowPlaying = fetched
@@ -307,6 +323,33 @@ class MainViewModel(
         sendPlaybackCommand { apiClient.skipToPreviousTrack(current.groupId) }
     }
 
+    /**
+     * Setzt die Lautstärke des gewählten Speakers, begrenzt auf sein Maximum.
+     * Beim Ziehen über die Leiste kommen viele Werte schnell hintereinander —
+     * gesendet wird nur der letzte, die Anzeige folgt aber sofort.
+     */
+    fun setVolume(volume: Int) {
+        val playerId = selectedPlayerId ?: return
+        val current = nowPlaying ?: return
+        val target = volume.coerceIn(0, maxVolumeFor(playerId))
+        if (target == current.volume) return
+
+        lastCommandAtMillis = SystemClock.elapsedRealtime()
+        nowPlaying = current.copy(volume = target)
+        volumeJob?.cancel()
+        volumeJob = viewModelScope.launch {
+            delay(VOLUME_DEBOUNCE_MS)
+            try {
+                apiClient.setPlayerVolume(playerId, target)
+                lastCommandAtMillis = SystemClock.elapsedRealtime()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                playbackError = e.message ?: "Lautstärke konnte nicht geändert werden"
+            }
+        }
+    }
+
     private fun sendPlaybackCommand(command: suspend () -> Unit) {
         val playerId = selectedPlayerId ?: return
         val household = householdId ?: return
@@ -371,6 +414,10 @@ class MainViewModel(
         viewModelScope.launch { repository.setSpeakerEnabled(playerId, enabled) }
     }
 
+    fun setSpeakerMaxVolume(playerId: String, maxVolume: Int) {
+        viewModelScope.launch { repository.setSpeakerMaxVolume(playerId, maxVolume) }
+    }
+
     fun setSpeakerIcon(playerId: String, icon: SpeakerIcon) {
         viewModelScope.launch { repository.setSpeakerIcon(playerId, icon) }
     }
@@ -390,6 +437,7 @@ class MainViewModel(
     companion object {
         private const val POLL_INTERVAL_MS = 5_000L
         private const val COMMAND_REFRESH_DELAY_MS = 600L
+        private const val VOLUME_DEBOUNCE_MS = 150L
     }
 }
 

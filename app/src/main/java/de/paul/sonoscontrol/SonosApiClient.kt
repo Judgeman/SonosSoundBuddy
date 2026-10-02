@@ -79,8 +79,12 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
     private suspend fun get(url: String): String =
         executeAsync(authorizedRequest(url).get().build())
 
-    private suspend fun post(url: String): String =
-        executeAsync(authorizedRequest(url).post("{}".toRequestBody(jsonMediaType)).build())
+    suspend fun setPlayerVolume(playerId: String, volume: Int) {
+        post("$baseUrl/players/$playerId/playerVolume", """{"volume":${volume.coerceIn(0, 100)}}""")
+    }
+
+    private suspend fun post(url: String, body: String = "{}"): String =
+        executeAsync(authorizedRequest(url).post(body.toRequestBody(jsonMediaType)).build())
 
     private fun authorizedRequest(url: String): Request.Builder {
         val token = accessTokenProvider()

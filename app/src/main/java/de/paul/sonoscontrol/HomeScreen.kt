@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -77,6 +78,7 @@ fun HomeScreen(
     speakers: List<SpeakerConfig>,
     selectedSpeaker: SpeakerConfig?,
     nowPlaying: NowPlaying?,
+    maxVolume: Int,
     playbackError: String?,
     onSelectSpeaker: (String) -> Unit,
     controls: PlaybackControls,
@@ -128,6 +130,7 @@ fun HomeScreen(
                         speakers = speakers,
                         selectedSpeaker = selectedSpeaker,
                         nowPlaying = nowPlaying,
+                        maxVolume = maxVolume,
                         playbackError = playbackError,
                         onSelectSpeaker = onSelectSpeaker,
                         controls = controls
@@ -166,6 +169,7 @@ private fun SpeakerHomeContent(
     speakers: List<SpeakerConfig>,
     selectedSpeaker: SpeakerConfig?,
     nowPlaying: NowPlaying?,
+    maxVolume: Int,
     playbackError: String?,
     onSelectSpeaker: (String) -> Unit,
     controls: PlaybackControls
@@ -192,6 +196,7 @@ private fun SpeakerHomeContent(
             selectedSpeaker == null -> HintText("Wähle oben einen Speaker aus.")
             nowPlaying != null -> NowPlayingContent(
                 nowPlaying = nowPlaying,
+                maxVolume = maxVolume,
                 playbackError = playbackError,
                 controls = controls,
                 modifier = Modifier.weight(1f)
@@ -297,7 +302,8 @@ private fun SpeakerDropdown(
 class PlaybackControls(
     val onTogglePlayPause: () -> Unit,
     val onSkipToPrevious: () -> Unit,
-    val onSkipToNext: () -> Unit
+    val onSkipToNext: () -> Unit,
+    val onVolumeChange: (Int) -> Unit
 )
 
 /**
@@ -307,6 +313,7 @@ class PlaybackControls(
 @Composable
 private fun NowPlayingContent(
     nowPlaying: NowPlaying,
+    maxVolume: Int,
     playbackError: String?,
     controls: PlaybackControls,
     modifier: Modifier = Modifier
@@ -323,19 +330,35 @@ private fun NowPlayingContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier.fillMaxWidth()
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            Box(modifier = Modifier.aspectRatio(1f, matchHeightConstraintsFirst = true)) {
-                CoverImage(nowPlaying.imageUrl, modifier = Modifier.fillMaxSize())
-                PlaybackStateBadge(
-                    playbackState = nowPlaying.playbackState,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(16.dp)
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                Box(modifier = Modifier.aspectRatio(1f, matchHeightConstraintsFirst = true)) {
+                    CoverImage(nowPlaying.imageUrl, modifier = Modifier.fillMaxSize())
+                    PlaybackStateBadge(
+                        playbackState = nowPlaying.playbackState,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(16.dp)
+                    )
+                }
+            }
+            nowPlaying.volume?.let { volume ->
+                Spacer(modifier = Modifier.width(12.dp))
+                VolumeBar(
+                    volume = volume,
+                    maxVolume = maxVolume,
+                    onVolumeChange = controls.onVolumeChange,
+                    modifier = Modifier.fillMaxHeight()
                 )
             }
         }

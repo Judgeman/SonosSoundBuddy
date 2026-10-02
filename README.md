@@ -48,6 +48,13 @@ Bei Sonos muss als Redirect-URI exakt `WORKER_CALLBACK_URL` hinterlegt sein.
   Track (`POST /groups/{id}/playback/togglePlayPause`, `skipToPreviousTrack`,
   `skipToNextTrack`). Skip-Knöpfe sind ausgegraut, wenn die Quelle es nicht
   erlaubt (z. B. Radio).
+- Rechts neben dem Cover eine senkrechte Lautstärke-Leiste mit 10 großen
+  Stufen (nach oben breiter werdend): Tippen auf eine Stufe oder Ziehen
+  setzt die Lautstärke, + / − gehen eine Stufe weiter
+  (`POST /players/{id}/playerVolume`). Die oberste Stufe ist die in den
+  Settings festgelegte Maximal-Lautstärke des Speakers. Wird die Lautstärke
+  woanders (Sonos-App, Tasten am Speaker) höher gestellt, regelt die App sie
+  bei der nächsten Abfrage wieder auf das Maximum herunter.
 - Der Hintergrund passt sich dem Cover an (wie bei Apple Music): Aus dem
   Cover werden per `androidx.palette` Farben extrahiert, daraus entsteht ein
   dunkler Verlauf mit weißer Schrift und einer hellen Akzentfarbe für
@@ -69,7 +76,8 @@ Erreichbar über das Drei-Punkte-Menü oben rechts.
   (aktiviert den Schutz automatisch). Das Passwort wird nur als
   PBKDF2-Hash mit Salt gespeichert.
 - **Speaker:** Pro Speaker ein Schalter, ob er auf dem Homescreen auswählbar
-  ist, und ein frei wählbares Icon (Material Symbols Rounded, z. B. Küche,
+  ist, ein Regler für die maximale Lautstärke (5–100 % in 5er-Schritten)
+  und ein frei wählbares Icon (Material Symbols Rounded, z. B. Küche,
   Wohnzimmer, Kinderzimmer, Rakete, Teddy …). Beim ersten Abgleich sind alle
   Speaker freigegeben, später neu gefundene Speaker müssen erst freigegeben
   werden.
@@ -79,7 +87,8 @@ Erreichbar über das Drei-Punkte-Menü oben rechts.
 
 Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`):
 
-- `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel
+- `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
+  maximale Lautstärke (seit DB-Version 2, Migration in `AppDatabase.kt`)
 - `app_setting` — Key-Value: Passwort-Hash/-Salt, Passwortschutz an/aus,
   zuletzt gewählter Speaker
 
@@ -87,7 +96,6 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`):
 
 - Token-Refresh (aktuell: bei abgelaufenem Access-Token → Fehleranzeige →
   erneuter Login-Flow)
-- Lautstärke ändern
 - Mehrere Households
 
 ## Bekannte Stolpersteine
