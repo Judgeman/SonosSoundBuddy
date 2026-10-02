@@ -1,12 +1,19 @@
 package de.paul.sonoscontrol
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 sealed interface UiState {
@@ -16,7 +23,28 @@ sealed interface UiState {
     data class Error(val message: String) : UiState
 }
 
-class MainViewModel(private val tokenStore: TokenStore) : ViewModel() {
+enum class Screen { Home, Settings }
+
+/** Aktuelle Wiedergabe des ausgewählten Speakers, wie sie der Homescreen anzeigt. */
+data class NowPlaying(
+    val title: String?,
+    val subtitle: String?,
+    val imageUrl: String?,
+    val playbackState: String?,
+    val positionMillis: Long,
+    val durationMillis: Long?,
+    val volume: Int?,
+    val muted: Boolean,
+    /** SystemClock.elapsedRealtime() zum Zeitpunkt der Abfrage — für die Positions-Interpolation. */
+    val fetchedAtMillis: Long
+) {
+    val isPlaying: Boolean get() = playbackState == PlaybackStatus.STATE_PLAYING
+}
+
+class MainViewModel(
+    private val tokenStore: TokenStore,
+    private val repository: SettingsRepository
+) : ViewModel() {
 
     val authManager = SonosAuthManager()
     private val apiClient = SonosApiClient { tokenStore.accessToken }
@@ -26,7 +54,64 @@ class MainViewModel(private val tokenStore: TokenStore) : ViewModel() {
     )
         private set
 
+    var screen: Screen by mutableStateOf(Screen.Home)
+        private set
+
+    var speakerConfigs: List<SpeakerConfig> by mutableStateOf(emptyList())
+        private set
+
+    var settings: AppSettings by mutableStateOf(AppSettings())
+        private set
+
+    var selectedPlayerId: String? by mutableStateOf(null)
+        private set
+
+    var nowPlaying: NowPlaying? by mutableStateOf(null)
+        private set
+
+    var playbackError: String? by mutableStateOf(null)
+        private set
+
+    var showPasswordPrompt: Boolean by mutableStateOf(false)
+        private set
+
+    var passwordWrong: Boolean by mutableStateOf(false)
+        private set
+
+    private var householdId: String? = null
+    private var settingsLoaded = false
+    private var isInForeground = false
+    private var pollJob: Job? = null
+
+    /** Speaker, die auf dem Homescreen gewählt werden dürfen und gerade im Haushalt verfügbar sind. */
+    val selectableSpeakers: List<SpeakerConfig>
+        get() {
+            val available = (uiState as? UiState.SpeakerList)?.players?.map { it.id }?.toSet()
+                ?: return emptyList()
+            return speakerConfigs.filter { it.enabled && it.playerId in available }
+        }
+
+    /** Ids der aktuell erreichbaren Player, oder null wenn die Liste noch nicht geladen ist. */
+    val availablePlayerIds: Set<String>?
+        get() = (uiState as? UiState.SpeakerList)?.players?.map { it.id }?.toSet()
+
+    val selectedSpeaker: SpeakerConfig?
+        get() = speakerConfigs.firstOrNull { it.playerId == selectedPlayerId }
+
     init {
+        viewModelScope.launch {
+            repository.settings.collect {
+                settings = it
+                settingsLoaded = true
+                updateSelection()
+            }
+        }
+        viewModelScope.launch {
+            repository.speakerConfigs.collect {
+                speakerConfigs = it
+                updateSelection()
+            }
+        }
         if (uiState is UiState.LoadingSpeakers) loadSpeakers()
     }
 
@@ -60,24 +145,198 @@ class MainViewModel(private val tokenStore: TokenStore) : ViewModel() {
         uiState = UiState.LoadingSpeakers
         viewModelScope.launch {
             uiState = try {
-                val householdId = apiClient.getFirstHouseholdId()
-                val players = apiClient.getPlayers(householdId)
+                val id = apiClient.getFirstHouseholdId()
+                householdId = id
+                val players = apiClient.getPlayers(id)
+                repository.syncPlayers(players)
                 UiState.SpeakerList(players)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 UiState.Error(e.message ?: "Unbekannter Fehler beim Laden der Speaker")
             }
+            updateSelection()
         }
     }
 
     fun logout() {
         tokenStore.clear()
+        stopPolling()
+        householdId = null
+        selectedPlayerId = null
+        screen = Screen.Home
         uiState = UiState.LoggedOut
+    }
+
+    // --- Speaker-Auswahl -------------------------------------------------
+
+    fun selectSpeaker(playerId: String) {
+        if (playerId == selectedPlayerId) return
+        selectedPlayerId = playerId
+        viewModelScope.launch { repository.setLastSelectedPlayer(playerId) }
+        restartPolling()
+    }
+
+    /**
+     * Ermittelt den auf dem Homescreen gewählten Speaker:
+     * genau ein freigegebener Speaker → immer dieser, sonst die bisherige
+     * Auswahl, sonst der zuletzt gewählte aus der Datenbank.
+     */
+    private fun updateSelection() {
+        if (!settingsLoaded || uiState !is UiState.SpeakerList) return
+        val selectableIds = selectableSpeakers.map { it.playerId }
+        val newSelection = when {
+            selectableIds.size == 1 -> selectableIds.first()
+            selectedPlayerId in selectableIds -> selectedPlayerId
+            settings.lastSelectedPlayerId in selectableIds -> settings.lastSelectedPlayerId
+            else -> null
+        }
+        if (newSelection == selectedPlayerId) {
+            if (pollJob == null) restartPolling()
+            return
+        }
+        selectedPlayerId = newSelection
+        if (newSelection != null && newSelection != settings.lastSelectedPlayerId) {
+            viewModelScope.launch { repository.setLastSelectedPlayer(newSelection) }
+        }
+        restartPolling()
+    }
+
+    // --- Wiedergabe ------------------------------------------------------
+
+    fun onForegroundChanged(foreground: Boolean) {
+        isInForeground = foreground
+        if (foreground) restartPolling() else stopPolling()
+    }
+
+    private fun stopPolling() {
+        pollJob?.cancel()
+        pollJob = null
+    }
+
+    private fun restartPolling() {
+        stopPolling()
+        nowPlaying = null
+        playbackError = null
+        val playerId = selectedPlayerId ?: return
+        val household = householdId ?: return
+        if (!isInForeground || screen != Screen.Home) return
+
+        pollJob = viewModelScope.launch {
+            while (isActive) {
+                try {
+                    nowPlaying = fetchNowPlaying(household, playerId)
+                    playbackError = null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    playbackError = e.message ?: "Wiedergabe konnte nicht geladen werden"
+                }
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    private suspend fun fetchNowPlaying(householdId: String, playerId: String): NowPlaying =
+        coroutineScope {
+            // Die Wiedergabe hängt an der Gruppe, in der der Player gerade spielt.
+            val group = apiClient.getGroups(householdId).groups
+                .firstOrNull { playerId in it.playerIds }
+                ?: throw SonosApiException("Speaker ist gerade nicht erreichbar")
+
+            val status = async { apiClient.getPlaybackStatus(group.id) }
+            val metadata = async { apiClient.getPlaybackMetadata(group.id) }
+            val volume = async { runCatching { apiClient.getPlayerVolume(playerId) }.getOrNull() }
+
+            val meta = metadata.await()
+            val track = meta.currentItem?.track
+            val playback = status.await()
+            val playerVolume = volume.await()
+
+            NowPlaying(
+                title = track?.name ?: meta.container?.name,
+                subtitle = track?.artist?.name
+                    ?: meta.streamInfo
+                    ?: meta.container?.name?.takeIf { track?.name != null },
+                imageUrl = track?.imageUrl ?: meta.container?.imageUrl,
+                playbackState = playback.playbackState,
+                positionMillis = playback.positionMillis,
+                durationMillis = track?.durationMillis?.takeIf { it > 0 },
+                volume = playerVolume?.volume,
+                muted = playerVolume?.muted ?: false,
+                fetchedAtMillis = SystemClock.elapsedRealtime()
+            )
+        }
+
+    // --- Settings & Passwort ---------------------------------------------
+
+    fun openSettings() {
+        if (settings.isLocked) {
+            passwordWrong = false
+            showPasswordPrompt = true
+        } else {
+            enterSettings()
+        }
+    }
+
+    fun submitPassword(password: String) {
+        viewModelScope.launch {
+            if (repository.verifyPassword(password)) {
+                showPasswordPrompt = false
+                passwordWrong = false
+                enterSettings()
+            } else {
+                passwordWrong = true
+            }
+        }
+    }
+
+    fun dismissPasswordPrompt() {
+        showPasswordPrompt = false
+        passwordWrong = false
+    }
+
+    private fun enterSettings() {
+        screen = Screen.Settings
+        stopPolling()
+    }
+
+    fun closeSettings() {
+        screen = Screen.Home
+        restartPolling()
+    }
+
+    fun setSpeakerEnabled(playerId: String, enabled: Boolean) {
+        viewModelScope.launch { repository.setSpeakerEnabled(playerId, enabled) }
+    }
+
+    fun setSpeakerIcon(playerId: String, icon: SpeakerIcon) {
+        viewModelScope.launch { repository.setSpeakerIcon(playerId, icon) }
+    }
+
+    fun savePassword(password: String) {
+        viewModelScope.launch { repository.setPassword(password) }
+    }
+
+    fun removePassword() {
+        viewModelScope.launch { repository.removePassword() }
+    }
+
+    fun setPasswordRequired(required: Boolean) {
+        viewModelScope.launch { repository.setPasswordRequired(required) }
+    }
+
+    companion object {
+        private const val POLL_INTERVAL_MS = 5_000L
     }
 }
 
-class MainViewModelFactory(private val tokenStore: TokenStore) : ViewModelProvider.Factory {
+class MainViewModelFactory(
+    private val tokenStore: TokenStore,
+    private val repository: SettingsRepository
+) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return MainViewModel(tokenStore) as T
+        return MainViewModel(tokenStore, repository) as T
     }
 }

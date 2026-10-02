@@ -35,12 +35,49 @@ Bei Sonos muss als Redirect-URI exakt `WORKER_CALLBACK_URL` hinterlegt sein.
 6. App ruft `GET /households` und `GET /households/{id}/groups` auf und
    zeigt die Namen aller gefundenen Player an
 
+## Homescreen
+
+- Oben ein großes Dropdown mit Icon + Name des gewählten Speakers.
+- Ist in den Settings nur **ein** Speaker freigegeben, ist er automatisch
+  gewählt (kein Dropdown-Pfeil). Ansonsten wird beim Start der zuletzt
+  gewählte Speaker wiederhergestellt.
+- Darunter die aktuelle Wiedergabe: großes Cover, Status (Läuft / Pausiert),
+  Titel + Interpret, Fortschrittsbalken mit Position und Dauer, klein die
+  Lautstärke in Prozent.
+- Die Daten kommen aus `GET /households/{id}/groups` (Gruppe des Players),
+  `GET /groups/{id}/playback`, `GET /groups/{id}/playbackMetadata` und
+  `GET /players/{id}/playerVolume`. Abgefragt wird alle 5 s, solange die App
+  im Vordergrund ist; dazwischen läuft die Position lokal weiter.
+
+## Einstellungen
+
+Erreichbar über das Drei-Punkte-Menü oben rechts.
+
+- **Passwortschutz:** Ist ein Passwort hinterlegt und „Einstellungen nur mit
+  Passwort öffnen“ aktiv, wird beim Öffnen danach gefragt. Ohne Passwort sind
+  die Einstellungen frei erreichbar und es kann dort eins gesetzt werden
+  (aktiviert den Schutz automatisch). Das Passwort wird nur als
+  PBKDF2-Hash mit Salt gespeichert.
+- **Speaker:** Pro Speaker ein Schalter, ob er auf dem Homescreen auswählbar
+  ist, und ein frei wählbares Icon (Material Symbols Rounded, z. B. Küche,
+  Wohnzimmer, Kinderzimmer, Rakete, Teddy …). Beim ersten Abgleich sind alle
+  Speaker freigegeben, später neu gefundene Speaker müssen erst freigegeben
+  werden.
+- **Abmelden** vom Sonos-Konto.
+
+## Datenbank
+
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`):
+
+- `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel
+- `app_setting` — Key-Value: Passwort-Hash/-Salt, Passwortschutz an/aus,
+  zuletzt gewählter Speaker
+
 ## Noch nicht enthalten (bewusst, für den nächsten Schritt)
 
 - Token-Refresh (aktuell: bei abgelaufenem Access-Token → Fehleranzeige →
   erneuter Login-Flow)
-- Playback-Steuerung (Play/Pause/Volume/Cover) — kommt als nächster Schritt
-  auf Basis der bereits vorhandenen Group-IDs
+- Playback-Steuerung (Play/Pause/Volume ändern)
 - Mehrere Households
 
 ## Bekannte Stolpersteine

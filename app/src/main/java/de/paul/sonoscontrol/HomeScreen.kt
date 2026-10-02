@@ -1,0 +1,450 @@
+package de.paul.sonoscontrol
+
+import android.os.SystemClock
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.HourglassTop
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeScreen(
+    state: UiState,
+    speakers: List<SpeakerConfig>,
+    selectedSpeaker: SpeakerConfig?,
+    nowPlaying: NowPlaying?,
+    playbackError: String?,
+    onSelectSpeaker: (String) -> Unit,
+    onOpenSettings: () -> Unit,
+    onLoginClick: () -> Unit,
+    onRetryClick: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Sound Buddy") },
+                actions = {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "Menü")
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Einstellungen") },
+                                leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onOpenSettings()
+                                }
+                            )
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentAlignment = Alignment.Center
+        ) {
+            when (state) {
+                is UiState.LoggedOut -> LoggedOutContent(onLoginClick)
+                is UiState.LoadingSpeakers -> CircularProgressIndicator()
+                is UiState.Error -> ErrorContent(state.message, onRetryClick)
+                is UiState.SpeakerList -> SpeakerHomeContent(
+                    speakers = speakers,
+                    selectedSpeaker = selectedSpeaker,
+                    nowPlaying = nowPlaying,
+                    playbackError = playbackError,
+                    onSelectSpeaker = onSelectSpeaker
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoggedOutContent(onLoginClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Nicht mit Sonos verbunden")
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onLoginClick) {
+            Text("Mit Sonos anmelden")
+        }
+    }
+}
+
+@Composable
+private fun ErrorContent(message: String, onRetryClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(24.dp)
+    ) {
+        Text("Fehler: $message", textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onRetryClick) { Text("Erneut versuchen") }
+    }
+}
+
+@Composable
+private fun SpeakerHomeContent(
+    speakers: List<SpeakerConfig>,
+    selectedSpeaker: SpeakerConfig?,
+    nowPlaying: NowPlaying?,
+    playbackError: String?,
+    onSelectSpeaker: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (speakers.isEmpty()) {
+            HintText("Es sind noch keine Speaker freigegeben.\nÖffne die Einstellungen über das Menü oben rechts.")
+            return@Column
+        }
+
+        SpeakerDropdown(
+            speakers = speakers,
+            selectedSpeaker = selectedSpeaker,
+            onSelectSpeaker = onSelectSpeaker
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        when {
+            selectedSpeaker == null -> HintText("Wähle oben einen Speaker aus.")
+            nowPlaying != null -> NowPlayingContent(nowPlaying, playbackError)
+            playbackError != null -> HintText(playbackError)
+            else -> CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun HintText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium,
+        textAlign = TextAlign.Center,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(32.dp)
+    )
+}
+
+/** Großes Dropdown im oberen Bereich: zeigt den gewählten Speaker mit seinem Icon. */
+@Composable
+private fun SpeakerDropdown(
+    speakers: List<SpeakerConfig>,
+    selectedSpeaker: SpeakerConfig?,
+    onSelectSpeaker: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var anchorWidthPx by remember { mutableStateOf(0) }
+    val canChoose = speakers.size > 1
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { anchorWidthPx = it.width }
+                .clip(RoundedCornerShape(24.dp))
+                .clickable(enabled = canChoose) { expanded = true }
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                if (selectedSpeaker != null) {
+                    SpeakerIconBadge(selectedSpeaker.icon, size = 56.dp)
+                } else {
+                    SpeakerIconBadge(SpeakerIcon.SPEAKER, size = 56.dp)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = selectedSpeaker?.name ?: "Speaker wählen",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (canChoose) {
+                    Icon(
+                        Icons.Rounded.ArrowDropDown,
+                        contentDescription = "Speaker auswählen",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.width(with(LocalDensity.current) { anchorWidthPx.toDp() })
+        ) {
+            speakers.forEach { speaker ->
+                DropdownMenuItem(
+                    text = {
+                        Text(speaker.name, style = MaterialTheme.typography.titleLarge)
+                    },
+                    leadingIcon = { SpeakerIconBadge(speaker.icon, size = 44.dp) },
+                    trailingIcon = {
+                        if (speaker.playerId == selectedSpeaker?.playerId) {
+                            Icon(Icons.Rounded.Check, contentDescription = "Ausgewählt")
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelectSpeaker(speaker.playerId)
+                    },
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingContent(nowPlaying: NowPlaying, playbackError: String?) {
+    // Zwischen den Abfragen läuft die Position lokal weiter, damit der Balken flüssig bleibt.
+    val positionMillis by produceState(nowPlaying.positionMillis, nowPlaying) {
+        while (true) {
+            val elapsed = if (nowPlaying.isPlaying) {
+                SystemClock.elapsedRealtime() - nowPlaying.fetchedAtMillis
+            } else {
+                0L
+            }
+            val position = nowPlaying.positionMillis + elapsed
+            value = nowPlaying.durationMillis?.let { position.coerceAtMost(it) } ?: position
+            delay(500)
+        }
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.widthIn(max = 480.dp)
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            CoverImage(nowPlaying.imageUrl)
+            PlaybackStateBadge(
+                playbackState = nowPlaying.playbackState,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+        Text(
+            text = nowPlaying.title ?: "Gerade läuft nichts",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        nowPlaying.subtitle?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+        val duration = nowPlaying.durationMillis
+        LinearProgressIndicator(
+            progress = {
+                if (duration == null) 0f else (positionMillis.toFloat() / duration).coerceIn(0f, 1f)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(RoundedCornerShape(5.dp))
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(formatDuration(positionMillis), style = MaterialTheme.typography.labelLarge)
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = duration?.let(::formatDuration) ?: "Live",
+                style = MaterialTheme.typography.labelLarge
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            nowPlaying.volume?.let { volume ->
+                Icon(
+                    imageVector = if (nowPlaying.muted) {
+                        Icons.AutoMirrored.Rounded.VolumeOff
+                    } else {
+                        Icons.AutoMirrored.Rounded.VolumeUp
+                    },
+                    contentDescription = "Lautstärke",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "$volume %",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (playbackError != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = playbackError,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun CoverImage(imageUrl: String?) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(32.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Rounded.MusicNote,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.size(120.dp)
+        )
+        if (imageUrl != null) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = "Cover",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaybackStateBadge(playbackState: String?, modifier: Modifier = Modifier) {
+    val (icon: ImageVector, label: String) = when (playbackState) {
+        PlaybackStatus.STATE_PLAYING -> Icons.Rounded.PlayArrow to "Läuft"
+        PlaybackStatus.STATE_PAUSED -> Icons.Rounded.Pause to "Pausiert"
+        PlaybackStatus.STATE_BUFFERING -> Icons.Rounded.HourglassTop to "Lädt …"
+        else -> Icons.Rounded.Stop to "Gestoppt"
+    }
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shadowElevation = 4.dp,
+        modifier = modifier
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 12.dp, end = 18.dp, top = 8.dp, bottom = 8.dp)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(32.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+private fun formatDuration(millis: Long): String {
+    val totalSeconds = millis / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%d:%02d".format(minutes, seconds)
+    }
+}

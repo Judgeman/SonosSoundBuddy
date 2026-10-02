@@ -30,10 +30,27 @@ class SonosApiClient(private val accessTokenProvider: () -> String?) {
             ?: throw SonosApiException("Kein Household im Sonos-Account gefunden")
     }
 
-    suspend fun getPlayers(householdId: String): List<SonosPlayer> {
+    suspend fun getPlayers(householdId: String): List<SonosPlayer> =
+        getGroups(householdId).players
+
+    suspend fun getGroups(householdId: String): GroupsResponse {
         val body = get("$baseUrl/households/$householdId/groups")
-        val response = json.decodeFromString(GroupsResponse.serializer(), body)
-        return response.players
+        return json.decodeFromString(GroupsResponse.serializer(), body)
+    }
+
+    suspend fun getPlaybackStatus(groupId: String): PlaybackStatus {
+        val body = get("$baseUrl/groups/$groupId/playback")
+        return json.decodeFromString(PlaybackStatus.serializer(), body)
+    }
+
+    suspend fun getPlaybackMetadata(groupId: String): PlaybackMetadata {
+        val body = get("$baseUrl/groups/$groupId/playbackMetadata")
+        return json.decodeFromString(PlaybackMetadata.serializer(), body)
+    }
+
+    suspend fun getPlayerVolume(playerId: String): PlayerVolume {
+        val body = get("$baseUrl/players/$playerId/playerVolume")
+        return json.decodeFromString(PlayerVolume.serializer(), body)
     }
 
     private suspend fun get(url: String): String {
