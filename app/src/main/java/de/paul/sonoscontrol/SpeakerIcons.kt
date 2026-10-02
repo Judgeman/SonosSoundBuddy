@@ -50,7 +50,13 @@ import androidx.compose.ui.unit.dp
  * Auswahl an Material-Symbols (Rounded) für die Speaker. Der Enum-Name wird
  * als Schlüssel in der Datenbank gespeichert — Einträge also nicht umbenennen.
  */
-enum class SpeakerIcon(val label: String, val vector: ImageVector, val color: Color) {
+enum class SpeakerIcon(
+    val label: String,
+    val vector: ImageVector,
+    val color: Color,
+    /** Mehrfarbige Figur (siehe CharacterIcons.kt) — wird nicht weiß eingefärbt. */
+    val multicolor: Boolean = false
+) {
     SPEAKER("Lautsprecher", Icons.Rounded.Speaker, Color(0xFF5C6BC0)),
     KITCHEN("Küche", Icons.Rounded.Kitchen, Color(0xFFFF7043)),
     DINING("Esszimmer", Icons.Rounded.Restaurant, Color(0xFFFFA726)),
@@ -59,6 +65,8 @@ enum class SpeakerIcon(val label: String, val vector: ImageVector, val color: Co
     TV("Fernsehen", Icons.Rounded.Tv, Color(0xFF42A5F5)),
     KIDS_ROOM("Kinderzimmer", Icons.Rounded.ChildCare, Color(0xFFEC407A)),
     TOYS("Spielzeug", Icons.Rounded.Toys, Color(0xFFAB47BC)),
+    UNICORN("Einhorn", UnicornIcon, Color(0xFFB39DDB), multicolor = true),
+    PIKACHU("Pikachu", PikachuIcon, Color(0xFF4FC3F7), multicolor = true),
     ROBOT("Roboter", Icons.Rounded.SmartToy, Color(0xFF7E57C2)),
     GAMES("Spielen", Icons.Rounded.SportsEsports, Color(0xFF5E35B1)),
     ROCKET("Rakete", Icons.Rounded.RocketLaunch, Color(0xFFEF5350)),
@@ -120,8 +128,8 @@ fun SpeakerIconBadge(icon: SpeakerIcon, modifier: Modifier = Modifier, size: Dp 
         Icon(
             imageVector = icon.vector,
             contentDescription = icon.label,
-            tint = Color.White,
-            modifier = Modifier.size(size * 0.58f)
+            tint = if (icon.multicolor) Color.Unspecified else Color.White,
+            modifier = Modifier.size(size * if (icon.multicolor) 0.78f else 0.58f)
         )
     }
 }
