@@ -36,3 +36,96 @@ data class GroupsResponse(
     val groups: List<SonosGroup> = emptyList(),
     val players: List<SonosPlayer> = emptyList()
 )
+
+/** Antwort von GET /groups/{groupId}/playback */
+@Serializable
+data class PlaybackStatus(
+    val playbackState: String? = null,
+    val positionMillis: Long = 0,
+    val availablePlaybackActions: PlaybackActions? = null
+) {
+    val isPlaying: Boolean get() = playbackState == STATE_PLAYING
+    val isBuffering: Boolean get() = playbackState == STATE_BUFFERING
+    val isPaused: Boolean get() = playbackState == STATE_PAUSED
+
+    companion object {
+        const val STATE_PLAYING = "PLAYBACK_STATE_PLAYING"
+        const val STATE_BUFFERING = "PLAYBACK_STATE_BUFFERING"
+        const val STATE_PAUSED = "PLAYBACK_STATE_PAUSED"
+    }
+}
+
+/** Welche Steuerbefehle die aktuelle Quelle erlaubt (z. B. kein Skip bei Radio). */
+@Serializable
+data class PlaybackActions(
+    val canSkip: Boolean = true,
+    val canSkipBack: Boolean = true,
+    val canPlay: Boolean = true,
+    val canPause: Boolean = true
+)
+
+/** Antwort von GET /groups/{groupId}/playbackMetadata */
+@Serializable
+data class PlaybackMetadata(
+    val container: MetadataContainer? = null,
+    val currentItem: MetadataItem? = null,
+    val streamInfo: String? = null
+) {
+    /**
+     * Cover des aktuellen Titels. Je nach Quelle liefert Sonos es als `imageUrl`
+     * oder nur in der `images`-Liste, am Track oder nur am Container (Album/Sender).
+     */
+    val coverUrl: String?
+        get() = currentItem?.track?.let { it.imageUrl.orNullIfBlank() ?: it.images.largestUrl() }
+            ?: container?.let { it.imageUrl.orNullIfBlank() ?: it.images.largestUrl() }
+}
+
+@Serializable
+data class MetadataImage(
+    val url: String? = null,
+    val width: Int? = null,
+    val height: Int? = null
+)
+
+private fun String?.orNullIfBlank(): String? = this?.takeIf { it.isNotBlank() }
+
+private fun List<MetadataImage>.largestUrl(): String? =
+    filter { !it.url.isNullOrBlank() }
+        .maxByOrNull { (it.width ?: 0) * (it.height ?: 0) }
+        ?.url
+
+@Serializable
+data class MetadataContainer(
+    val name: String? = null,
+    val type: String? = null,
+    val imageUrl: String? = null,
+    val images: List<MetadataImage> = emptyList()
+)
+
+@Serializable
+data class MetadataItem(
+    val track: Track? = null
+)
+
+@Serializable
+data class Track(
+    val name: String? = null,
+    val imageUrl: String? = null,
+    val images: List<MetadataImage> = emptyList(),
+    val durationMillis: Long? = null,
+    val artist: NamedItem? = null,
+    val album: NamedItem? = null
+)
+
+@Serializable
+data class NamedItem(
+    val name: String? = null
+)
+
+/** Antwort von GET /players/{playerId}/playerVolume */
+@Serializable
+data class PlayerVolume(
+    val volume: Int = 0,
+    val muted: Boolean = false,
+    val fixed: Boolean = false
+)

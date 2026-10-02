@@ -30,6 +30,30 @@ class TokenStore(context: Context) {
         get() = prefs.getString(KEY_REFRESH_TOKEN, null)
         set(value) = prefs.edit().putString(KEY_REFRESH_TOKEN, value).apply()
 
+    /** Ablaufzeitpunkt des Access-Tokens (System.currentTimeMillis), 0 = unbekannt. */
+    var accessTokenExpiresAt: Long
+        get() = prefs.getLong(KEY_EXPIRES_AT, 0L)
+        set(value) = prefs.edit().putLong(KEY_EXPIRES_AT, value).apply()
+
+    /** True, wenn der Access-Token bekanntermaßen abgelaufen ist oder gleich abläuft. */
+    val isAccessTokenExpiringSoon: Boolean
+        get() {
+            val expiresAt = accessTokenExpiresAt
+            return expiresAt > 0 && System.currentTimeMillis() > expiresAt - EXPIRY_MARGIN_MS
+        }
+
+    fun saveTokens(accessToken: String, refreshToken: String?, expiresInSeconds: Long?) {
+        val editor = prefs.edit()
+        editor.putString(KEY_ACCESS_TOKEN, accessToken)
+        // Ohne neuen Refresh-Token bleibt der bisherige gültig
+        if (refreshToken != null) editor.putString(KEY_REFRESH_TOKEN, refreshToken)
+        editor.putLong(
+            KEY_EXPIRES_AT,
+            expiresInSeconds?.let { System.currentTimeMillis() + it * 1000 } ?: 0L
+        )
+        editor.apply()
+    }
+
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -37,5 +61,9 @@ class TokenStore(context: Context) {
     companion object {
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
+        private const val KEY_EXPIRES_AT = "access_token_expires_at"
+
+        /** Lieber etwas früher erneuern, als mit einem gerade abgelaufenen Token anzufragen. */
+        private const val EXPIRY_MARGIN_MS = 5 * 60 * 1000L
     }
 }

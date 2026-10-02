@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ohne ActionBar: Titel und Drei-Punkte-Menü kommen aus der Compose-TopAppBar -->
+    <style name="Theme.SoundBuddy" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>
