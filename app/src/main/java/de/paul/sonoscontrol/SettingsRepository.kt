@@ -247,6 +247,16 @@ class SettingsRepository(database: AppDatabase, private val imageStore: CustomIm
         if (stored.isEmpty() && trackUrl != null) storeCover(itemId, joinImageUrls(listOf(trackUrl) + others))
     }
 
+    /**
+     * Cover eines Katalog-Eintrags vom Tablet; ist eine noch gültige, aber bald
+     * ablaufende Adresse dabei ([freshSignedUrl]) und noch nichts gespeichert, wird sie gesichert.
+     */
+    suspend fun catalogCover(entry: CatalogEntry, freshSignedUrl: String?): String? {
+        val key = "${entry.source.name}:${entry.sonosId}:${entry.name}"
+        return imageStore.catalogCover(key)
+            ?: freshSignedUrl?.let { imageStore.storeCatalogCover(key, it) }
+    }
+
     /** Gespeicherte Bilder löschen, auf die kein Eintrag und keine Kategorie mehr verweist. */
     suspend fun deleteUnusedImages() {
         val keys = profileDao.getAllCategoryImages() + profileDao.getAllItemCustomImages()

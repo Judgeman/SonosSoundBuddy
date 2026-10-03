@@ -886,9 +886,12 @@ class MainViewModel(
                 "Sonos-Cloud".takeIf { cloudCovers.any { it in usable } }
             ).joinToString(", sonst ").ifEmpty { null }
             val expired = all.size - usable.size
+            // Noch gültige Apple-Music-Adressen sofort sichern — morgen sind sie abgelaufen
+            val stored = repository.catalogCover(entry, freshSignedUrl = usable.firstOrNull(::isSignedUrl))
             entry.copy(
-                imageUrl = joinImageUrls(usable),
+                imageUrl = joinImageUrls(listOfNotNull(stored) + usable),
                 coverOrigin = listOfNotNull(
+                    "auf dem Tablet gespeichert".takeIf { stored != null },
                     origin,
                     "$expired abgelaufene Adresse(n) übersprungen".takeIf { expired > 0 }
                 ).joinToString(" · ").ifEmpty { null }

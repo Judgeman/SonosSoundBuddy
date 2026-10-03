@@ -1008,7 +1008,7 @@ private fun CoverCandidate(number: Int, url: String) {
     var result by remember(url) { mutableStateOf("lädt …") }
     Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(bottom = 8.dp)) {
         AsyncImage(
-            model = url,
+            model = if (url.startsWith("/")) java.io.File(url) else url,
             contentDescription = null,
             onSuccess = { result = "geladen" },
             onError = { result = "Fehler: ${it.result.throwable.message ?: it.result.throwable.javaClass.simpleName}" },

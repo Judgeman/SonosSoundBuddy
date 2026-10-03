@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /**
@@ -76,9 +77,34 @@ class CustomImageStore(context: Context) {
      */
     suspend fun deleteUnreferenced(referenced: Set<String>) = withContext(Dispatchers.IO) {
         listOf(directory, legacyDirectory).forEach { dir ->
-            dir.listFiles()?.filter { it.absolutePath !in referenced }?.forEach { it.delete() }
+            dir.listFiles()
+                // Katalog-Cover hängen an keinem Eintrag, sie gehören zum Katalog selbst
+                ?.filter { it.absolutePath !in referenced && !it.name.startsWith(CATALOG_PREFIX) }
+                ?.forEach { it.delete() }
         }
     }
+
+    /** Gespeichertes Cover eines Katalog-Eintrags ([key] = Quelle, Id und Name), falls vorhanden. */
+    suspend fun catalogCover(key: String): String? = withContext(Dispatchers.IO) {
+        val prefix = "$CATALOG_PREFIX${hash(key)}-"
+        directory.listFiles()?.filter { it.name.startsWith(prefix) }?.maxByOrNull { it.lastModified() }?.absolutePath
+    }
+
+    /**
+     * Sichert das Cover eines Katalog-Eintrags dauerhaft — gedacht für Adressen, die
+     * bald ablaufen (Apple Music). Ältere Fassungen desselben Eintrags werden gelöscht.
+     */
+    suspend fun storeCatalogCover(key: String, url: String): String? {
+        val prefix = "$CATALOG_PREFIX${hash(key)}"
+        val path = cacheCover(url, prefix) ?: return null
+        withContext(Dispatchers.IO) {
+            directory.listFiles()?.filter { it.name.startsWith("$prefix-") && it.absolutePath != path }?.forEach { it.delete() }
+        }
+        return path
+    }
+
+    private fun hash(key: String): String =
+        MessageDigest.getInstance("SHA-1").digest(key.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
 
     /** Löscht ein früher importiertes Bild; andere Bild-Arten werden ignoriert. */
     suspend fun delete(imageKey: String?) {
@@ -127,6 +153,7 @@ class CustomImageStore(context: Context) {
 
     companion object {
         private const val TAG = "Cover"
+        private const val CATALOG_PREFIX = "catalog-"
         private const val MAX_SIZE_PX = 768
     }
 }

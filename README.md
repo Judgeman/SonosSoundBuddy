@@ -216,6 +216,12 @@ dieselbe, längst abgelaufene aus (Antwort: 400). Deshalb:
   Solche Dateien tragen `-container` im Namen und werden nicht mehr
   überschrieben. Gibt es kein Playlist-Cover, dient das des Titels als
   Ersatz, solange noch gar keins gespeichert ist.
+- auch im Katalog sichert die App jede noch gültige signierte Adresse
+  sofort (`custom_images/catalog-<hash>-…jpg`, werden beim Aufräumen nicht
+  gelöscht). Speichert man einen Favoriten in der Sonos-App neu, ist dessen
+  Adresse wieder 24 h gültig — einmal den Katalog öffnen, dann bleibt das
+  Cover. Für Apple-Music-Bibliotheks-Playlisten gibt Sonos sonst kein
+  Playlist-Cover heraus (auch nicht in der Wiedergabe).
 Nicht mehr benutzte Bilder räumt die App beim Start auf.
 
 **Fehlersuche:** Der ⓘ-Knopf an jedem Eintrag im Katalog zeigt Quelle,
