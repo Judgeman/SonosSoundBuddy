@@ -185,7 +185,23 @@ Radiosender kommen also über „Zu Sonos-Favoriten hinzufügen“ in der
 Sonos-App in die Auswahl. Einzelne Titel *aus* einer Sonos-Playlist lassen
 sich nicht gezielt starten.
 
-Cover sucht die App im ganzen Favoriten (`imageUrl`, `images`, auch an
+**Cover aus dem Heimnetz:** Die Cloud-API liefert für Sonos-Playlisten nie
+ein Bild und für manche Favoriten keins, das sich laden lässt. Deshalb
+fragt die App beim Laden des Katalogs (und still beim App-Start) direkt
+einen Speaker im WLAN — so wie die Sonos-App (`LocalSonosClient.kt`):
+Speaker per mDNS (`_sonos._tcp`) finden, dann UPnP-„Browse“ auf
+`http://<ip>:1400/MediaServer/ContentDirectory/Control` für `FV:2`
+(Favoriten) und `SQ:` (Sonos-Playlisten; ohne eigenes Bild das Cover des
+ersten Titels). Zugeordnet wird über die Id (`13` ↔ `FV:2/13` bzw.
+`SQ:13`), sonst über den Namen. Diese Cover haben Vorrang; klappt die
+lokale Abfrage nicht, bleibt das Cover aus der Cloud. Logcat-Tag:
+`SonosLocal`.
+
+**Fehlersuche:** Langes Drücken auf einen Eintrag im Katalog zeigt Quelle,
+Id, woher das Cover kommt, die Cover-URL, ob sie sich laden lässt (sonst
+mit Fehlermeldung) und die Rohdaten von Sonos.
+
+Darüber hinaus sucht die App im ganzen Favoriten (`imageUrl`, `images`, auch an
 `resource` oder verschachtelt, nicht aber das Logo des Musikdienstes) und
 ersetzt Größen-Platzhalter wie `{w}x{h}`. Findet sie keins, steht im Logcat
 (Tag `SonosApi`) „Kein Cover im Favoriten …“ mit dem Roh-JSON; Ladefehler
@@ -240,6 +256,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `SpeakerIcons.kt`, `CharacterIcons.kt` | Icon-Katalog, Einhorn und Pikachu |
 | `ProfileIcons.kt`, `AnimalIcons.kt` | Profil-Icons, gezeichnete Tiere |
 | `SonosApiClient.kt`, `SonosModels.kt` | Sonos-API inkl. Token-Erneuerung |
+| `LocalSonosClient.kt` | Cover direkt vom Speaker im Heimnetz (mDNS + UPnP) |
 | `SonosAuthManager.kt`, `TokenStore.kt`, `SonosConfig.kt` | Login und Tokens |
 | `AppDatabase.kt`, `SettingsRepository.kt`, `PasswordHasher.kt` | Datenbank und Einstellungen |
 

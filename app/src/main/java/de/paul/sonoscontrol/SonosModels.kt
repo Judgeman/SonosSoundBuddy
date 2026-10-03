@@ -147,7 +147,9 @@ data class SonosFavorite(
     val service: FavoriteService? = null,
     val resource: FavoriteResource? = null,
     /** Cover, das [findImageUrl] irgendwo im Favoriten gefunden hat (nicht Teil des JSON). */
-    @Transient val foundImageUrl: String? = null
+    @Transient val foundImageUrl: String? = null,
+    /** Das JSON, wie Sonos es geschickt hat — für die Detail-Ansicht im Katalog. */
+    @Transient val rawJson: String? = null
 ) {
     val coverUrl: String?
         get() = (imageUrl.orNullIfBlank() ?: images.largestUrl())?.let(::normalizeImageUrl) ?: foundImageUrl

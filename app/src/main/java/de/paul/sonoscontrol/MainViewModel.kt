@@ -69,7 +69,8 @@ data class NowPlaying(
 
 class MainViewModel(
     private val tokenStore: TokenStore,
-    private val repository: SettingsRepository
+    private val repository: SettingsRepository,
+    private val localClient: LocalSonosClient
 ) : ViewModel() {
 
     val authManager = SonosAuthManager()
@@ -855,10 +856,20 @@ class MainViewModel(
         }
     }
 
-    private suspend fun fetchCatalog(household: String): List<CatalogEntry> = coroutineScope {
-        val favorites = async { apiClient.getFavorites(household) }
-        val playlists = async { apiClient.getPlaylists(household) }
-        favorites.await().map(CatalogEntry::from) + playlists.await().map(CatalogEntry::from)
+    private suspend fun fetchCatalog(household: String): List<CatalogEntry> {
+        val entries = coroutineScope {
+            val favorites = async { apiClient.getFavorites(household) }
+            val playlists = async { apiClient.getPlaylists(household) }
+            favorites.await().map(CatalogEntry::from) + playlists.await().map(CatalogEntry::from)
+        }
+        // Cover direkt beim Speaker im Heimnetz holen — dieselben, die die Sonos-App zeigt.
+        // Die Cloud liefert für Sonos-Playlisten nie eins und für manche Favoriten keins,
+        // das sich laden lässt. Klappt das lokal nicht, bleibt es beim Cover aus der Cloud.
+        val local = localClient.loadCovers(addressHint = nowPlaying?.imageUrl) ?: return entries
+        return entries.map { entry ->
+            val cover = local.coverFor(entry) ?: return@map entry
+            entry.copy(imageUrl = cover, coverOrigin = "Speaker im Heimnetz")
+        }
     }
 
     /** Cover der gespeicherten Musikauswahl still im Hintergrund auffrischen. */
@@ -936,10 +947,11 @@ class MainViewModel(
 
 class MainViewModelFactory(
     private val tokenStore: TokenStore,
-    private val repository: SettingsRepository
+    private val repository: SettingsRepository,
+    private val localClient: LocalSonosClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return MainViewModel(tokenStore, repository) as T
+        return MainViewModel(tokenStore, repository, localClient) as T
     }
 }

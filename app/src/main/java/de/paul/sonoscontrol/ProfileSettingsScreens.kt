@@ -5,8 +5,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -97,6 +101,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 
 // --- Abschnitt „Kinder-Profile" auf der Settings-Hauptseite -----------------
 
@@ -761,6 +766,7 @@ fun MusicCatalogScreen(
     onShowPlaylist: (CatalogEntry) -> Unit,
     onDismissPlaylist: () -> Unit
 ) {
+    var detailsFor by remember { mutableStateOf<CatalogEntry?>(null) }
     var query by remember { mutableStateOf("") }
     var typeFilter by remember { mutableStateOf<MusicType?>(null) }
     val selectedKeys = category.items.map { it.catalogKey }.toSet()
@@ -817,15 +823,18 @@ fun MusicCatalogScreen(
                     onTypeFilterChange = { typeFilter = it },
                     selectedKeys = selectedKeys,
                     onToggleEntry = onToggleEntry,
-                    onShowPlaylist = onShowPlaylist
+                    onShowPlaylist = onShowPlaylist,
+                    onShowDetails = { detailsFor = it }
                 )
             }
         }
     }
 
     playlistPreview?.let { PlaylistPreviewDialog(it, onDismissPlaylist) }
+    detailsFor?.let { CatalogEntryDetailsDialog(it, onDismiss = { detailsFor = null }) }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CatalogList(
     entries: List<CatalogEntry>,
@@ -835,7 +844,8 @@ private fun CatalogList(
     onTypeFilterChange: (MusicType?) -> Unit,
     selectedKeys: Set<String>,
     onToggleEntry: (CatalogEntry) -> Unit,
-    onShowPlaylist: (CatalogEntry) -> Unit
+    onShowPlaylist: (CatalogEntry) -> Unit,
+    onShowDetails: (CatalogEntry) -> Unit
 ) {
     val availableTypes = MusicType.entries.filter { type -> entries.any { it.type == type } }
     val visible = entries.filter { entry ->
@@ -937,9 +947,58 @@ private fun CatalogList(
                         )
                     }
                 },
-                modifier = Modifier.clickable { onToggleEntry(entry) }
+                // Langes Drücken zeigt, was Sonos zu dem Eintrag liefert (Fehlersuche bei Covern)
+                modifier = Modifier.combinedClickable(
+                    onClick = { onToggleEntry(entry) },
+                    onLongClick = { onShowDetails(entry) }
+                )
             )
         }
+    }
+}
+
+/** Was Sonos zu einem Katalog-Eintrag liefert — Cover-URL, ob sie lädt, Rohdaten. */
+@Composable
+private fun CatalogEntryDetailsDialog(entry: CatalogEntry, onDismiss: () -> Unit) {
+    var loadResult by remember(entry.imageUrl) { mutableStateOf(if (entry.imageUrl == null) "kein Cover" else "lädt …") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = {
+            SelectionContainer {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    if (entry.imageUrl != null) {
+                        AsyncImage(
+                            model = entry.imageUrl,
+                            contentDescription = null,
+                            onSuccess = { loadResult = "geladen" },
+                            onError = { loadResult = "Fehler: ${it.result.throwable.message ?: it.result.throwable.javaClass.simpleName}" },
+                            modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp))
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    DetailLine("Quelle", entry.source.label)
+                    DetailLine("Sonos-Id", entry.sonosId)
+                    DetailLine("Art", entry.type.label)
+                    DetailLine("Cover von", entry.coverOrigin ?: "—")
+                    DetailLine("Cover-URL", entry.imageUrl ?: "—")
+                    DetailLine("Cover laden", loadResult)
+                    entry.rawData?.let { DetailLine("Daten von Sonos", it) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Schließen") }
+        }
+    )
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodySmall)
     }
 }
 

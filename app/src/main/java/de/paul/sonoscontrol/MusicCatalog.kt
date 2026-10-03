@@ -43,7 +43,11 @@ data class CatalogEntry(
     val name: String,
     val description: String?,
     val imageUrl: String?,
-    val type: MusicType
+    val type: MusicType,
+    /** Woher das Cover stammt (Sonos-Cloud, Speaker im Heimnetz) — für die Detail-Ansicht. */
+    val coverOrigin: String? = null,
+    /** Rohdaten von Sonos, zur Fehlersuche in der Detail-Ansicht. */
+    val rawData: String? = null
 ) {
     val key: String get() = "${source.name}:$sonosId"
 
@@ -54,7 +58,9 @@ data class CatalogEntry(
             name = favorite.name,
             description = favorite.description?.takeIf { it.isNotBlank() } ?: favorite.service?.name,
             imageUrl = favorite.coverUrl,
-            type = MusicType.fromFavoriteType(favorite.resource?.type)
+            type = MusicType.fromFavoriteType(favorite.resource?.type),
+            coverOrigin = favorite.coverUrl?.let { "Sonos-Cloud" },
+            rawData = favorite.rawJson
         )
 
         fun from(playlist: SonosPlaylist) = CatalogEntry(
@@ -63,7 +69,8 @@ data class CatalogEntry(
             name = playlist.name,
             description = playlist.trackCount?.let { if (it == 1) "1 Titel" else "$it Titel" },
             imageUrl = null,
-            type = MusicType.PLAYLIST
+            type = MusicType.PLAYLIST,
+            rawData = playlist.toString()
         )
     }
 }

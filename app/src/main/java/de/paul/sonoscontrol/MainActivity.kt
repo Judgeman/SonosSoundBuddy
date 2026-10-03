@@ -26,7 +26,8 @@ class MainActivity : ComponentActivity() {
             SettingsRepository(
                 AppDatabase.getInstance(applicationContext),
                 CustomImageStore(applicationContext)
-            )
+            ),
+            LocalSonosClient(applicationContext)
         )
     }
 

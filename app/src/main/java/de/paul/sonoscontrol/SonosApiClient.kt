@@ -116,7 +116,7 @@ class SonosApiClient(
             val image = findImageUrl(item)
             // Hilft bei der Fehlersuche, wenn ein Musikdienst sein Cover woanders ablegt
             if (image == null) Log.d(TAG, "Kein Cover im Favoriten „${favorite.name}“: $item")
-            favorite.copy(foundImageUrl = image)
+            favorite.copy(foundImageUrl = image, rawJson = item.toString())
         }
     }
 
