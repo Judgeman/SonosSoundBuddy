@@ -2,6 +2,7 @@ package de.paul.sonoscontrol
 
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -24,7 +25,22 @@ sealed interface UiState {
     data class Error(val message: String) : UiState
 }
 
-enum class Screen { Home, Settings }
+/** [ProfileEditor] und [MusicCatalog] sind Unterseiten der Settings. */
+enum class Screen { Home, Settings, ProfileEditor, MusicCatalog }
+
+/** Inhalt des Sonos-Katalogs (Favoriten + Playlisten) beim Zusammenstellen der Musikauswahl. */
+sealed interface CatalogState {
+    data object Loading : CatalogState
+    data class Loaded(val entries: List<CatalogEntry>) : CatalogState
+    data class Error(val message: String) : CatalogState
+}
+
+/** Titelliste einer Sonos-Playlist, zum Reinschauen beim Zusammenstellen. */
+data class PlaylistPreview(
+    val entry: CatalogEntry,
+    val tracks: List<PlaylistTrack>? = null,
+    val error: String? = null
+)
 
 /** Aktuelle Wiedergabe des ausgewählten Speakers, wie sie der Homescreen anzeigt. */
 data class NowPlaying(
@@ -53,7 +69,8 @@ data class NowPlaying(
 
 class MainViewModel(
     private val tokenStore: TokenStore,
-    private val repository: SettingsRepository
+    private val repository: SettingsRepository,
+    private val localClient: LocalSonosClient
 ) : ViewModel() {
 
     val authManager = SonosAuthManager()
@@ -100,6 +117,34 @@ class MainViewModel(
     var speakerRefreshMessage: String? by mutableStateOf(null)
         private set
 
+    var profiles: List<ProfileWithMusic> by mutableStateOf(emptyList())
+        private set
+
+    var selectedProfileId: Long? by mutableStateOf(null)
+        private set
+
+    /** Profil, das gerade in den Settings bearbeitet wird. */
+    var editingProfileId: Long? by mutableStateOf(null)
+        private set
+
+    /** Kategorie, für die gerade Musik aus dem Katalog ausgesucht wird. */
+    var catalogCategoryId: Long? by mutableStateOf(null)
+        private set
+
+    var catalogState: CatalogState by mutableStateOf(CatalogState.Loading)
+        private set
+
+    var playlistPreview: PlaylistPreview? by mutableStateOf(null)
+        private set
+
+    /** Fehler beim Übernehmen eines eigenen Kategorie-Bilds, als Snackbar auf der Profil-Seite. */
+    var imageImportError: String? by mutableStateOf(null)
+        private set
+
+    /** Wird gerade Musik aus der Auswahl gestartet? Zeigt auf dem Homescreen einen Ladekreis. */
+    var isStartingMusic: Boolean by mutableStateOf(false)
+        private set
+
     var showPasswordPrompt: Boolean by mutableStateOf(false)
         private set
 
@@ -112,6 +157,8 @@ class MainViewModel(
     private var pollJob: Job? = null
     private var lastCommandAtMillis = 0L
     private var volumeJob: Job? = null
+    private var profilesLoaded = false
+    private var catalogJob: Job? = null
 
     /** Speaker, die auf dem Homescreen gewählt werden dürfen und gerade im Haushalt verfügbar sind. */
     val selectableSpeakers: List<SpeakerConfig>
@@ -132,6 +179,19 @@ class MainViewModel(
     val selectedMaxVolume: Int
         get() = selectedPlayerId?.let(::maxVolumeFor) ?: 100
 
+    /** Profile, die auf diesem Tablet aktiviert sind. */
+    val selectableProfiles: List<ProfileWithMusic>
+        get() = profiles.filter { it.profile.enabled }
+
+    val selectedProfile: ProfileWithMusic?
+        get() = selectableProfiles.firstOrNull { it.profile.id == selectedProfileId }
+
+    val editingProfile: ProfileWithMusic?
+        get() = profiles.firstOrNull { it.profile.id == editingProfileId }
+
+    val catalogCategory: CategoryWithMusic?
+        get() = profiles.flatMap { it.categories }.firstOrNull { it.category.id == catalogCategoryId }
+
     private fun maxVolumeFor(playerId: String): Int =
         speakerConfigs.firstOrNull { it.playerId == playerId }?.maxVolume ?: 100
 
@@ -141,6 +201,20 @@ class MainViewModel(
                 settings = it
                 settingsLoaded = true
                 updateSelection()
+                updateProfileSelection()
+            }
+        }
+        viewModelScope.launch {
+            repository.profiles.collect {
+                profiles = it
+                profilesLoaded = true
+                updateProfileSelection()
+                // Profil wurde gelöscht, während seine Unterseite offen war
+                if (editingProfileId != null && editingProfile == null) {
+                    editingProfileId = null
+                    catalogCategoryId = null
+                    if (screen == Screen.ProfileEditor || screen == Screen.MusicCatalog) screen = Screen.Settings
+                }
             }
         }
         viewModelScope.launch {
@@ -185,7 +259,7 @@ class MainViewModel(
         uiState = UiState.LoadingSpeakers
         viewModelScope.launch {
             uiState = try {
-                UiState.SpeakerList(fetchAndSyncPlayers().players)
+                UiState.SpeakerList(fetchAndSyncPlayers().players).also { refreshMusicImagesQuietly() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -256,6 +330,8 @@ class MainViewModel(
         nowPlaying = null
         clearPlaybackError()
         screen = Screen.Home
+        editingProfileId = null
+        catalogCategoryId = null
         uiState = UiState.LoggedOut(reason)
     }
 
@@ -291,6 +367,34 @@ class MainViewModel(
             viewModelScope.launch { repository.setLastSelectedPlayer(newSelection) }
         }
         restartPolling()
+    }
+
+    // --- Profil-Auswahl --------------------------------------------------
+
+    fun selectProfile(profileId: Long) {
+        if (profileId == selectedProfileId) return
+        selectedProfileId = profileId
+        viewModelScope.launch { repository.setLastSelectedProfile(profileId) }
+    }
+
+    /**
+     * Wie bei den Speakern: genau ein aktives Profil → immer dieses, sonst die
+     * bisherige Auswahl, sonst das zuletzt gewählte aus der Datenbank.
+     */
+    private fun updateProfileSelection() {
+        if (!settingsLoaded || !profilesLoaded) return
+        val selectableIds = selectableProfiles.map { it.profile.id }
+        val newSelection = when {
+            selectableIds.size == 1 -> selectableIds.first()
+            selectedProfileId in selectableIds -> selectedProfileId
+            settings.lastSelectedProfileId in selectableIds -> settings.lastSelectedProfileId
+            else -> null
+        }
+        if (newSelection == selectedProfileId) return
+        selectedProfileId = newSelection
+        if (newSelection != null && newSelection != settings.lastSelectedProfileId) {
+            viewModelScope.launch { repository.setLastSelectedProfile(newSelection) }
+        }
     }
 
     // --- Wiedergabe ------------------------------------------------------
@@ -363,12 +467,15 @@ class MainViewModel(
         playbackErrorDismissed = true
     }
 
+    /** Die Wiedergabe hängt an der Gruppe, in der der Player gerade spielt. */
+    private suspend fun findGroup(householdId: String, playerId: String): SonosGroup =
+        apiClient.getGroups(householdId).groups
+            .firstOrNull { playerId in it.playerIds }
+            ?: throw SonosApiException("Speaker ist gerade nicht erreichbar")
+
     private suspend fun fetchNowPlaying(householdId: String, playerId: String): NowPlaying =
         coroutineScope {
-            // Die Wiedergabe hängt an der Gruppe, in der der Player gerade spielt.
-            val group = apiClient.getGroups(householdId).groups
-                .firstOrNull { playerId in it.playerIds }
-                ?: throw SonosApiException("Speaker ist gerade nicht erreichbar")
+            val group = findGroup(householdId, playerId)
 
             val status = async { apiClient.getPlaybackStatus(group.id) }
             val metadata = async { apiClient.getPlaybackMetadata(group.id) }
@@ -448,18 +555,89 @@ class MainViewModel(
         }
     }
 
-    private fun sendPlaybackCommand(command: suspend () -> Unit) {
+    /**
+     * Spielt einen Eintrag aus der Musikauswahl auf dem gewählten Speaker ab.
+     * Die Warteschlange wird dabei ersetzt. [shuffle] = null heißt: so, wie es
+     * in der Kategorie eingestellt ist (bei „Kinder entscheiden" kommt die Wahl
+     * der Kinder als true/false herein).
+     */
+    fun playMusic(item: MusicItem, shuffle: Boolean? = null) {
         val playerId = selectedPlayerId ?: return
         val household = householdId ?: return
+        val order = profiles.flatMap { it.categories }
+            .firstOrNull { it.category.id == item.categoryId }?.category?.playOrderMode ?: PlayOrder.ORDERED
+        val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
+        isStartingMusic = true
+        sendPlaybackCommand(
+            refreshDelayMillis = MUSIC_REFRESH_DELAY_MS,
+            onFinished = { isStartingMusic = false },
+            // Liefert der Katalog kein Cover, wenigstens das beim Abspielen gezeigte merken
+            onPlaying = { playing ->
+                val cover = playing.imageUrl
+                if (item.imageUrl == null && cover != null) {
+                    viewModelScope.launch { repository.setMissingMusicImage(item.id, cover) }
+                }
+            }
+        ) {
+            val group = findGroup(household, playerId)
+            val type = item.musicType
+            // Radio hat keine Warteschlange — dort gibt es keine Reihenfolge, also direkt starten
+            val controlsOrder = type != MusicType.RADIO
+            when (item.musicSource) {
+                MusicSource.FAVORITE ->
+                    apiClient.loadFavorite(group.id, resolveFavoriteId(household, item), play = !controlsOrder)
+                MusicSource.PLAYLIST ->
+                    apiClient.loadPlaylist(group.id, resolvePlaylistId(household, item), play = !controlsOrder)
+            }
+            if (controlsOrder) {
+                // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
+                // Klappt das nicht (manche Quellen erlauben es nicht), trotzdem abspielen.
+                val shuffled = useShuffle && type.hasMultipleTracks &&
+                    runCatching { apiClient.setShuffle(group.id, true) }.isSuccess
+                if (!shuffled) runCatching { apiClient.setShuffle(group.id, false) }
+                // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
+                if (shuffled) runCatching { apiClient.skipToNextTrack(group.id) }
+                apiClient.play(group.id)
+            }
+        }
+    }
+
+    /**
+     * Sonos vergibt die Ids von Favoriten und Playlisten selbst. Wurde dort etwas
+     * gelöscht oder neu angelegt, kann die gespeicherte Id inzwischen zu einem
+     * anderen Eintrag gehören — dann wird über den Namen gesucht.
+     */
+    private suspend fun resolveFavoriteId(household: String, item: MusicItem): String {
+        val favorites = apiClient.getFavorites(household)
+        return favorites.firstOrNull { it.id == item.sonosId && it.name == item.name }?.id
+            ?: favorites.firstOrNull { it.name == item.name }?.id
+            ?: throw SonosApiException("„${item.name}“ gibt es nicht mehr in den Sonos-Favoriten.")
+    }
+
+    private suspend fun resolvePlaylistId(household: String, item: MusicItem): String {
+        val playlists = apiClient.getPlaylists(household)
+        return playlists.firstOrNull { it.id == item.sonosId && it.name == item.name }?.id
+            ?: playlists.firstOrNull { it.name == item.name }?.id
+            ?: throw SonosApiException("Die Playlist „${item.name}“ gibt es nicht mehr bei Sonos.")
+    }
+
+    private fun sendPlaybackCommand(
+        refreshDelayMillis: Long = COMMAND_REFRESH_DELAY_MS,
+        onFinished: () -> Unit = {},
+        onPlaying: (NowPlaying) -> Unit = {},
+        command: suspend () -> Unit
+    ) {
+        val playerId = selectedPlayerId ?: return onFinished()
+        val household = householdId ?: return onFinished()
         lastCommandAtMillis = SystemClock.elapsedRealtime()
         viewModelScope.launch {
             try {
                 command()
                 lastCommandAtMillis = SystemClock.elapsedRealtime()
                 // Sonos braucht einen Moment, bis Track und Status aktualisiert sind
-                delay(COMMAND_REFRESH_DELAY_MS)
+                delay(refreshDelayMillis)
                 if (selectedPlayerId == playerId) {
-                    nowPlaying = fetchNowPlaying(household, playerId)
+                    nowPlaying = fetchNowPlaying(household, playerId).also(onPlaying)
                     clearPlaybackError()
                 }
             } catch (e: CancellationException) {
@@ -468,6 +646,8 @@ class MainViewModel(
                 handleSessionExpired(e)
             } catch (e: Exception) {
                 reportPlaybackError(e.message ?: "Befehl konnte nicht gesendet werden", userAction = true)
+            } finally {
+                onFinished()
             }
         }
     }
@@ -505,8 +685,23 @@ class MainViewModel(
         stopPolling()
     }
 
+    /** Zurück-Taste und Zurück-Pfeil: eine Ebene nach oben. */
+    fun navigateBack() {
+        when (screen) {
+            Screen.MusicCatalog -> closeCatalog()
+            Screen.ProfileEditor -> {
+                screen = Screen.Settings
+                editingProfileId = null
+            }
+            Screen.Settings -> closeSettings()
+            Screen.Home -> Unit
+        }
+    }
+
     fun closeSettings() {
         screen = Screen.Home
+        editingProfileId = null
+        catalogCategoryId = null
         speakerRefreshMessage = null
         // Neue Speaker wurden in den Settings gesehen → beim nächsten Mal nicht mehr „Neu"
         viewModelScope.launch { repository.clearNewFlags() }
@@ -529,6 +724,209 @@ class MainViewModel(
         viewModelScope.launch { repository.setSpeakerIcon(playerId, icon) }
     }
 
+    // --- Profile und Musikauswahl (Settings) -----------------------------
+
+    /** Legt ein Profil an und öffnet direkt seine Unterseite. */
+    fun createProfile(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val icon = ProfileIcon.suggestion(profiles.map { it.profile.icon })
+            val id = repository.createProfile(name, icon)
+            openProfile(id)
+        }
+    }
+
+    fun openProfile(profileId: Long) {
+        editingProfileId = profileId
+        screen = Screen.ProfileEditor
+    }
+
+    fun setProfileName(profileId: Long, name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch { repository.setProfileName(profileId, name) }
+    }
+
+    fun setProfileIcon(profileId: Long, icon: ProfileIcon) {
+        viewModelScope.launch { repository.setProfileIcon(profileId, icon) }
+    }
+
+    fun setProfileEnabled(profileId: Long, enabled: Boolean) {
+        viewModelScope.launch { repository.setProfileEnabled(profileId, enabled) }
+    }
+
+    fun deleteProfile(profileId: Long) {
+        viewModelScope.launch { repository.deleteProfile(profileId) }
+    }
+
+    fun createCategory(profileId: Long, name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch { repository.createCategory(profileId, name) }
+    }
+
+    fun renameCategory(categoryId: Long, name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch { repository.setCategoryName(categoryId, name) }
+    }
+
+    fun deleteCategory(categoryId: Long) {
+        viewModelScope.launch { repository.deleteCategory(categoryId) }
+    }
+
+    /** Verschiebt eine Kategorie innerhalb ihres Profils um [offset] Plätze (−1 = nach oben). */
+    fun setCategoryImage(categoryId: Long, image: CustomImage) {
+        viewModelScope.launch { repository.setCategoryImage(categoryId, image) }
+    }
+
+    fun importCategoryImage(categoryId: Long, uri: Uri) = importImage { repository.importCategoryImage(categoryId, uri) }
+
+    /** Eigenes Bild für einen Musik-Eintrag, z. B. für Sonos-Playlisten ohne Cover. */
+    fun setMusicItemImage(itemId: Long, image: CustomImage) {
+        viewModelScope.launch { repository.setItemImage(itemId, image) }
+    }
+
+    fun importMusicItemImage(itemId: Long, uri: Uri) = importImage { repository.importItemImage(itemId, uri) }
+
+    private fun importImage(import: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                import()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                imageImportError = e.message ?: "Das Bild konnte nicht übernommen werden."
+            }
+        }
+    }
+
+    fun dismissImageImportError() {
+        imageImportError = null
+    }
+
+    fun setCategoryPlayOrder(categoryId: Long, playOrder: PlayOrder) {
+        viewModelScope.launch { repository.setCategoryPlayOrder(categoryId, playOrder) }
+    }
+
+    fun moveCategory(categoryId: Long, offset: Int) {
+        val categories = profiles.firstOrNull { profile -> profile.categories.any { it.category.id == categoryId } }
+            ?.categories?.map { it.category.id } ?: return
+        val from = categories.indexOf(categoryId)
+        val to = (from + offset).coerceIn(0, categories.lastIndex)
+        if (from == to) return
+        val reordered = categories.toMutableList().apply { add(to, removeAt(from)) }
+        viewModelScope.launch { repository.reorderCategories(reordered) }
+    }
+
+    fun removeMusicItem(itemId: Long) {
+        viewModelScope.launch { repository.removeMusicItem(itemId) }
+    }
+
+    /** Öffnet den Sonos-Katalog, um Musik zu einer Kategorie hinzuzufügen. */
+    fun openCatalog(categoryId: Long) {
+        catalogCategoryId = categoryId
+        screen = Screen.MusicCatalog
+        if (catalogState !is CatalogState.Loaded) loadCatalog()
+    }
+
+    fun closeCatalog() {
+        catalogCategoryId = null
+        playlistPreview = null
+        screen = Screen.ProfileEditor
+    }
+
+    /** Lädt Favoriten und Playlisten des Haushalts (auch über „Neu laden" im Katalog). */
+    fun loadCatalog() {
+        catalogJob?.cancel()
+        if (tokenStore.accessToken == null) {
+            catalogState = CatalogState.Error("Melde dich zuerst bei Sonos an, um den Musik-Katalog zu sehen.")
+            return
+        }
+        catalogState = CatalogState.Loading
+        catalogJob = viewModelScope.launch {
+            catalogState = try {
+                val household = householdId ?: apiClient.getFirstHouseholdId().also { householdId = it }
+                CatalogState.Loaded(fetchCatalog(household).also { repository.refreshMusicImages(it) })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
+                return@launch
+            } catch (e: Exception) {
+                CatalogState.Error(e.message ?: "Musik-Katalog konnte nicht geladen werden")
+            }
+        }
+    }
+
+    private suspend fun fetchCatalog(household: String): List<CatalogEntry> {
+        val entries = coroutineScope {
+            val favorites = async { apiClient.getFavorites(household) }
+            val playlists = async { apiClient.getPlaylists(household) }
+            favorites.await().map(CatalogEntry::from) + playlists.await().map(CatalogEntry::from)
+        }
+        // Cover direkt beim Speaker im Heimnetz holen — dieselben, die die Sonos-App zeigt.
+        // Die Cloud liefert für Sonos-Playlisten nie eins und für manche Favoriten keins,
+        // das sich laden lässt. Klappt das lokal nicht, bleibt es beim Cover aus der Cloud.
+        val local = localClient.loadCovers(addressHint = nowPlaying?.imageUrl) ?: return entries
+        return entries.map { entry ->
+            val cover = local.coverFor(entry) ?: return@map entry
+            // Speaker-Cover zuerst, das aus der Cloud als Ersatz, falls es nicht lädt
+            entry.copy(
+                imageUrl = joinImageUrls(listOf(cover) + imageUrlCandidates(entry.imageUrl)),
+                coverOrigin = if (entry.imageUrl == null) "Speaker im Heimnetz" else "Speaker im Heimnetz, sonst Sonos-Cloud"
+            )
+        }
+    }
+
+    /** Cover der gespeicherten Musikauswahl still im Hintergrund auffrischen. */
+    private fun refreshMusicImagesQuietly() {
+        val household = householdId ?: return
+        if (profiles.none { it.itemCount > 0 }) return
+        viewModelScope.launch {
+            try {
+                repository.refreshMusicImages(fetchCatalog(household))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.d(TAG, "Cover der Musikauswahl nicht aufgefrischt: ${e.message}")
+            }
+        }
+    }
+
+    /** Fügt einen Katalog-Eintrag zur offenen Kategorie hinzu bzw. nimmt ihn wieder heraus. */
+    fun toggleCatalogEntry(entry: CatalogEntry) {
+        val category = catalogCategory ?: return
+        val present = category.items.any { it.catalogKey == entry.key }
+        viewModelScope.launch {
+            if (present) {
+                repository.removeMusic(category.category.id, entry)
+            } else {
+                repository.addMusic(category.category.id, entry)
+            }
+        }
+    }
+
+    fun showPlaylistPreview(entry: CatalogEntry) {
+        playlistPreview = PlaylistPreview(entry)
+        viewModelScope.launch {
+            val preview = try {
+                val household = householdId ?: apiClient.getFirstHouseholdId().also { householdId = it }
+                PlaylistPreview(entry, tracks = apiClient.getPlaylist(household, entry.sonosId).tracks)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
+                return@launch
+            } catch (e: Exception) {
+                PlaylistPreview(entry, error = e.message ?: "Titel konnten nicht geladen werden")
+            }
+            // Inzwischen geschlossen oder eine andere Playlist geöffnet → verwerfen
+            if (playlistPreview?.entry == entry) playlistPreview = preview
+        }
+    }
+
+    fun dismissPlaylistPreview() {
+        playlistPreview = null
+    }
+
     fun savePassword(password: String) {
         viewModelScope.launch { repository.setPassword(password) }
     }
@@ -542,18 +940,22 @@ class MainViewModel(
     }
 
     companion object {
+        private const val TAG = "SoundBuddy"
         private const val POLL_INTERVAL_MS = 5_000L
         private const val COMMAND_REFRESH_DELAY_MS = 600L
         private const val VOLUME_DEBOUNCE_MS = 150L
+        /** Neue Musik zu laden dauert bei Sonos etwas länger als ein Skip. */
+        private const val MUSIC_REFRESH_DELAY_MS = 1_500L
     }
 }
 
 class MainViewModelFactory(
     private val tokenStore: TokenStore,
-    private val repository: SettingsRepository
+    private val repository: SettingsRepository,
+    private val localClient: LocalSonosClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return MainViewModel(tokenStore, repository) as T
+        return MainViewModel(tokenStore, repository, localClient) as T
     }
 }

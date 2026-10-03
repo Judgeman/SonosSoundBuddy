@@ -93,6 +93,11 @@ fun HomeScreen(
     visiblePlaybackError: String?,
     onDismissPlaybackError: () -> Unit,
     onSelectSpeaker: (String) -> Unit,
+    profiles: List<ProfileWithMusic>,
+    selectedProfile: ProfileWithMusic?,
+    isStartingMusic: Boolean,
+    onSelectProfile: (Long) -> Unit,
+    onPlayMusic: (MusicItem, Boolean?) -> Unit,
     controls: PlaybackControls,
     onOpenSettings: () -> Unit,
     onLoginClick: () -> Unit,
@@ -146,6 +151,11 @@ fun HomeScreen(
                             maxVolume = maxVolume,
                             playbackError = playbackError,
                             onSelectSpeaker = onSelectSpeaker,
+                            profiles = profiles,
+                            selectedProfile = selectedProfile,
+                            isStartingMusic = isStartingMusic,
+                            onSelectProfile = onSelectProfile,
+                            onPlayMusic = onPlayMusic,
                             controls = controls
                         )
                     }
@@ -296,8 +306,16 @@ private fun SpeakerHomeContent(
     maxVolume: Int,
     playbackError: String?,
     onSelectSpeaker: (String) -> Unit,
+    profiles: List<ProfileWithMusic>,
+    selectedProfile: ProfileWithMusic?,
+    isStartingMusic: Boolean,
+    onSelectProfile: (Long) -> Unit,
+    onPlayMusic: (MusicItem, Boolean?) -> Unit,
     controls: PlaybackControls
 ) {
+    var profileMenuExpanded by remember { mutableStateOf(false) }
+    var showMusicPicker by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -309,23 +327,69 @@ private fun SpeakerHomeContent(
             return@Column
         }
 
-        SpeakerDropdown(
-            speakers = speakers,
-            selectedSpeaker = selectedSpeaker,
-            onSelectSpeaker = onSelectSpeaker
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        when {
-            selectedSpeaker == null -> HintText("Wähle oben einen Speaker aus.")
-            nowPlaying != null -> NowPlayingContent(
-                nowPlaying = nowPlaying,
-                maxVolume = maxVolume,
-                controls = controls,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SpeakerDropdown(
+                speakers = speakers,
+                selectedSpeaker = selectedSpeaker,
+                onSelectSpeaker = onSelectSpeaker,
                 modifier = Modifier.weight(1f)
             )
-            playbackError != null -> HintText(playbackError)
-            else -> CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+            if (profiles.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(12.dp))
+                ProfileDropdown(
+                    profiles = profiles,
+                    selectedProfile = selectedProfile,
+                    expanded = profileMenuExpanded,
+                    onExpandedChange = { profileMenuExpanded = it },
+                    onSelectProfile = onSelectProfile
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Box(
+            contentAlignment = Alignment.TopCenter,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            when {
+                selectedSpeaker == null -> HintText("Wähle oben einen Speaker aus.")
+                nowPlaying != null -> NowPlayingContent(
+                    nowPlaying = nowPlaying,
+                    maxVolume = maxVolume,
+                    controls = controls,
+                    modifier = Modifier.fillMaxSize()
+                )
+                playbackError != null -> HintText(playbackError)
+                else -> CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+            }
+        }
+
+        // Musikauswahl des Profils ganz unten, unter dem Play-Knopf
+        if (selectedSpeaker != null && profiles.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            MusicChooserButton(
+                selectedProfile = selectedProfile,
+                isStartingMusic = isStartingMusic,
+                onClick = {
+                    if (selectedProfile == null) profileMenuExpanded = true else showMusicPicker = true
+                }
+            )
+        }
+    }
+
+    if (showMusicPicker && selectedProfile != null) {
+        // Im normalen App-Theme, nicht in den Cover-Farben — die Cover der Kacheln sollen wirken
+        SoundBuddyTheme {
+            MusicPickerDialog(
+                profile = selectedProfile,
+                onPlay = { item, shuffle ->
+                    showMusicPicker = false
+                    onPlayMusic(item, shuffle)
+                },
+                onDismiss = { showMusicPicker = false }
+            )
         }
     }
 }
@@ -346,13 +410,14 @@ private fun HintText(text: String) {
 private fun SpeakerDropdown(
     speakers: List<SpeakerConfig>,
     selectedSpeaker: SpeakerConfig?,
-    onSelectSpeaker: (String) -> Unit
+    onSelectSpeaker: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
     var anchorWidthPx by remember { mutableStateOf(0) }
     val canChoose = speakers.size > 1
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = modifier) {
         Card(
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
@@ -594,8 +659,8 @@ private fun PlaybackButtons(nowPlaying: NowPlaying, controls: PlaybackControls) 
 
 private val CoverShape = RoundedCornerShape(28.dp)
 
-/** Bonbon-Verlauf hinter dem Platzhalter-Cover: Rosa → Lila → Himmelblau. */
-private val DefaultCoverBackground = Brush.linearGradient(
+/** Bonbon-Verlauf hinter Platzhalter-Covern: Rosa → Lila → Himmelblau. */
+val DefaultCoverBackground = Brush.linearGradient(
     listOf(Color(0xFFFF8AD8), Color(0xFFA47CFF), Color(0xFF5CC8FF))
 )
 
