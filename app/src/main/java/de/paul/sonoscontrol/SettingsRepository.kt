@@ -1,6 +1,7 @@
 package de.paul.sonoscontrol
 
 import android.net.Uri
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -20,7 +21,7 @@ data class AppSettings(
     val isLocked: Boolean get() = hasPassword && passwordRequired
 }
 
-class SettingsRepository(database: AppDatabase, private val imageStore: CustomImageStore) {
+class SettingsRepository(private val database: AppDatabase, private val imageStore: CustomImageStore) {
 
     private val speakerDao = database.speakerConfigDao()
     private val settingDao = database.appSettingDao()
@@ -120,7 +121,12 @@ class SettingsRepository(database: AppDatabase, private val imageStore: CustomIm
 
     suspend fun deleteProfile(profileId: Long) {
         val images = profileDao.getCategoryImagesOfProfile(profileId) + profileDao.getItemImagesOfProfile(profileId)
-        profileDao.deleteProfile(profileId)
+        // Ohne Foreign Keys: Kategorien und Einträge werden von Hand mitgelöscht
+        database.withTransaction {
+            profileDao.deleteItemsOfProfile(profileId)
+            profileDao.deleteCategoriesOfProfile(profileId)
+            profileDao.deleteProfileRow(profileId)
+        }
         images.forEach { imageStore.delete(it) }
     }
 
@@ -138,7 +144,10 @@ class SettingsRepository(database: AppDatabase, private val imageStore: CustomIm
     suspend fun deleteCategory(categoryId: Long) {
         val images = listOfNotNull(profileDao.getCategoryImage(categoryId)) +
             profileDao.getItemImagesOfCategory(categoryId)
-        profileDao.deleteCategory(categoryId)
+        database.withTransaction {
+            profileDao.deleteItemsOfCategory(categoryId)
+            profileDao.deleteCategoryRow(categoryId)
+        }
         images.forEach { imageStore.delete(it) }
     }
 

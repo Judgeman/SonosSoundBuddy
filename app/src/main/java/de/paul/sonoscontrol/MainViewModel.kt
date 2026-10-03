@@ -144,8 +144,10 @@ class MainViewModel(
         private set
 
     /** Wird gerade Musik aus der Auswahl gestartet? Zeigt auf dem Homescreen einen Ladekreis. */
-    var isStartingMusic: Boolean by mutableStateOf(false)
+    var startingMusic: MusicItem? by mutableStateOf(null)
         private set
+
+    val isStartingMusic: Boolean get() = startingMusic != null
 
     var showPasswordPrompt: Boolean by mutableStateOf(false)
         private set
@@ -431,6 +433,7 @@ class MainViewModel(
         pollJob = viewModelScope.launch {
             while (isActive) {
                 try {
+                    val pollStartedAt = SystemClock.elapsedRealtime()
                     var fetched = fetchNowPlaying(household, playerId)
                     // Wurde die Lautstärke woanders (Sonos-App, Taste am Speaker) über das
                     // Maximum gestellt, wird sie wieder auf das Maximum begrenzt.
@@ -440,8 +443,11 @@ class MainViewModel(
                         apiClient.setPlayerVolume(playerId, max)
                         fetched = fetched.copy(volume = max)
                     }
-                    // Kurz nach einem Befehl kann Sonos noch den alten Stand liefern
-                    if (SystemClock.elapsedRealtime() - lastCommandAtMillis > COMMAND_REFRESH_DELAY_MS) {
+                    // Kurz nach einem Befehl kann Sonos noch den alten Stand liefern. Während Musik
+                    // gestartet wird, gibt es Zwischenstände (z. B. erst Titel 1, dann der Zufallstitel) —
+                    // die nicht zeigen. Und keine Abfrage übernehmen, die vor dem Ende eines Befehls begann.
+                    val settled = SystemClock.elapsedRealtime() - lastCommandAtMillis > COMMAND_REFRESH_DELAY_MS
+                    if (settled && !isStartingMusic && pollStartedAt > lastCommandAtMillis) {
                         nowPlaying = fetched
                     }
                     clearPlaybackError()
@@ -574,11 +580,10 @@ class MainViewModel(
         val order = profiles.flatMap { it.categories }
             .firstOrNull { it.category.id == item.categoryId }?.category?.playOrderMode ?: PlayOrder.ORDERED
         val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
-        isStartingMusic = true
+        startingMusic = item
         sendPlaybackCommand(
             refreshDelayMillis = MUSIC_REFRESH_DELAY_MS,
-            onFinished = { isStartingMusic = false },
-            // Liefert der Katalog kein Cover, wenigstens das beim Abspielen gezeigte merken
+            onFinished = { startingMusic = null },
             // Ist das Cover noch nicht auf dem Tablet gespeichert (z. B. abgelaufene Apple-Music-
             // Adresse), das frische aus der Wiedergabe nehmen — für Playlisten das der Playlist
             onPlaying = { playing ->
@@ -646,6 +651,8 @@ class MainViewModel(
                 delay(refreshDelayMillis)
                 if (selectedPlayerId == playerId) {
                     nowPlaying = fetchNowPlaying(household, playerId).also(onPlaying)
+                    // Abfragen, die noch während des Befehls begonnen haben, sind damit überholt
+                    lastCommandAtMillis = SystemClock.elapsedRealtime()
                     clearPlaybackError()
                 }
             } catch (e: CancellationException) {

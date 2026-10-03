@@ -90,7 +90,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
             onSelectSpeaker = viewModel::selectSpeaker,
             profiles = viewModel.selectableProfiles,
             selectedProfile = viewModel.selectedProfile,
-            isStartingMusic = viewModel.isStartingMusic,
+            startingMusic = viewModel.startingMusic,
             onSelectProfile = viewModel::selectProfile,
             onPlayMusic = viewModel::playMusic,
             controls = remember(viewModel) {
