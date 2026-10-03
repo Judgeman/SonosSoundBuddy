@@ -63,10 +63,15 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
 ### Icons
 
 32 Material Symbols (Rounded) für Räume und verspielte Motive (Küche,
-Wohnzimmer, Kinderzimmer, Rakete, Roboter, Stern, Eis …) sowie zwei selbst
-gezeichnete, mehrfarbige Figuren in `CharacterIcons.kt`: **Einhorn** und
-**Pikachu**. Beim ersten Abgleich schlägt die App anhand des Raumnamens ein
-passendes Icon vor.
+Wohnzimmer, Kinderzimmer, Rakete, Roboter, Stern, Eis …) sowie selbst
+gezeichnete, mehrfarbige Figuren in `CharacterIcons.kt`: **Einhorn**,
+**Pikachu** und die Tiere **Kuh**, **Schwein**, **Frosch**, **Löwe**,
+**Katze** und **Hund**. Beim ersten Abgleich schlägt die App anhand des
+Raumnamens ein passendes Icon vor.
+
+Hat ein Titel kein Cover, zeigt die App ein buntes Platzhalter-Bild
+(Regenbogen mit lachenden Noten auf rosa-blauem Verlauf), ebenfalls in
+`CharacterIcons.kt` gezeichnet.
 
 > Pikachu ist eine geschützte Figur von Nintendo/The Pokémon Company. Für
 > den privaten Gebrauch ok — vor einer Veröffentlichung im Play Store das

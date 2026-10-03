@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,7 +33,6 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SentimentVeryDissatisfied
@@ -68,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -593,20 +594,24 @@ private fun PlaybackButtons(nowPlaying: NowPlaying, controls: PlaybackControls) 
 
 private val CoverShape = RoundedCornerShape(28.dp)
 
+/** Bonbon-Verlauf hinter dem Platzhalter-Cover: Rosa → Lila → Himmelblau. */
+private val DefaultCoverBackground = Brush.linearGradient(
+    listOf(Color(0xFFFF8AD8), Color(0xFFA47CFF), Color(0xFF5CC8FF))
+)
+
 @Composable
 private fun CoverImage(imageUrl: String?, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .shadow(elevation = 24.dp, shape = CoverShape)
             .clip(CoverShape)
-            .background(MaterialTheme.colorScheme.secondaryContainer),
+            .background(DefaultCoverBackground),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            Icons.Rounded.MusicNote,
+        Image(
+            imageVector = DefaultCoverArt,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.size(120.dp)
+            modifier = Modifier.fillMaxSize(0.84f)
         )
         if (imageUrl != null) {
             AsyncImage(
