@@ -37,22 +37,35 @@ class SettingsRepository(database: AppDatabase) {
     /**
      * Übernimmt die aktuell im Haushalt gefundenen Player in die Datenbank.
      * Beim allerersten Abgleich werden alle Speaker freigegeben, später neu
-     * hinzukommende Speaker sind erst nach Freigabe in den Settings sichtbar.
+     * hinzukommende Speaker sind erst nach Freigabe in den Settings sichtbar
+     * und werden dort als „Neu" markiert.
+     *
+     * @return Anzahl der neu hinzugekommenen Speaker
      */
-    suspend fun syncPlayers(players: List<SonosPlayer>) {
+    suspend fun syncPlayers(players: List<SonosPlayer>): Int {
         val existing = speakerDao.getAll().associateBy { it.playerId }
-        val isFirstSync = existing.isEmpty()
+        // Nicht nur an der leeren Tabelle festmachen: Sind alle Speaker gelöscht worden,
+        // sollen neu gefundene trotzdem nicht automatisch freigegeben werden.
+        val isFirstSync = existing.isEmpty() && settingDao.get(KEY_SPEAKERS_SYNCED) == null
+        var added = 0
         val configs = players.map { player ->
             existing[player.id]?.copy(name = player.name)
                 ?: SpeakerConfig(
                     playerId = player.id,
                     name = player.name,
                     enabled = isFirstSync,
-                    iconKey = SpeakerIcon.guessFor(player.name).name
-                )
+                    iconKey = SpeakerIcon.guessFor(player.name).name,
+                    isNew = !isFirstSync
+                ).also { added++ }
         }
         speakerDao.upsertAll(configs)
+        if (configs.isNotEmpty()) settingDao.put(AppSetting(KEY_SPEAKERS_SYNCED, true.toString()))
+        return added
     }
+
+    suspend fun deleteSpeaker(playerId: String) = speakerDao.delete(playerId)
+
+    suspend fun clearNewFlags() = speakerDao.clearNewFlags()
 
     suspend fun setSpeakerEnabled(playerId: String, enabled: Boolean) =
         speakerDao.setEnabled(playerId, enabled)
@@ -92,5 +105,6 @@ class SettingsRepository(database: AppDatabase) {
         private const val KEY_PASSWORD_SALT = "password_salt"
         private const val KEY_PASSWORD_REQUIRED = "password_required"
         private const val KEY_LAST_SELECTED_PLAYER = "last_selected_player"
+        private const val KEY_SPEAKERS_SYNCED = "speakers_synced"
     }
 }

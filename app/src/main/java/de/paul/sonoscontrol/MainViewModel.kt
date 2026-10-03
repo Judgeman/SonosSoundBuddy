@@ -93,6 +93,13 @@ class MainViewModel(
     val visiblePlaybackError: String?
         get() = playbackError?.takeUnless { playbackErrorDismissed }
 
+    var isRefreshingSpeakers: Boolean by mutableStateOf(false)
+        private set
+
+    /** Ergebnis von „Speaker-Liste aktualisieren", als Snackbar in den Settings angezeigt. */
+    var speakerRefreshMessage: String? by mutableStateOf(null)
+        private set
+
     var showPasswordPrompt: Boolean by mutableStateOf(false)
         private set
 
@@ -178,11 +185,7 @@ class MainViewModel(
         uiState = UiState.LoadingSpeakers
         viewModelScope.launch {
             uiState = try {
-                val id = apiClient.getFirstHouseholdId()
-                householdId = id
-                val players = apiClient.getPlayers(id)
-                repository.syncPlayers(players)
-                UiState.SpeakerList(players)
+                UiState.SpeakerList(fetchAndSyncPlayers().players)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -193,6 +196,50 @@ class MainViewModel(
             }
             updateSelection()
         }
+    }
+
+    private class SyncResult(val players: List<SonosPlayer>, val added: Int)
+
+    private suspend fun fetchAndSyncPlayers(): SyncResult {
+        val id = apiClient.getFirstHouseholdId()
+        householdId = id
+        val players = apiClient.getPlayers(id)
+        return SyncResult(players, repository.syncPlayers(players))
+    }
+
+    /** Lädt die Speaker des Haushalts neu (Knopf in den Settings), ohne den Bildschirm zu wechseln. */
+    fun refreshSpeakers() {
+        if (isRefreshingSpeakers) return
+        isRefreshingSpeakers = true
+        speakerRefreshMessage = null
+        viewModelScope.launch {
+            try {
+                val result = fetchAndSyncPlayers()
+                val foundIds = result.players.map { it.id }.toSet()
+                val missing = speakerConfigs.count { it.playerId !in foundIds }
+                uiState = UiState.SpeakerList(result.players)
+                updateSelection()
+                speakerRefreshMessage = describeRefresh(result.added, missing)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
+            } catch (e: Exception) {
+                speakerRefreshMessage = "Speaker-Liste konnte nicht geladen werden: " +
+                    (e.message ?: "Unbekannter Fehler")
+            } finally {
+                isRefreshingSpeakers = false
+            }
+        }
+    }
+
+    private fun describeRefresh(added: Int, missing: Int): String {
+        val found = when (added) {
+            0 -> "Keine neuen Speaker gefunden"
+            1 -> "1 neuer Speaker gefunden"
+            else -> "$added neue Speaker gefunden"
+        }
+        return if (missing > 0) "$found · $missing nicht erreichbar" else found
     }
 
     fun logout() = signOut(reason = null)
@@ -460,6 +507,9 @@ class MainViewModel(
 
     fun closeSettings() {
         screen = Screen.Home
+        speakerRefreshMessage = null
+        // Neue Speaker wurden in den Settings gesehen → beim nächsten Mal nicht mehr „Neu"
+        viewModelScope.launch { repository.clearNewFlags() }
         restartPolling()
     }
 
@@ -469,6 +519,10 @@ class MainViewModel(
 
     fun setSpeakerMaxVolume(playerId: String, maxVolume: Int) {
         viewModelScope.launch { repository.setSpeakerMaxVolume(playerId, maxVolume) }
+    }
+
+    fun deleteSpeaker(playerId: String) {
+        viewModelScope.launch { repository.deleteSpeaker(playerId) }
     }
 
     fun setSpeakerIcon(playerId: String, icon: SpeakerIcon) {

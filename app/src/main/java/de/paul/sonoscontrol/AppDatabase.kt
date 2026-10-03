@@ -22,7 +22,9 @@ data class SpeakerConfig(
     val enabled: Boolean,
     val iconKey: String,
     /** Obergrenze für die Lautstärke-Leiste auf dem Homescreen (0–100). */
-    @ColumnInfo(defaultValue = "100") val maxVolume: Int = 100
+    @ColumnInfo(defaultValue = "100") val maxVolume: Int = 100,
+    /** Seit dem letzten Besuch der Settings neu gefunden — wird dort als „Neu" markiert. */
+    @ColumnInfo(defaultValue = "0") val isNew: Boolean = false
 )
 
 val SpeakerConfig.icon: SpeakerIcon get() = SpeakerIcon.fromKey(iconKey)
@@ -45,14 +47,21 @@ interface SpeakerConfigDao {
     @Upsert
     suspend fun upsertAll(configs: List<SpeakerConfig>)
 
-    @Query("UPDATE speaker_config SET enabled = :enabled WHERE playerId = :playerId")
+    // Wer einen Speaker bearbeitet, hat ihn gesehen → „Neu"-Markierung fällt weg
+    @Query("UPDATE speaker_config SET enabled = :enabled, isNew = 0 WHERE playerId = :playerId")
     suspend fun setEnabled(playerId: String, enabled: Boolean)
 
-    @Query("UPDATE speaker_config SET iconKey = :iconKey WHERE playerId = :playerId")
+    @Query("UPDATE speaker_config SET iconKey = :iconKey, isNew = 0 WHERE playerId = :playerId")
     suspend fun setIcon(playerId: String, iconKey: String)
 
-    @Query("UPDATE speaker_config SET maxVolume = :maxVolume WHERE playerId = :playerId")
+    @Query("UPDATE speaker_config SET maxVolume = :maxVolume, isNew = 0 WHERE playerId = :playerId")
     suspend fun setMaxVolume(playerId: String, maxVolume: Int)
+
+    @Query("UPDATE speaker_config SET isNew = 0 WHERE isNew = 1")
+    suspend fun clearNewFlags()
+
+    @Query("DELETE FROM speaker_config WHERE playerId = :playerId")
+    suspend fun delete(playerId: String)
 }
 
 @Dao
@@ -72,7 +81,7 @@ interface AppSettingDao {
 
 @Database(
     entities = [SpeakerConfig::class, AppSetting::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -86,6 +95,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE speaker_config ADD COLUMN isNew INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -96,7 +111,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sound_buddy.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
