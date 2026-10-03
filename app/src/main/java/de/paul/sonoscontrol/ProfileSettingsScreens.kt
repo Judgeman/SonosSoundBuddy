@@ -324,7 +324,7 @@ fun ProfileEditorScreen(profile: ProfileWithMusic, imageError: String?, actions:
                 ImageChoiceDialog(
                     title = "Bild für „${category.category.name}“",
                     current = category.category.image,
-                    defaultLabel = "Standard-Icon",
+                    defaultLabel = "Standard-Bild",
                     preview = { CategoryImageView(category, size = 96.dp) },
                     onSelect = { actions.onCategoryImageChange(targetId, it) },
                     onUploadClick = { openPhotoPicker(target) },
@@ -694,6 +694,14 @@ private fun ImageChoiceDialog(
                                 Text(defaultLabel)
                             }
                         }
+                    }
+                }
+
+                fullWidthItem { DialogSectionTitle("Bilder") }
+                items(CategoryIcon.entries) { icon ->
+                    val image = CustomImage.Scene(icon)
+                    SelectableImage(selected = current == image, onClick = { onSelect(image) }) {
+                        CustomImageView(image)
                     }
                 }
 

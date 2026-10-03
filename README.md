@@ -68,11 +68,13 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     freigegeben, später neu gefundene müssen erst freigegeben werden.
   - **Kinder-Profile:** Profile anlegen, pro Profil ein Schalter „auf diesem
     Tablet aktiv“. Ein Tipp öffnet die Profil-Seite mit Name, **Icon**
-    (16 gezeichnete Tiere, Einhorn, Pikachu) und der **Musikauswahl**:
+    (17 gezeichnete Tiere, Einhorn, Pikachu) und der **Musikauswahl**:
     Kategorien anlegen, umbenennen, sortieren und löschen. Pro Kategorie:
-    - ein **Bild**: eins der Speaker-Icons oder Tiere oder ein **eigenes
-      Foto** (Android-Fotoauswahl, ohne Berechtigung; wird verkleinert in den
-      App-Speicher kopiert). Ohne Auswahl ein Musik-Icon.
+    - ein **Bild**: eine bunte Szene (**Tanzparty** mit tanzendem Hasen und
+      Bär, **Hörbuch** mit Pop-up-Schloss, **Schlaflieder** mit schlafendem
+      Mond; `CategoryIcons.kt`), eins der Speaker-Icons oder Tiere oder ein
+      **eigenes Foto** (Android-Fotoauswahl, ohne Berechtigung; wird
+      verkleinert in den App-Speicher kopiert). Ohne Auswahl die Tanzparty.
     - pro Musik-Eintrag ebenfalls ein eigenes Bild (Tipp auf das Cover) —
       gedacht vor allem für Sonos-Playlisten, die von Sonos kein Cover
       bekommen. „Cover von Sonos“ stellt das Original wieder her.
@@ -263,8 +265,8 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 6):
   zuletzt gewählter Speaker und zuletzt gewähltes Profil
 - `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
   (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden)
-- `music_category` — Profil, Name, Position, Bild (`icon:…`, `animal:…`,
-  `file:…` oder leer = Standard-Icon), Abspielreihenfolge
+- `music_category` — Profil, Name, Position, Bild (`scene:…`, `icon:…`,
+  `animal:…`, `file:…` oder leer = Standard-Bild), Abspielreihenfolge
   (Bild und Reihenfolge seit Version 5, Migration `MIGRATION_4_5`)
 - `music_item` — Kategorie, Quelle (Favorit/Playlist), Sonos-Id, Name,
   Beschreibung, Cover-URL, Art (Song, Album, …), Position, eigenes Bild

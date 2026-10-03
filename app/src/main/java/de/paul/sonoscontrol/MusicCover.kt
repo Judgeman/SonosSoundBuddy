@@ -1,6 +1,7 @@
 package de.paul.sonoscontrol
 
 import android.util.Log
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -90,7 +91,7 @@ fun MusicCover(
 
 private val MusicCoverLargeThreshold = 80.dp
 
-/** Bild einer Kategorie: Icon, Tier oder eigenes Foto; ohne Auswahl ein Musik-Icon. */
+/** Bild einer Kategorie: Szene, Icon, Tier oder eigenes Foto; ohne Auswahl die Tanzparty. */
 @Composable
 fun CategoryImageView(category: CategoryWithMusic, modifier: Modifier = Modifier, size: Dp? = null) {
     CustomImageView(category.category.image, modifier, size, default = CategoryDefaultImage)
@@ -104,7 +105,7 @@ fun MusicItemImage(item: MusicItem, modifier: Modifier = Modifier, size: Dp? = n
     }
 }
 
-private val CategoryDefaultImage = CustomImage.Icon(SpeakerIcon.MUSIC)
+private val CategoryDefaultImage = CustomImage.Scene(CategoryIcon.DANCE_PARTY)
 
 /**
  * Quadratische Anzeige eines [CustomImage]. Ist nichts gewählt, wird [default]
@@ -125,6 +126,14 @@ fun CustomImageView(
         .clip(shape)
 
     when (val shown = if (image == CustomImage.Default) default else image) {
+        is CustomImage.Scene -> Box(modifier = sized.background(shown.icon.background)) {
+            Image(
+                imageVector = shown.icon.vector,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         is CustomImage.Icon -> Box(
             contentAlignment = Alignment.Center,
             modifier = sized.background(shown.icon.color)
