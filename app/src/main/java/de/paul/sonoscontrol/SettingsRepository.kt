@@ -192,9 +192,9 @@ class SettingsRepository(database: AppDatabase, private val imageStore: CustomIm
      * vor die übrigen Adressen. Cover von Musikdiensten sind teils nur einen Tag
      * gültig (Apple Music) oder hängen an der IP des Speakers — gespeichert bleibt es.
      */
-    private suspend fun storeCover(itemId: Long, imageUrl: String?): Boolean {
+    private suspend fun storeCover(itemId: Long, imageUrl: String?, fileName: String = "cover-item-$itemId"): Boolean {
         val candidates = imageUrlCandidates(imageUrl).filterNot { it.startsWith("/") || isExpiredUrl(it) }
-        val path = candidates.firstNotNullOfOrNull { imageStore.cacheCover(it, "cover-item-$itemId") } ?: return false
+        val path = candidates.firstNotNullOfOrNull { imageStore.cacheCover(it, fileName) } ?: return false
         // Signierte Adressen laufen ab — die braucht später niemand mehr
         profileDao.setItemImageUrl(itemId, joinImageUrls(listOf(path) + candidates.filterNot(::isSignedUrl)))
         return true
@@ -226,14 +226,25 @@ class SettingsRepository(database: AppDatabase, private val imageStore: CustomIm
     }
 
     /**
-     * Cover aus der laufenden Wiedergabe übernehmen, wenn der Eintrag noch keins
-     * auf dem Tablet hat — z. B. Apple-Music-Playlisten, deren Cover-Adresse bei
-     * Sonos abgelaufen ist. Die Adresse der Wiedergabe ist frisch.
+     * Cover aus der laufenden Wiedergabe übernehmen. Die Adressen dort sind frisch —
+     * anders als die bei Sonos gespeicherten, die bei Apple Music nach einem Tag ablaufen.
+     *
+     * - [containerUrl] (Cover der Playlist bzw. des Albums) ist das richtige Bild für
+     *   Playlisten und Alben. Es ersetzt ein vorher gespeichertes Cover, denn der
+     *   Speaker liefert für Apple-Music-Playlisten nur das Cover eines Titels daraus.
+     * - [trackUrl] nur, wenn der Eintrag noch gar kein gespeichertes Cover hat.
      */
-    suspend fun storeCoverFromPlayback(itemId: Long, imageUrl: String) {
+    suspend fun storeCoverFromPlayback(itemId: Long, containerUrl: String?, trackUrl: String?) {
         val item = profileDao.getItem(itemId) ?: return
-        if (imageUrlCandidates(item.imageUrl).any { it.startsWith("/") }) return
-        storeCover(itemId, joinImageUrls(listOf(imageUrl) + imageUrlCandidates(item.imageUrl)))
+        val candidates = imageUrlCandidates(item.imageUrl)
+        val stored = candidates.filter { it.startsWith("/") }
+        val hasContainerCover = stored.any { CONTAINER_COVER_MARK in it }
+        val others = candidates.filterNot { it.startsWith("/") }
+        if (containerUrl != null && !hasContainerCover && item.musicType != MusicType.TRACK) {
+            val name = "cover-item-$itemId$CONTAINER_COVER_MARK"
+            if (storeCover(itemId, joinImageUrls(listOf(containerUrl) + others), name)) return
+        }
+        if (stored.isEmpty() && trackUrl != null) storeCover(itemId, joinImageUrls(listOf(trackUrl) + others))
     }
 
     /** Gespeicherte Bilder löschen, auf die kein Eintrag und keine Kategorie mehr verweist. */
@@ -271,6 +282,8 @@ class SettingsRepository(database: AppDatabase, private val imageStore: CustomIm
         private const val KEY_PASSWORD_REQUIRED = "password_required"
         private const val KEY_LAST_SELECTED_PLAYER = "last_selected_player"
         private const val KEY_LAST_SELECTED_PROFILE = "last_selected_profile"
+        /** Im Dateinamen: das Cover stammt von der Playlist/dem Album selbst, nicht von einem Titel. */
+        private const val CONTAINER_COVER_MARK = "-container"
         private const val KEY_SPEAKERS_SYNCED = "speakers_synced"
     }
 }

@@ -80,9 +80,9 @@ class SonosApiClient(
         val body = get("$baseUrl/groups/$groupId/playbackMetadata")
         val metadata = json.decodeFromString(PlaybackMetadata.serializer(), body)
         // Hilft bei der Fehlersuche, wenn eine Quelle kein Cover liefert (nur bei Änderung loggen)
-        if (metadata.coverUrl == null && body != lastLoggedMetadataWithoutCover) {
+        if ((metadata.coverUrl == null || metadata.containerCoverUrl == null) && body != lastLoggedMetadataWithoutCover) {
             lastLoggedMetadataWithoutCover = body
-            Log.d(TAG, "Kein Cover in playbackMetadata für Gruppe $groupId: $body")
+            Log.d(TAG, "Kein Cover (Titel oder Playlist/Album) in playbackMetadata für Gruppe $groupId: $body")
         }
         return metadata
     }

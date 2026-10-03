@@ -208,8 +208,14 @@ dieselbe, längst abgelaufene aus (Antwort: 400). Deshalb:
 - der Speaker liefert über `/getaa?u=<Abspiel-Adresse>` ein frisches Cover
   (die Abspiel-Adresse steht im `res` des lokalen Favoriten),
 - Cover werden beim Hinzufügen zur Auswahl **auf dem Tablet gespeichert**
-  (`custom_images/cover-item-…jpg`); fehlt eins, nimmt die App beim ersten
-  Abspielen das Cover der Playlist aus der Wiedergabe und speichert es.
+  (`custom_images/cover-item-…jpg`),
+- beim Abspielen übernimmt die App das Cover der Playlist bzw. des Albums
+  aus der Wiedergabe (`container` in `playbackMetadata`, frische Adresse)
+  und ersetzt damit ein vorher gespeichertes Cover — der Speaker liefert
+  über `/getaa` bei Apple-Music-Playlisten nur das Cover eines Titels.
+  Solche Dateien tragen `-container` im Namen und werden nicht mehr
+  überschrieben. Gibt es kein Playlist-Cover, dient das des Titels als
+  Ersatz, solange noch gar keins gespeichert ist.
 Nicht mehr benutzte Bilder räumt die App beim Start auf.
 
 **Fehlersuche:** Der ⓘ-Knopf an jedem Eintrag im Katalog zeigt Quelle,

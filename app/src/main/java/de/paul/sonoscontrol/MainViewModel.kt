@@ -582,8 +582,9 @@ class MainViewModel(
             // Ist das Cover noch nicht auf dem Tablet gespeichert (z. B. abgelaufene Apple-Music-
             // Adresse), das frische aus der Wiedergabe nehmen — für Playlisten das der Playlist
             onPlaying = { playing ->
-                val cover = playing.containerImageUrl ?: playing.imageUrl
-                if (cover != null) viewModelScope.launch { repository.storeCoverFromPlayback(item.id, cover) }
+                viewModelScope.launch {
+                    repository.storeCoverFromPlayback(item.id, playing.containerImageUrl, playing.imageUrl)
+                }
             }
         ) {
             val group = findGroup(household, playerId)
