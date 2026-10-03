@@ -39,9 +39,12 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
   - Große Knöpfe für vorherigen Track, Play/Pause und nächsten Track.
     Skip-Knöpfe sind ausgegraut, wenn die Quelle es nicht erlaubt.
   - Ganz unten der Knopf **„Musik aussuchen“**: öffnet ein großes Popup mit
-    der Musikauswahl des Profils — pro Kategorie eine Überschrift und große
+    der Musikauswahl des Profils — erst die Kategorien als große
+    Bild-Kacheln (bei nur einer Kategorie direkt deren Musik), dann die
     Cover-Kacheln. Ein Tipp spielt die Musik sofort auf dem gewählten
-    Speaker (die Warteschlange wird ersetzt).
+    Speaker (die Warteschlange wird ersetzt). Steht die Kategorie auf
+    „Kinder entscheiden“, fragen zwei große Bild-Knöpfe: „Der Reihe nach“
+    oder „Durcheinander“.
   - Senkrechte **Lautstärke-Leiste** rechts neben dem Cover mit 10 großen,
     nach oben breiter werdenden Stufen: Tippen oder Ziehen setzt die
     Lautstärke, + / − gehen eine Stufe weiter. Die oberste Stufe ist die
@@ -64,7 +67,14 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
   - **Kinder-Profile:** Profile anlegen, pro Profil ein Schalter „auf diesem
     Tablet aktiv“. Ein Tipp öffnet die Profil-Seite mit Name, **Icon**
     (16 gezeichnete Tiere, Einhorn, Pikachu) und der **Musikauswahl**:
-    Kategorien anlegen, umbenennen, sortieren und löschen. „Musik
+    Kategorien anlegen, umbenennen, sortieren und löschen. Pro Kategorie:
+    - ein **Bild**: ein zufälliges oder bestimmtes Cover aus der Kategorie,
+      eins der Speaker-Icons oder Tiere, oder ein **eigenes Foto** (Android-
+      Fotoauswahl, ohne Berechtigung; wird verkleinert in den App-Speicher
+      kopiert). Ohne Auswahl wird das erste Cover gezeigt.
+    - die **Abspielreihenfolge**: „Der Reihe nach“, „Zufällig“ oder „Kinder
+      entscheiden“. Gilt für Playlisten und Alben; Songs und Radio laufen
+      einfach los. „Musik
     hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
     Sonos-Playlisten) mit Suche und Filter nach Songs, Playlisten, Alben und
     Radio; ein Tipp nimmt einen Eintrag in die Kategorie auf oder wieder
@@ -156,6 +166,7 @@ nach einer erfolgreichen Erneuerung „Access-Token erneuert“.
 | Sonos-Favoriten / -Playlisten | `GET /households/{id}/favorites`, `GET /households/{id}/playlists` |
 | Titel einer Playlist | `POST /households/{id}/playlists/getPlaylist` |
 | Musik abspielen | `POST /groups/{id}/favorites`, `POST /groups/{id}/playlists` (`action: REPLACE`) |
+| Zufall an/aus, Start | `POST /groups/{id}/playback/playMode` (`shuffle`), `POST /groups/{id}/playback/play` |
 
 Die Wiedergabe wird alle 5 s abgefragt, solange die App im Vordergrund ist;
 dazwischen läuft die Position lokal weiter. Das Cover wird aus `imageUrl`
@@ -174,9 +185,15 @@ Gespeichert werden Id, Name und Cover. Sonos vergibt die Ids selbst. Hat
 sich die Id inzwischen geändert (Favorit gelöscht und neu angelegt), sucht
 die App beim Abspielen über den Namen.
 
+Für die Reihenfolge lädt die App die Musik erst, ohne sie zu starten, setzt
+dann den Zufallsmodus ausdrücklich an oder aus (sonst bliebe er vom letzten
+Mal an) und startet die Wiedergabe. Im Zufallsmodus springt sie vorher
+einen Titel weiter, damit nicht immer der erste Titel zuerst läuft. Radio
+wird ohne diese Schritte direkt gestartet.
+
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 4):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 5):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
@@ -184,7 +201,9 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 4):
   zuletzt gewählter Speaker und zuletzt gewähltes Profil
 - `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
   (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden)
-- `music_category` — Profil, Name, Position
+- `music_category` — Profil, Name, Position, Bild (`cover:…`, `icon:…`,
+  `animal:…`, `file:…` oder leer = automatisch), Abspielreihenfolge
+  (Bild und Reihenfolge seit Version 5, Migration `MIGRATION_4_5`)
 - `music_item` — Kategorie, Quelle (Favorit/Playlist), Sonos-Id, Name,
   Beschreibung, Cover-URL, Art (Song, Album, …), Position
 
@@ -202,7 +221,8 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
 | `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite mit Kategorien, Katalog-Auswahl |
-| `MusicCatalog.kt`, `MusicCover.kt` | Katalog-Einträge, Musik-Typen, Cover-Kachel |
+| `MusicCatalog.kt`, `MusicCover.kt` | Katalog-Einträge, Musik-Typen, Abspielreihenfolge, Kategorie-Bild, Cover-Kachel |
+| `CategoryImageStore.kt` | Eigene Kategorie-Bilder importieren (verkleinern, drehen) und löschen |
 | `SpeakerIcons.kt`, `CharacterIcons.kt` | Icon-Katalog, Einhorn und Pikachu |
 | `ProfileIcons.kt`, `AnimalIcons.kt` | Profil-Icons, gezeichnete Tiere |
 | `SonosApiClient.kt`, `SonosModels.kt` | Sonos-API inkl. Token-Erneuerung |

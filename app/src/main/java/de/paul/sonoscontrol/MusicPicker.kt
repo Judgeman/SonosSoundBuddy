@@ -1,5 +1,6 @@
 package de.paul.sonoscontrol
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,11 +22,14 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.FormatListNumbered
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.QuestionMark
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,9 +43,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -192,19 +201,33 @@ fun MusicChooserButton(
 }
 
 /**
- * Großes Popup mit der Musikauswahl des Profils: pro Kategorie eine Überschrift
- * und darunter große Cover-Kacheln. Ein Tipp spielt sofort auf dem gewählten Speaker.
+ * Großes Popup mit der Musikauswahl des Profils. Bei mehreren Kategorien
+ * kommen zuerst die Kategorien als große Bild-Kacheln, ein Tipp öffnet deren
+ * Musik. Ein Tipp auf die Musik spielt sie auf dem gewählten Speaker —
+ * bei „Kinder entscheiden" wird vorher gefragt: der Reihe nach oder durcheinander.
+ * [onPlay] bekommt die Wahl der Kinder (oder null = Einstellung der Kategorie).
  */
 @Composable
 fun MusicPickerDialog(
     profile: ProfileWithMusic,
-    onPlay: (MusicItem) -> Unit,
+    onPlay: (MusicItem, Boolean?) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val categories = profile.playableCategories
+    var openCategoryId by remember { mutableStateOf(categories.singleOrNull()?.category?.id) }
+    var askOrderFor by remember { mutableStateOf<MusicItem?>(null) }
+    val openCategory = categories.firstOrNull { it.category.id == openCategoryId }
+    val canGoBack = openCategory != null && categories.size > 1
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        // Zurück-Taste: erst die Frage schließen, dann zurück zu den Kategorien, dann Popup zu
+        BackHandler(enabled = askOrderFor != null || canGoBack) {
+            if (askOrderFor != null) askOrderFor = null else openCategoryId = null
+        }
+
         Surface(
             shape = RoundedCornerShape(32.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -218,10 +241,24 @@ fun MusicPickerDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
                 ) {
-                    ProfileIconBadge(profile.profile.icon, size = 64.dp)
+                    if (canGoBack) {
+                        FilledTonalIconButton(onClick = { openCategoryId = null }, modifier = Modifier.size(64.dp)) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Zurück",
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                    }
+                    if (openCategory != null) {
+                        CategoryImageView(openCategory, size = 64.dp)
+                    } else {
+                        ProfileIconBadge(profile.profile.icon, size = 64.dp)
+                    }
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
-                        "Musik für ${profile.profile.name}",
+                        openCategory?.category?.name ?: "Musik für ${profile.profile.name}",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -239,27 +276,44 @@ fun MusicPickerDialog(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)
                 ) {
-                    profile.playableCategories.forEach { category ->
-                        item(key = "header-${category.category.id}", span = { GridItemSpan(maxLineSpan) }) {
-                            Text(
-                                category.category.name,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
+                    if (openCategory == null) {
+                        items(categories, key = { "category-${it.category.id}" }) { category ->
+                            PickerTile(
+                                title = category.category.name,
+                                onClick = { openCategoryId = category.category.id }
+                            ) { CategoryImageView(category) }
                         }
-                        items(category.items, key = { "item-${it.id}" }) { item ->
-                            MusicTile(item = item, onClick = { onPlay(item) })
+                    } else {
+                        items(openCategory.items, key = { "item-${it.id}" }) { item ->
+                            PickerTile(
+                                title = item.name,
+                                onClick = {
+                                    val ask = openCategory.category.playOrderMode == PlayOrder.CHILD_CHOICE &&
+                                        item.musicType.hasMultipleTracks
+                                    if (ask) askOrderFor = item else onPlay(item, null)
+                                }
+                            ) { MusicCover(item.imageUrl, item.musicType) }
                         }
                     }
                 }
             }
         }
+
+        askOrderFor?.let { item ->
+            PlayOrderQuestion(
+                item = item,
+                onChoose = { shuffle ->
+                    askOrderFor = null
+                    onPlay(item, shuffle)
+                },
+                onDismiss = { askOrderFor = null }
+            )
+        }
     }
 }
 
 @Composable
-private fun MusicTile(item: MusicItem, onClick: () -> Unit) {
+private fun PickerTile(title: String, onClick: () -> Unit, image: @Composable () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -267,15 +321,75 @@ private fun MusicTile(item: MusicItem, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(4.dp)
     ) {
-        MusicCover(item.imageUrl, item.musicType)
+        image()
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            item.name,
+            title,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/** „Wie soll es laufen?" — zwei große Knöpfe mit Bildern, damit auch Kinder ohne Lesen wählen können. */
+@Composable
+private fun PlayOrderQuestion(item: MusicItem, onChoose: (shuffle: Boolean) -> Unit, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(32.dp), tonalElevation = 6.dp) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(24.dp)
+            ) {
+                MusicCover(item.imageUrl, item.musicType, size = 120.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    item.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OrderChoiceButton(
+                        icon = Icons.Rounded.FormatListNumbered,
+                        label = "Der Reihe nach",
+                        onClick = { onChoose(false) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    OrderChoiceButton(
+                        icon = Icons.Rounded.Shuffle,
+                        label = "Durcheinander",
+                        onClick = { onChoose(true) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrderChoiceButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Button(
+        onClick = onClick,
+        shape = RoundedCornerShape(28.dp),
+        contentPadding = PaddingValues(12.dp),
+        modifier = modifier.height(150.dp)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(72.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }

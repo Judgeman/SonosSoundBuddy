@@ -86,3 +86,62 @@ data class ProfileWithMusic(
     /** Kategorien, in denen etwas zum Abspielen steckt — nur die sehen die Kinder. */
     val playableCategories: List<CategoryWithMusic> get() = categories.filter { it.items.isNotEmpty() }
 }
+
+/** Wie die Musik einer Kategorie abgespielt wird. Der Enum-Name steht in der Datenbank. */
+enum class PlayOrder(val label: String) {
+    ORDERED("Der Reihe nach"),
+    SHUFFLE("Zufällig"),
+    CHILD_CHOICE("Kinder entscheiden");
+
+    companion object {
+        fun fromKey(key: String?): PlayOrder = entries.firstOrNull { it.name == key } ?: ORDERED
+    }
+}
+
+val MusicCategory.playOrderMode: PlayOrder get() = PlayOrder.fromKey(playOrder)
+
+/** Reihenfolge und Zufall haben nur bei Inhalten mit mehreren Titeln eine Bedeutung. */
+val MusicType.hasMultipleTracks: Boolean
+    get() = this == MusicType.PLAYLIST || this == MusicType.ALBUM || this == MusicType.OTHER
+
+/**
+ * Bild einer Kategorie. In der Datenbank als Text gespeichert, z. B.
+ * `cover:https://…`, `icon:ROCKET`, `animal:FOX` oder `file:/data/…/bild.jpg`.
+ * Ohne gewähltes Bild ([Auto]) wird das erste Cover der Kategorie gezeigt.
+ */
+sealed interface CategoryImage {
+    data object Auto : CategoryImage
+    data class Cover(val url: String) : CategoryImage
+    data class Icon(val icon: SpeakerIcon) : CategoryImage
+    data class Animal(val icon: ProfileIcon) : CategoryImage
+    data class File(val path: String) : CategoryImage
+
+    val key: String?
+        get() = when (this) {
+            Auto -> null
+            is Cover -> "cover:$url"
+            is Icon -> "icon:${icon.name}"
+            is Animal -> "animal:${icon.name}"
+            is File -> "file:$path"
+        }
+
+    companion object {
+        fun fromKey(key: String?): CategoryImage {
+            val kind = key?.substringBefore(':', missingDelimiterValue = "") ?: return Auto
+            val value = key.substringAfter(':')
+            return when (kind) {
+                "cover" -> Cover(value)
+                "icon" -> SpeakerIcon.entries.firstOrNull { it.name == value }?.let(::Icon) ?: Auto
+                "animal" -> ProfileIcon.entries.firstOrNull { it.name == value }?.let(::Animal) ?: Auto
+                "file" -> File(value)
+                else -> Auto
+            }
+        }
+    }
+}
+
+val MusicCategory.image: CategoryImage get() = CategoryImage.fromKey(imageKey)
+
+/** Covers der Einträge einer Kategorie, ohne Doppelte — Auswahl für das Kategorie-Bild. */
+val CategoryWithMusic.itemCovers: List<String>
+    get() = items.mapNotNull { it.imageUrl }.distinct()

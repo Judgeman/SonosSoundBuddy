@@ -55,7 +55,11 @@ data class MusicCategory(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val profileId: Long,
     val name: String,
-    val position: Int
+    val position: Int,
+    /** [CategoryImage]-Schlüssel, null = automatisch (erstes Cover). */
+    val imageKey: String? = null,
+    /** [PlayOrder]-Name. */
+    val playOrder: String = PlayOrder.ORDERED.name
 )
 
 /**
@@ -156,6 +160,18 @@ abstract class ProfileDao {
     @Query("UPDATE music_category SET name = :name WHERE id = :id")
     abstract suspend fun setCategoryName(id: Long, name: String)
 
+    @Query("UPDATE music_category SET imageKey = :imageKey WHERE id = :id")
+    abstract suspend fun setCategoryImage(id: Long, imageKey: String?)
+
+    @Query("UPDATE music_category SET playOrder = :playOrder WHERE id = :id")
+    abstract suspend fun setCategoryPlayOrder(id: Long, playOrder: String)
+
+    @Query("SELECT imageKey FROM music_category WHERE id = :id")
+    abstract suspend fun getCategoryImage(id: Long): String?
+
+    @Query("SELECT imageKey FROM music_category WHERE profileId = :profileId AND imageKey IS NOT NULL")
+    abstract suspend fun getCategoryImagesOfProfile(profileId: Long): List<String>
+
     @Query("UPDATE music_category SET position = :position WHERE id = :id")
     abstract suspend fun setCategoryPosition(id: Long, position: Int)
 
@@ -203,7 +219,7 @@ abstract class ProfileDao {
 
 @Database(
     entities = [SpeakerConfig::class, AppSetting::class, ChildProfile::class, MusicCategory::class, MusicItem::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -243,6 +259,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Ohne defaultValue in der Entity: Room vergleicht Defaults nur, wenn die Entity einen angibt
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE music_category ADD COLUMN imageKey TEXT")
+                db.execSQL("ALTER TABLE music_category ADD COLUMN playOrder TEXT NOT NULL DEFAULT 'ORDERED'")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -253,7 +277,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sound_buddy.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

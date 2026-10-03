@@ -19,11 +19,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import java.io.File
 
 val MusicType.icon: ImageVector
     get() = when (this) {
@@ -40,7 +42,14 @@ val MusicType.icon: ImageVector
  * Ohne [size] füllt es die verfügbare Breite.
  */
 @Composable
-fun MusicCover(imageUrl: String?, type: MusicType, modifier: Modifier = Modifier, size: Dp? = null) {
+fun MusicCover(
+    imageUrl: String?,
+    type: MusicType,
+    modifier: Modifier = Modifier,
+    size: Dp? = null,
+    /** [imageUrl] ist ein Pfad im App-Speicher (eigenes Kategorie-Bild). */
+    isFile: Boolean = false
+) {
     val shape = RoundedCornerShape(if (size != null && size < MusicCoverLargeThreshold) 8.dp else 20.dp)
     Box(
         contentAlignment = Alignment.Center,
@@ -58,7 +67,7 @@ fun MusicCover(imageUrl: String?, type: MusicType, modifier: Modifier = Modifier
         )
         if (imageUrl != null) {
             AsyncImage(
-                model = imageUrl,
+                model = if (isFile) File(imageUrl) else imageUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -68,3 +77,56 @@ fun MusicCover(imageUrl: String?, type: MusicType, modifier: Modifier = Modifier
 }
 
 private val MusicCoverLargeThreshold = 80.dp
+
+/**
+ * Quadratisches Bild einer Kategorie: Cover, eigenes Foto oder Icon.
+ * Automatisch = erstes Cover der Kategorie, sonst ein Musik-Symbol.
+ */
+@Composable
+fun CategoryImageView(category: CategoryWithMusic, modifier: Modifier = Modifier, size: Dp? = null) {
+    CategoryImageView(
+        image = category.category.image,
+        fallbackCover = category.itemCovers.firstOrNull(),
+        modifier = modifier,
+        size = size
+    )
+}
+
+@Composable
+fun CategoryImageView(image: CategoryImage, fallbackCover: String?, modifier: Modifier = Modifier, size: Dp? = null) {
+    val shape = RoundedCornerShape(if (size != null && size < MusicCoverLargeThreshold) 12.dp else 24.dp)
+    val sized = modifier
+        .then(if (size != null) Modifier.size(size) else Modifier.fillMaxWidth())
+        .aspectRatio(1f)
+        .clip(shape)
+
+    when (image) {
+        is CategoryImage.Icon -> Box(
+            contentAlignment = Alignment.Center,
+            modifier = sized.background(image.icon.color)
+        ) {
+            Icon(
+                imageVector = image.icon.vector,
+                contentDescription = null,
+                tint = if (image.icon.multicolor) Color.Unspecified else Color.White,
+                modifier = Modifier.fillMaxSize(if (image.icon.multicolor) 0.8f else 0.6f)
+            )
+        }
+
+        is CategoryImage.Animal -> Box(
+            contentAlignment = Alignment.Center,
+            modifier = sized.background(image.icon.color)
+        ) {
+            Icon(
+                imageVector = image.icon.vector,
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.fillMaxSize(0.85f)
+            )
+        }
+
+        is CategoryImage.Cover -> MusicCover(image.url, MusicType.OTHER, modifier = sized)
+        is CategoryImage.File -> MusicCover(image.path, MusicType.OTHER, modifier = sized, isFile = true)
+        CategoryImage.Auto -> MusicCover(fallbackCover, MusicType.OTHER, modifier = sized)
+    }
+}

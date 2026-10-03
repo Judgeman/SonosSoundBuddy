@@ -1,6 +1,11 @@
 package de.paul.sonoscontrol
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -19,11 +24,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,16 +41,21 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddCircleOutline
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ChildCare
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FormatListNumbered
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,17 +73,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -166,13 +186,33 @@ class ProfileEditorActions(
     val onDeleteCategory: (Long) -> Unit,
     val onMoveCategory: (Long, Int) -> Unit,
     val onAddMusic: (Long) -> Unit,
-    val onRemoveMusicItem: (Long) -> Unit
+    val onRemoveMusicItem: (Long) -> Unit,
+    val onCategoryImageChange: (Long, CategoryImage) -> Unit,
+    val onRandomCategoryCover: (Long) -> Unit,
+    val onImportCategoryImage: (Long, Uri) -> Unit,
+    val onPlayOrderChange: (Long, PlayOrder) -> Unit,
+    val onDismissImageError: () -> Unit
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileEditorScreen(profile: ProfileWithMusic, actions: ProfileEditorActions) {
+fun ProfileEditorScreen(profile: ProfileWithMusic, imageError: String?, actions: ProfileEditorActions) {
     val id = profile.profile.id
+    var imageDialogFor by remember { mutableStateOf<Long?>(null) }
+    // Kategorie, für die gerade die Android-Fotoauswahl offen ist
+    var importFor by rememberSaveable { mutableStateOf<Long?>(null) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val categoryId = importFor
+        if (uri != null && categoryId != null) actions.onImportCategoryImage(categoryId, uri)
+        importFor = null
+    }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(imageError) {
+        if (imageError != null) {
+            snackbarHostState.showSnackbar(imageError)
+            actions.onDismissImageError()
+        }
+    }
     var showIconPicker by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showNewCategory by remember { mutableStateOf(false) }
@@ -181,6 +221,7 @@ fun ProfileEditorScreen(profile: ProfileWithMusic, actions: ProfileEditorActions
     var deleteCategory by remember { mutableStateOf<CategoryWithMusic?>(null) }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(profile.profile.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -229,7 +270,9 @@ fun ProfileEditorScreen(profile: ProfileWithMusic, actions: ProfileEditorActions
                     onRename = { renameCategory = category.category },
                     onDelete = { deleteCategory = category },
                     onAddMusic = { actions.onAddMusic(category.category.id) },
-                    onRemoveItem = actions.onRemoveMusicItem
+                    onRemoveItem = actions.onRemoveMusicItem,
+                    onImageClick = { imageDialogFor = category.category.id },
+                    onPlayOrderChange = { actions.onPlayOrderChange(category.category.id, it) }
                 )
             }
 
@@ -253,6 +296,22 @@ fun ProfileEditorScreen(profile: ProfileWithMusic, actions: ProfileEditorActions
                     Text("Profil löschen")
                 }
             }
+        }
+    }
+
+    imageDialogFor?.let { categoryId ->
+        profile.categories.firstOrNull { it.category.id == categoryId }?.let { category ->
+            CategoryImageDialog(
+                category = category,
+                onSelect = { actions.onCategoryImageChange(categoryId, it) },
+                onRandomCover = { actions.onRandomCategoryCover(categoryId) },
+                onUploadClick = {
+                    importFor = categoryId
+                    imageDialogFor = null
+                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                onDismiss = { imageDialogFor = null }
+            )
         }
     }
 
@@ -388,7 +447,9 @@ private fun CategoryCard(
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onAddMusic: () -> Unit,
-    onRemoveItem: (Long) -> Unit
+    onRemoveItem: (Long) -> Unit,
+    onImageClick: () -> Unit,
+    onPlayOrderChange: (PlayOrder) -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -400,8 +461,27 @@ private fun CategoryCard(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp)
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp)
         ) {
+            Box(modifier = Modifier.clickable(onClick = onImageClick)) {
+                CategoryImageView(category, size = 72.dp)
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(2.dp)
+                        .size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Edit,
+                        contentDescription = "Bild ändern",
+                        modifier = Modifier.padding(4.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     category.category.name,
@@ -449,6 +529,12 @@ private fun CategoryCard(
             }
         }
 
+        PlayOrderSelector(
+            selected = category.category.playOrderMode,
+            onSelect = onPlayOrderChange,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+
         category.items.forEach { item ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -480,6 +566,167 @@ private fun CategoryCard(
             Spacer(modifier = Modifier.width(8.dp))
             Text("Musik hinzufügen")
         }
+    }
+}
+
+/** Abspielreihenfolge der Kategorie: der Reihe nach, zufällig oder die Kinder entscheiden lassen. */
+@Composable
+private fun PlayOrderSelector(selected: PlayOrder, onSelect: (PlayOrder) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            "Abspielen",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            PlayOrder.entries.forEach { order ->
+                FilterChip(
+                    selected = order == selected,
+                    onClick = { onSelect(order) },
+                    label = { Text(order.label) },
+                    leadingIcon = {
+                        Icon(order.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                )
+            }
+        }
+        if (selected == PlayOrder.CHILD_CHOICE) {
+            Text(
+                "Nach dem Antippen fragt die App mit zwei großen Knöpfen: der Reihe nach oder durcheinander. " +
+                    "Bei Songs und Radio wird nicht gefragt.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+val PlayOrder.icon: ImageVector
+    get() = when (this) {
+        PlayOrder.ORDERED -> Icons.Rounded.FormatListNumbered
+        PlayOrder.SHUFFLE -> Icons.Rounded.Shuffle
+        PlayOrder.CHILD_CHOICE -> Icons.Rounded.ChildCare
+    }
+
+/**
+ * Bild der Kategorie wählen: ein Cover aus der Kategorie (auch per Zufall),
+ * ein eigenes Foto vom Tablet oder eins der Icons.
+ */
+@Composable
+private fun CategoryImageDialog(
+    category: CategoryWithMusic,
+    onSelect: (CategoryImage) -> Unit,
+    onRandomCover: () -> Unit,
+    onUploadClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val current = category.category.image
+    val covers = category.itemCovers
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Bild für „${category.category.name}“") },
+        text = {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 76.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.heightIn(max = 520.dp)
+            ) {
+                fullWidthItem {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CategoryImageView(category, size = 96.dp)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Button(onClick = onRandomCover, enabled = covers.isNotEmpty()) {
+                                Icon(Icons.Rounded.Casino, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Zufälliges Cover")
+                            }
+                            OutlinedButton(onClick = onUploadClick) {
+                                Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Eigenes Bild")
+                            }
+                        }
+                    }
+                }
+
+                fullWidthItem { DialogSectionTitle("Cover aus der Kategorie") }
+                if (covers.isEmpty()) {
+                    fullWidthItem {
+                        Text(
+                            "Noch keine Cover — füge zuerst Musik hinzu.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                items(covers) { url ->
+                    SelectableImage(selected = current == CategoryImage.Cover(url), onClick = { onSelect(CategoryImage.Cover(url)) }) {
+                        CategoryImageView(CategoryImage.Cover(url), fallbackCover = null)
+                    }
+                }
+
+                fullWidthItem { DialogSectionTitle("Icons") }
+                items(SpeakerIcon.entries) { icon ->
+                    SelectableImage(selected = current == CategoryImage.Icon(icon), onClick = { onSelect(CategoryImage.Icon(icon)) }) {
+                        CategoryImageView(CategoryImage.Icon(icon), fallbackCover = null)
+                    }
+                }
+
+                fullWidthItem { DialogSectionTitle("Tiere") }
+                items(ProfileIcon.entries) { icon ->
+                    SelectableImage(selected = current == CategoryImage.Animal(icon), onClick = { onSelect(CategoryImage.Animal(icon)) }) {
+                        CategoryImageView(CategoryImage.Animal(icon), fallbackCover = null)
+                    }
+                }
+
+                fullWidthItem {
+                    TextButton(onClick = { onSelect(CategoryImage.Auto) }, enabled = current != CategoryImage.Auto) {
+                        Text("Automatisch (erstes Cover)")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fertig") }
+        }
+    )
+}
+
+private fun LazyGridScope.fullWidthItem(content: @Composable () -> Unit) =
+    item(span = { GridItemSpan(maxLineSpan) }) { content() }
+
+@Composable
+private fun DialogSectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 8.dp)
+    )
+}
+
+@Composable
+private fun SelectableImage(selected: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .then(
+                if (selected) {
+                    Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
+                } else {
+                    Modifier
+                }
+            )
+            .clickable(onClick = onClick)
+            .padding(4.dp)
+    ) {
+        content()
     }
 }
 

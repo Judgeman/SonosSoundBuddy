@@ -23,7 +23,10 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels {
         MainViewModelFactory(
             TokenStore(applicationContext),
-            SettingsRepository(AppDatabase.getInstance(applicationContext))
+            SettingsRepository(
+                AppDatabase.getInstance(applicationContext),
+                CategoryImageStore(applicationContext)
+            )
         )
     }
 
@@ -135,6 +138,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
             viewModel.editingProfile?.let { profile ->
                 ProfileEditorScreen(
                     profile = profile,
+                    imageError = viewModel.imageImportError,
                     actions = remember(viewModel) {
                         ProfileEditorActions(
                             onBack = viewModel::navigateBack,
@@ -147,7 +151,12 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                             onDeleteCategory = viewModel::deleteCategory,
                             onMoveCategory = viewModel::moveCategory,
                             onAddMusic = viewModel::openCatalog,
-                            onRemoveMusicItem = viewModel::removeMusicItem
+                            onRemoveMusicItem = viewModel::removeMusicItem,
+                            onCategoryImageChange = viewModel::setCategoryImage,
+                            onRandomCategoryCover = viewModel::pickRandomCategoryCover,
+                            onImportCategoryImage = viewModel::importCategoryImage,
+                            onPlayOrderChange = viewModel::setCategoryPlayOrder,
+                            onDismissImageError = viewModel::dismissImageImportError
                         )
                     }
                 )

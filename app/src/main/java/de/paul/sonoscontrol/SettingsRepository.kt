@@ -1,5 +1,6 @@
 package de.paul.sonoscontrol
 
+import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -19,7 +20,7 @@ data class AppSettings(
     val isLocked: Boolean get() = hasPassword && passwordRequired
 }
 
-class SettingsRepository(database: AppDatabase) {
+class SettingsRepository(database: AppDatabase, private val imageStore: CategoryImageStore) {
 
     private val speakerDao = database.speakerConfigDao()
     private val settingDao = database.appSettingDao()
@@ -117,7 +118,11 @@ class SettingsRepository(database: AppDatabase) {
     suspend fun setProfileEnabled(profileId: Long, enabled: Boolean) =
         profileDao.setProfileEnabled(profileId, enabled)
 
-    suspend fun deleteProfile(profileId: Long) = profileDao.deleteProfile(profileId)
+    suspend fun deleteProfile(profileId: Long) {
+        val images = profileDao.getCategoryImagesOfProfile(profileId)
+        profileDao.deleteProfile(profileId)
+        images.forEach { imageStore.delete(it) }
+    }
 
     suspend fun createCategory(profileId: Long, name: String): Long =
         profileDao.insertCategory(
@@ -130,7 +135,25 @@ class SettingsRepository(database: AppDatabase) {
 
     suspend fun setCategoryName(categoryId: Long, name: String) = profileDao.setCategoryName(categoryId, name.trim())
 
-    suspend fun deleteCategory(categoryId: Long) = profileDao.deleteCategory(categoryId)
+    suspend fun deleteCategory(categoryId: Long) {
+        val image = profileDao.getCategoryImage(categoryId)
+        profileDao.deleteCategory(categoryId)
+        imageStore.delete(image)
+    }
+
+    /** Setzt das Kategorie-Bild; ein vorher hochgeladenes eigenes Bild wird gelöscht. */
+    suspend fun setCategoryImage(categoryId: Long, image: CategoryImage) {
+        val previous = profileDao.getCategoryImage(categoryId)
+        profileDao.setCategoryImage(categoryId, image.key)
+        if (previous != image.key) imageStore.delete(previous)
+    }
+
+    /** Kopiert ein Bild vom Tablet in die App und setzt es als Kategorie-Bild. */
+    suspend fun importCategoryImage(categoryId: Long, uri: Uri) =
+        setCategoryImage(categoryId, CategoryImage.File(imageStore.import(uri, categoryId)))
+
+    suspend fun setCategoryPlayOrder(categoryId: Long, playOrder: PlayOrder) =
+        profileDao.setCategoryPlayOrder(categoryId, playOrder.name)
 
     /** Schreibt die Reihenfolge der Kategorien eines Profils neu (nach Verschieben). */
     suspend fun reorderCategories(orderedIds: List<Long>) =

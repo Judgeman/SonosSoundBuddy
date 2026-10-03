@@ -135,6 +135,10 @@ class MainViewModel(
     var playlistPreview: PlaylistPreview? by mutableStateOf(null)
         private set
 
+    /** Fehler beim Übernehmen eines eigenen Kategorie-Bilds, als Snackbar auf der Profil-Seite. */
+    var imageImportError: String? by mutableStateOf(null)
+        private set
+
     /** Wird gerade Musik aus der Auswahl gestartet? Zeigt auf dem Homescreen einen Ladekreis. */
     var isStartingMusic: Boolean by mutableStateOf(false)
         private set
@@ -551,17 +555,37 @@ class MainViewModel(
 
     /**
      * Spielt einen Eintrag aus der Musikauswahl auf dem gewählten Speaker ab.
-     * Die Warteschlange wird dabei ersetzt, die Musik startet sofort.
+     * Die Warteschlange wird dabei ersetzt. [shuffle] = null heißt: so, wie es
+     * in der Kategorie eingestellt ist (bei „Kinder entscheiden" kommt die Wahl
+     * der Kinder als true/false herein).
      */
-    fun playMusic(item: MusicItem) {
+    fun playMusic(item: MusicItem, shuffle: Boolean? = null) {
         val playerId = selectedPlayerId ?: return
         val household = householdId ?: return
+        val order = profiles.flatMap { it.categories }
+            .firstOrNull { it.category.id == item.categoryId }?.category?.playOrderMode ?: PlayOrder.ORDERED
+        val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
         isStartingMusic = true
         sendPlaybackCommand(refreshDelayMillis = MUSIC_REFRESH_DELAY_MS, onFinished = { isStartingMusic = false }) {
             val group = findGroup(household, playerId)
+            val type = item.musicType
+            // Radio hat keine Warteschlange — dort gibt es keine Reihenfolge, also direkt starten
+            val controlsOrder = type != MusicType.RADIO
             when (item.musicSource) {
-                MusicSource.FAVORITE -> apiClient.loadFavorite(group.id, resolveFavoriteId(household, item))
-                MusicSource.PLAYLIST -> apiClient.loadPlaylist(group.id, resolvePlaylistId(household, item))
+                MusicSource.FAVORITE ->
+                    apiClient.loadFavorite(group.id, resolveFavoriteId(household, item), play = !controlsOrder)
+                MusicSource.PLAYLIST ->
+                    apiClient.loadPlaylist(group.id, resolvePlaylistId(household, item), play = !controlsOrder)
+            }
+            if (controlsOrder) {
+                // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
+                // Klappt das nicht (manche Quellen erlauben es nicht), trotzdem abspielen.
+                val shuffled = useShuffle && type.hasMultipleTracks &&
+                    runCatching { apiClient.setShuffle(group.id, true) }.isSuccess
+                if (!shuffled) runCatching { apiClient.setShuffle(group.id, false) }
+                // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
+                if (shuffled) runCatching { apiClient.skipToNextTrack(group.id) }
+                apiClient.play(group.id)
             }
         }
     }
@@ -736,6 +760,39 @@ class MainViewModel(
     }
 
     /** Verschiebt eine Kategorie innerhalb ihres Profils um [offset] Plätze (−1 = nach oben). */
+    fun setCategoryImage(categoryId: Long, image: CategoryImage) {
+        viewModelScope.launch { repository.setCategoryImage(categoryId, image) }
+    }
+
+    /** Wählt per Zufall eins der Cover aus der Kategorie (möglichst ein anderes als das aktuelle). */
+    fun pickRandomCategoryCover(categoryId: Long) {
+        val category = profiles.flatMap { it.categories }.firstOrNull { it.category.id == categoryId } ?: return
+        val current = (category.category.image as? CategoryImage.Cover)?.url
+        val candidates = category.itemCovers.filter { it != current }.ifEmpty { category.itemCovers }
+        val url = candidates.randomOrNull() ?: return
+        setCategoryImage(categoryId, CategoryImage.Cover(url))
+    }
+
+    fun importCategoryImage(categoryId: Long, uri: Uri) {
+        viewModelScope.launch {
+            try {
+                repository.importCategoryImage(categoryId, uri)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                imageImportError = e.message ?: "Das Bild konnte nicht übernommen werden."
+            }
+        }
+    }
+
+    fun dismissImageImportError() {
+        imageImportError = null
+    }
+
+    fun setCategoryPlayOrder(categoryId: Long, playOrder: PlayOrder) {
+        viewModelScope.launch { repository.setCategoryPlayOrder(categoryId, playOrder) }
+    }
+
     fun moveCategory(categoryId: Long, offset: Int) {
         val categories = profiles.firstOrNull { profile -> profile.categories.any { it.category.id == categoryId } }
             ?.categories?.map { it.category.id } ?: return

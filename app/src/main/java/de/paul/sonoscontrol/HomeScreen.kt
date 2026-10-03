@@ -96,7 +96,7 @@ fun HomeScreen(
     selectedProfile: ProfileWithMusic?,
     isStartingMusic: Boolean,
     onSelectProfile: (Long) -> Unit,
-    onPlayMusic: (MusicItem) -> Unit,
+    onPlayMusic: (MusicItem, Boolean?) -> Unit,
     controls: PlaybackControls,
     onOpenSettings: () -> Unit,
     onLoginClick: () -> Unit,
@@ -309,7 +309,7 @@ private fun SpeakerHomeContent(
     selectedProfile: ProfileWithMusic?,
     isStartingMusic: Boolean,
     onSelectProfile: (Long) -> Unit,
-    onPlayMusic: (MusicItem) -> Unit,
+    onPlayMusic: (MusicItem, Boolean?) -> Unit,
     controls: PlaybackControls
 ) {
     var profileMenuExpanded by remember { mutableStateOf(false) }
@@ -383,9 +383,9 @@ private fun SpeakerHomeContent(
         SoundBuddyTheme {
             MusicPickerDialog(
                 profile = selectedProfile,
-                onPlay = { item ->
+                onPlay = { item, shuffle ->
                     showMusicPicker = false
-                    onPlayMusic(item)
+                    onPlayMusic(item, shuffle)
                 },
                 onDismiss = { showMusicPicker = false }
             )

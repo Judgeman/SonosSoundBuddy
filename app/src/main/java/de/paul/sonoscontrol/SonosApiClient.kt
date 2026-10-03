@@ -122,24 +122,36 @@ class SonosApiClient(
         return json.decodeFromString(PlaylistDetails.serializer(), body)
     }
 
-    /** Ersetzt die Warteschlange der Gruppe durch den Favoriten und spielt ihn sofort ab. */
-    suspend fun loadFavorite(groupId: String, favoriteId: String) {
+    /** Ersetzt die Warteschlange der Gruppe durch den Favoriten; [play] startet ihn sofort. */
+    suspend fun loadFavorite(groupId: String, favoriteId: String, play: Boolean = true) {
         val request = buildJsonObject {
             put("favoriteId", favoriteId)
-            put("playOnCompletion", true)
+            put("playOnCompletion", play)
             put("action", "REPLACE")
         }
         post("$baseUrl/groups/$groupId/favorites", request.toString())
     }
 
-    /** Ersetzt die Warteschlange der Gruppe durch die Playlist und spielt sie sofort ab. */
-    suspend fun loadPlaylist(groupId: String, playlistId: String) {
+    /** Ersetzt die Warteschlange der Gruppe durch die Playlist; [play] startet sie sofort. */
+    suspend fun loadPlaylist(groupId: String, playlistId: String, play: Boolean = true) {
         val request = buildJsonObject {
             put("playlistId", playlistId)
-            put("playOnCompletion", true)
+            put("playOnCompletion", play)
             put("action", "REPLACE")
         }
         post("$baseUrl/groups/$groupId/playlists", request.toString())
+    }
+
+    /** Zufallswiedergabe der Gruppe an- oder ausschalten (setPlayModes). */
+    suspend fun setShuffle(groupId: String, shuffle: Boolean) {
+        val request = buildJsonObject {
+            put("playModes", buildJsonObject { put("shuffle", shuffle) })
+        }
+        post("$baseUrl/groups/$groupId/playback/playMode", request.toString())
+    }
+
+    suspend fun play(groupId: String) {
+        post("$baseUrl/groups/$groupId/playback/play")
     }
 
     private suspend fun get(url: String): String =
