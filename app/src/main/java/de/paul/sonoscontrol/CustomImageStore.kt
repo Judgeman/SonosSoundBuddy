@@ -6,10 +6,14 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * Eigene Bilder für Kategorien und Musik-Einträge. Das gewählte Foto wird verkleinert in den
@@ -42,6 +46,38 @@ class CustomImageStore(context: Context) {
         val file = File(directory, "$name-${System.currentTimeMillis()}.jpg")
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
         file.absolutePath
+    }
+
+    /**
+     * Lädt ein Cover herunter und speichert es dauerhaft — für Adressen, die
+     * nur kurz gültig sind. Gibt den Pfad zurück oder null, wenn es nicht klappt.
+     */
+    suspend fun cacheCover(url: String, name: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val bytes = http.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                response.body?.bytes() ?: throw IOException("leere Antwort")
+            }
+            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: throw IOException("kein Bild")
+            directory.mkdirs()
+            val file = File(directory, "$name-${System.currentTimeMillis()}.jpg")
+            file.outputStream().use { scaleDown(decoded).compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            file.absolutePath
+        } catch (e: Exception) {
+            Log.d(TAG, "Cover nicht gespeichert ($url): ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Löscht gespeicherte Bilder, auf die nichts mehr verweist (z. B. Cover
+     * gelöschter Einträge). [referenced]: alle Pfade, die noch gebraucht werden.
+     */
+    suspend fun deleteUnreferenced(referenced: Set<String>) = withContext(Dispatchers.IO) {
+        listOf(directory, legacyDirectory).forEach { dir ->
+            dir.listFiles()?.filter { it.absolutePath !in referenced }?.forEach { it.delete() }
+        }
     }
 
     /** Löscht ein früher importiertes Bild; andere Bild-Arten werden ignoriert. */
@@ -84,7 +120,13 @@ class CustomImageStore(context: Context) {
         )
     }
 
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
     companion object {
+        private const val TAG = "Cover"
         private const val MAX_SIZE_PX = 768
     }
 }

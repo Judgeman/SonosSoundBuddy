@@ -204,15 +204,27 @@ abstract class ProfileDao {
     @Insert
     abstract suspend fun insertItem(item: MusicItem): Long
 
-    /** Cover eines Eintrags nachtragen, z. B. wenn es erst später bekannt wird. */
+    /** Einträge zu einem Katalog-Eintrag, deren Cover noch nicht auf dem Tablet gespeichert ist. */
     @Query(
-        "UPDATE music_item SET imageUrl = :imageUrl " +
-            "WHERE source = :source AND sonosId = :sonosId AND name = :name AND imageUrl IS NOT :imageUrl"
+        "SELECT * FROM music_item WHERE source = :source AND sonosId = :sonosId AND name = :name " +
+            "AND (imageUrl IS NULL OR imageUrl NOT LIKE '/%')"
     )
-    abstract suspend fun setItemImage(source: String, sonosId: String, name: String, imageUrl: String)
+    abstract suspend fun getItemsWithoutStoredCover(source: String, sonosId: String, name: String): List<MusicItem>
 
-    @Query("UPDATE music_item SET imageUrl = :imageUrl WHERE id = :id AND imageUrl IS NULL")
-    abstract suspend fun setMissingItemImage(id: Long, imageUrl: String)
+    @Query("SELECT * FROM music_item WHERE id = :id")
+    abstract suspend fun getItem(id: Long): MusicItem?
+
+    @Query("UPDATE music_item SET imageUrl = :imageUrl WHERE id = :id")
+    abstract suspend fun setItemImageUrl(id: Long, imageUrl: String?)
+
+    @Query("SELECT imageKey FROM music_category WHERE imageKey IS NOT NULL")
+    abstract suspend fun getAllCategoryImages(): List<String>
+
+    @Query("SELECT customImageKey FROM music_item WHERE customImageKey IS NOT NULL")
+    abstract suspend fun getAllItemCustomImages(): List<String>
+
+    @Query("SELECT imageUrl FROM music_item WHERE imageUrl IS NOT NULL")
+    abstract suspend fun getAllItemImageUrls(): List<String>
 
     @Query("DELETE FROM music_item WHERE id = :id")
     abstract suspend fun deleteItem(id: Long)

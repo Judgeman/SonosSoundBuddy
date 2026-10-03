@@ -48,6 +48,8 @@ data class NowPlaying(
     val title: String?,
     val subtitle: String?,
     val imageUrl: String?,
+    /** Cover der Playlist bzw. des Albums, falls Sonos eins liefert. */
+    val containerImageUrl: String? = null,
     val playbackState: String?,
     val positionMillis: Long,
     val durationMillis: Long?,
@@ -224,6 +226,10 @@ class MainViewModel(
             }
         }
         if (uiState is UiState.LoadingSpeakers) loadSpeakers()
+        viewModelScope.launch {
+            runCatching { repository.deleteUnusedImages() }
+                .onFailure { Log.w(TAG, "Aufräumen der Bilder fehlgeschlagen", it) }
+        }
     }
 
     /** Wird aus MainActivity.handleIntent() mit der sonoscontrol://callback-Uri aufgerufen. */
@@ -494,6 +500,7 @@ class MainViewModel(
                     ?: meta.streamInfo
                     ?: meta.container?.name?.takeIf { track?.name != null },
                 imageUrl = meta.coverUrl,
+                containerImageUrl = meta.containerCoverUrl,
                 playbackState = playback.playbackState,
                 positionMillis = playback.positionMillis,
                 durationMillis = track?.durationMillis?.takeIf { it > 0 },
@@ -572,11 +579,11 @@ class MainViewModel(
             refreshDelayMillis = MUSIC_REFRESH_DELAY_MS,
             onFinished = { isStartingMusic = false },
             // Liefert der Katalog kein Cover, wenigstens das beim Abspielen gezeigte merken
+            // Ist das Cover noch nicht auf dem Tablet gespeichert (z. B. abgelaufene Apple-Music-
+            // Adresse), das frische aus der Wiedergabe nehmen — für Playlisten das der Playlist
             onPlaying = { playing ->
-                val cover = playing.imageUrl
-                if (item.imageUrl == null && cover != null) {
-                    viewModelScope.launch { repository.setMissingMusicImage(item.id, cover) }
-                }
+                val cover = playing.containerImageUrl ?: playing.imageUrl
+                if (cover != null) viewModelScope.launch { repository.storeCoverFromPlayback(item.id, cover) }
             }
         ) {
             val group = findGroup(household, playerId)
@@ -865,13 +872,25 @@ class MainViewModel(
         // Cover direkt beim Speaker im Heimnetz holen — dieselben, die die Sonos-App zeigt.
         // Die Cloud liefert für Sonos-Playlisten nie eins und für manche Favoriten keins,
         // das sich laden lässt. Klappt das lokal nicht, bleibt es beim Cover aus der Cloud.
-        val local = localClient.loadCovers(addressHint = nowPlaying?.imageUrl) ?: return entries
+        // Abgelaufene Adressen (Apple Music: nur 24 h gültig) gar nicht erst versuchen.
+        val local = localClient.loadCovers(addressHint = nowPlaying?.imageUrl)
         return entries.map { entry ->
-            val cover = local.coverFor(entry) ?: return@map entry
+            val localCovers = local?.coversFor(entry).orEmpty()
+            val cloudCovers = imageUrlCandidates(entry.imageUrl)
             // Speaker-Cover zuerst, das aus der Cloud als Ersatz, falls es nicht lädt
+            val all = (localCovers + cloudCovers).distinct()
+            val usable = all.filterNot(::isExpiredUrl)
+            val origin = listOfNotNull(
+                "Speaker im Heimnetz".takeIf { localCovers.any { it in usable } },
+                "Sonos-Cloud".takeIf { cloudCovers.any { it in usable } }
+            ).joinToString(", sonst ").ifEmpty { null }
+            val expired = all.size - usable.size
             entry.copy(
-                imageUrl = joinImageUrls(listOf(cover) + imageUrlCandidates(entry.imageUrl)),
-                coverOrigin = if (entry.imageUrl == null) "Speaker im Heimnetz" else "Speaker im Heimnetz, sonst Sonos-Cloud"
+                imageUrl = joinImageUrls(usable),
+                coverOrigin = listOfNotNull(
+                    origin,
+                    "$expired abgelaufene Adresse(n) übersprungen".takeIf { expired > 0 }
+                ).joinToString(" · ").ifEmpty { null }
             )
         }
     }

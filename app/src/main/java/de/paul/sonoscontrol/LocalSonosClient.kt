@@ -19,22 +19,31 @@ import java.net.Inet4Address
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 
-/** Ein Eintrag aus dem lokalen Musik-Verzeichnis eines Speakers (Favorit oder Sonos-Playlist). */
-data class LocalEntry(val id: String, val title: String, val artUrl: String?)
+/**
+ * Ein Eintrag aus dem lokalen Musik-Verzeichnis eines Speakers (Favorit oder Sonos-Playlist).
+ * [freshArtUrl]: Cover über den Speaker selbst (`/getaa?u=<Inhalt>`) — er holt es jedes Mal
+ * frisch beim Musikdienst, auch wenn die gespeicherte [artUrl] längst abgelaufen ist.
+ */
+data class LocalEntry(val id: String, val title: String, val artUrl: String?, val freshArtUrl: String? = null)
 
 /** Cover aus dem Heimnetz, nach Sonos-Id und nach Name. */
 class LocalCovers(
     private val favorites: List<LocalEntry>,
     private val playlists: List<LocalEntry>
 ) {
-    /** Control-API-Id "13" entspricht lokal "FV:2/13" bzw. "SQ:13" — sonst über den Namen. */
-    fun coverFor(entry: CatalogEntry): String? {
+    /**
+     * Cover-Adressen für einen Katalog-Eintrag, beste zuerst. Control-API-Id "13"
+     * entspricht lokal "FV:2/13" bzw. "SQ:13" — sonst über den Namen.
+     */
+    fun coversFor(entry: CatalogEntry): List<String> {
         val (list, localId) = when (entry.source) {
             MusicSource.FAVORITE -> favorites to "FV:2/${entry.sonosId}"
             MusicSource.PLAYLIST -> playlists to "SQ:${entry.sonosId}"
         }
-        return list.firstOrNull { it.id == localId && it.title.equals(entry.name, ignoreCase = true) }?.artUrl
-            ?: list.firstOrNull { it.title.trim().equals(entry.name.trim(), ignoreCase = true) }?.artUrl
+        val local = list.firstOrNull { it.id == localId && it.title.equals(entry.name, ignoreCase = true) }
+            ?: list.firstOrNull { it.title.trim().equals(entry.name.trim(), ignoreCase = true) }
+            ?: return emptyList()
+        return listOfNotNull(local.artUrl, local.freshArtUrl)
     }
 }
 
@@ -68,9 +77,12 @@ class LocalSonosClient(context: Context) {
         return try {
             val favorites = browse(base, "FV:2")
             val playlists = browse(base, "SQ:").map { playlist ->
-                // Hat die Playlist selbst kein Bild, das Cover des ersten Titels nehmen
-                if (playlist.artUrl != null) playlist
-                else playlist.copy(artUrl = browse(base, playlist.id, count = 5).firstNotNullOfOrNull { it.artUrl })
+                // Hat die Playlist selbst kein Bild, die Cover der ersten Titel nehmen —
+                // die frische Adresse über den Speaker zuerst, die gespeicherte kann abgelaufen sein.
+                // (Die Abspiel-Adresse der Playlist selbst taugt nicht für /getaa.)
+                val art = playlist.artUrl ?: browse(base, playlist.id, count = 5)
+                    .firstNotNullOfOrNull { track -> track.freshArtUrl ?: track.artUrl }
+                playlist.copy(artUrl = art, freshArtUrl = null)
             }
             speakerBaseUrl = base
             Log.d(TAG, "Lokal ${favorites.size} Favoriten, ${playlists.size} Playlisten von $base")
@@ -176,6 +188,7 @@ class LocalSonosClient(context: Context) {
         var id: String? = null
         var title: String? = null
         var art: String? = null
+        var res: String? = null
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
             val name = parser.name?.substringAfter(':')
             when (parser.eventType) {
@@ -184,7 +197,10 @@ class LocalSonosClient(context: Context) {
                         id = parser.getAttributeValue(null, "id")
                         title = null
                         art = null
+                        res = null
                     }
+                    // Abspiel-Adresse des Inhalts, z. B. x-rincon-cpcontainer:…?sid=204&…
+                    "res" -> if (res == null) res = parser.nextText().trim().takeIf { it.isNotEmpty() }
                     "title" -> if (title == null) title = parser.nextText()
                     // Erstes Bild nehmen; relative Pfade (/getaa?…) liefert der Speaker selbst
                     "albumArtURI" -> if (art == null) {
@@ -195,7 +211,8 @@ class LocalSonosClient(context: Context) {
                 XmlPullParser.END_TAG -> if (name == "item" || name == "container") {
                     val entryId = id
                     val entryTitle = title
-                    if (entryId != null && entryTitle != null) entries += LocalEntry(entryId, entryTitle, art)
+                    val fresh = res?.let { "$base/getaa?s=1&u=" + java.net.URLEncoder.encode(it, "UTF-8") }
+                    if (entryId != null && entryTitle != null) entries += LocalEntry(entryId, entryTitle, art, fresh)
                     id = null
                 }
             }

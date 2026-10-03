@@ -200,6 +200,18 @@ nächste. Apple-Music-Vorlagen wie `{w}x{h}{c}.{f}` werden zu
 `600x600bb.jpg` ausgefüllt. Logcat-Tag:
 `SonosLocal`.
 
+**Abgelaufene Cover (Apple Music):** Apple liefert Cover als signierte
+Adressen, die nur 24 h gültig sind (`X-Amz-Date` + `X-Amz-Expires`). Sonos
+speichert die Adresse beim Anlegen des Favoriten und gibt danach immer
+dieselbe, längst abgelaufene aus (Antwort: 400). Deshalb:
+- abgelaufene Adressen werden erkannt und übersprungen,
+- der Speaker liefert über `/getaa?u=<Abspiel-Adresse>` ein frisches Cover
+  (die Abspiel-Adresse steht im `res` des lokalen Favoriten),
+- Cover werden beim Hinzufügen zur Auswahl **auf dem Tablet gespeichert**
+  (`custom_images/cover-item-…jpg`); fehlt eins, nimmt die App beim ersten
+  Abspielen das Cover der Playlist aus der Wiedergabe und speichert es.
+Nicht mehr benutzte Bilder räumt die App beim Start auf.
+
 **Fehlersuche:** Der ⓘ-Knopf an jedem Eintrag im Katalog zeigt Quelle,
 Id, woher das Cover kommt, jede bekannte Cover-URL mit Vorschau und ob sie
 sich laden lässt (sonst mit Fehlermeldung) sowie die Rohdaten von Sonos.
