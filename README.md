@@ -200,9 +200,10 @@ nächste. Apple-Music-Vorlagen wie `{w}x{h}{c}.{f}` werden zu
 `600x600bb.jpg` ausgefüllt. Logcat-Tag:
 `SonosLocal`.
 
-**Fehlersuche:** Langes Drücken auf einen Eintrag im Katalog zeigt Quelle,
+**Fehlersuche:** Der ⓘ-Knopf an jedem Eintrag im Katalog zeigt Quelle,
 Id, woher das Cover kommt, jede bekannte Cover-URL mit Vorschau und ob sie
 sich laden lässt (sonst mit Fehlermeldung) sowie die Rohdaten von Sonos.
+„Kopieren“ legt alles als Text in die Zwischenablage.
 
 Darüber hinaus sucht die App im ganzen Favoriten (`imageUrl`, `images`, auch an
 `resource` oder verschachtelt, nicht aber das Logo des Musikdienstes) und
