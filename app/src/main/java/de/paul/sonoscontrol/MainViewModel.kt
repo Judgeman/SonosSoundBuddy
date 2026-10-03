@@ -82,6 +82,24 @@ class MainViewModel(
     var playbackError: String? by mutableStateOf(null)
         private set
 
+    /** Die aktuelle Fehlermeldung wurde mit „Okay" weggeklickt. */
+    private var playbackErrorDismissed: Boolean by mutableStateOf(false)
+
+    /**
+     * Fehler, der groß über dem Homescreen angezeigt wird. Einmal weggeklickt,
+     * erscheint derselbe Fehler erst wieder, wenn zwischendurch alles geklappt hat
+     * oder ein anderer Fehler auftritt — sonst ploppt er bei jeder Abfrage neu auf.
+     */
+    val visiblePlaybackError: String?
+        get() = playbackError?.takeUnless { playbackErrorDismissed }
+
+    var isRefreshingSpeakers: Boolean by mutableStateOf(false)
+        private set
+
+    /** Ergebnis von „Speaker-Liste aktualisieren", als Snackbar in den Settings angezeigt. */
+    var speakerRefreshMessage: String? by mutableStateOf(null)
+        private set
+
     var showPasswordPrompt: Boolean by mutableStateOf(false)
         private set
 
@@ -167,11 +185,7 @@ class MainViewModel(
         uiState = UiState.LoadingSpeakers
         viewModelScope.launch {
             uiState = try {
-                val id = apiClient.getFirstHouseholdId()
-                householdId = id
-                val players = apiClient.getPlayers(id)
-                repository.syncPlayers(players)
-                UiState.SpeakerList(players)
+                UiState.SpeakerList(fetchAndSyncPlayers().players)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -182,6 +196,50 @@ class MainViewModel(
             }
             updateSelection()
         }
+    }
+
+    private class SyncResult(val players: List<SonosPlayer>, val added: Int)
+
+    private suspend fun fetchAndSyncPlayers(): SyncResult {
+        val id = apiClient.getFirstHouseholdId()
+        householdId = id
+        val players = apiClient.getPlayers(id)
+        return SyncResult(players, repository.syncPlayers(players))
+    }
+
+    /** Lädt die Speaker des Haushalts neu (Knopf in den Settings), ohne den Bildschirm zu wechseln. */
+    fun refreshSpeakers() {
+        if (isRefreshingSpeakers) return
+        isRefreshingSpeakers = true
+        speakerRefreshMessage = null
+        viewModelScope.launch {
+            try {
+                val result = fetchAndSyncPlayers()
+                val foundIds = result.players.map { it.id }.toSet()
+                val missing = speakerConfigs.count { it.playerId !in foundIds }
+                uiState = UiState.SpeakerList(result.players)
+                updateSelection()
+                speakerRefreshMessage = describeRefresh(result.added, missing)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
+            } catch (e: Exception) {
+                speakerRefreshMessage = "Speaker-Liste konnte nicht geladen werden: " +
+                    (e.message ?: "Unbekannter Fehler")
+            } finally {
+                isRefreshingSpeakers = false
+            }
+        }
+    }
+
+    private fun describeRefresh(added: Int, missing: Int): String {
+        val found = when (added) {
+            0 -> "Keine neuen Speaker gefunden"
+            1 -> "1 neuer Speaker gefunden"
+            else -> "$added neue Speaker gefunden"
+        }
+        return if (missing > 0) "$found · $missing nicht erreichbar" else found
     }
 
     fun logout() = signOut(reason = null)
@@ -196,7 +254,7 @@ class MainViewModel(
         householdId = null
         selectedPlayerId = null
         nowPlaying = null
-        playbackError = null
+        clearPlaybackError()
         screen = Screen.Home
         uiState = UiState.LoggedOut(reason)
     }
@@ -255,7 +313,7 @@ class MainViewModel(
     private fun restartPolling() {
         stopPolling()
         nowPlaying = null
-        playbackError = null
+        clearPlaybackError()
         val playerId = selectedPlayerId ?: return
         val household = householdId ?: return
         if (!isInForeground || screen != Screen.Home) return
@@ -276,18 +334,33 @@ class MainViewModel(
                     if (SystemClock.elapsedRealtime() - lastCommandAtMillis > COMMAND_REFRESH_DELAY_MS) {
                         nowPlaying = fetched
                     }
-                    playbackError = null
+                    clearPlaybackError()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: SessionExpiredException) {
                     handleSessionExpired(e)
                     return@launch
                 } catch (e: Exception) {
-                    playbackError = e.message ?: "Wiedergabe konnte nicht geladen werden"
+                    reportPlaybackError(e.message ?: "Wiedergabe konnte nicht geladen werden")
                 }
                 delay(POLL_INTERVAL_MS)
             }
         }
+    }
+
+    /** [userAction]: ein Knopfdruck ist fehlgeschlagen → Meldung immer (wieder) zeigen. */
+    private fun reportPlaybackError(message: String, userAction: Boolean = false) {
+        if (userAction || message != playbackError) playbackErrorDismissed = false
+        playbackError = message
+    }
+
+    private fun clearPlaybackError() {
+        playbackError = null
+        playbackErrorDismissed = false
+    }
+
+    fun dismissPlaybackError() {
+        playbackErrorDismissed = true
     }
 
     private suspend fun fetchNowPlaying(householdId: String, playerId: String): NowPlaying =
@@ -370,7 +443,7 @@ class MainViewModel(
             } catch (e: SessionExpiredException) {
                 handleSessionExpired(e)
             } catch (e: Exception) {
-                playbackError = e.message ?: "Lautstärke konnte nicht geändert werden"
+                reportPlaybackError(e.message ?: "Lautstärke konnte nicht geändert werden", userAction = true)
             }
         }
     }
@@ -387,14 +460,14 @@ class MainViewModel(
                 delay(COMMAND_REFRESH_DELAY_MS)
                 if (selectedPlayerId == playerId) {
                     nowPlaying = fetchNowPlaying(household, playerId)
-                    playbackError = null
+                    clearPlaybackError()
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
                 handleSessionExpired(e)
             } catch (e: Exception) {
-                playbackError = e.message ?: "Befehl konnte nicht gesendet werden"
+                reportPlaybackError(e.message ?: "Befehl konnte nicht gesendet werden", userAction = true)
             }
         }
     }
@@ -434,6 +507,9 @@ class MainViewModel(
 
     fun closeSettings() {
         screen = Screen.Home
+        speakerRefreshMessage = null
+        // Neue Speaker wurden in den Settings gesehen → beim nächsten Mal nicht mehr „Neu"
+        viewModelScope.launch { repository.clearNewFlags() }
         restartPolling()
     }
 
@@ -443,6 +519,10 @@ class MainViewModel(
 
     fun setSpeakerMaxVolume(playerId: String, maxVolume: Int) {
         viewModelScope.launch { repository.setSpeakerMaxVolume(playerId, maxVolume) }
+    }
+
+    fun deleteSpeaker(playerId: String) {
+        viewModelScope.launch { repository.deleteSpeaker(playerId) }
     }
 
     fun setSpeakerIcon(playerId: String, icon: SpeakerIcon) {

@@ -1,8 +1,16 @@
 package de.paul.sonoscontrol
 
 import android.util.Log
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +35,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SentimentVeryDissatisfied
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
@@ -80,6 +89,8 @@ fun HomeScreen(
     nowPlaying: NowPlaying?,
     maxVolume: Int,
     playbackError: String?,
+    visiblePlaybackError: String?,
+    onDismissPlaybackError: () -> Unit,
     onSelectSpeaker: (String) -> Unit,
     controls: PlaybackControls,
     onOpenSettings: () -> Unit,
@@ -91,52 +102,59 @@ fun HomeScreen(
     val coverColors = rememberCoverColors(if (showsPlayback) nowPlaying?.imageUrl else null)
 
     CoverTheme(colors = if (showsPlayback) coverColors else null) { background ->
-        Scaffold(
-            containerColor = Color.Transparent,
-            modifier = Modifier.background(background),
-            topBar = {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                    title = { Text("Sound Buddy") },
-                    actions = {
-                        Box {
-                            IconButton(onClick = { menuExpanded = true }) {
-                                Icon(Icons.Rounded.MoreVert, contentDescription = "Menü")
-                            }
-                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Einstellungen") },
-                                    leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onOpenSettings()
-                                    }
-                                )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                containerColor = Color.Transparent,
+                modifier = Modifier.background(background),
+                topBar = {
+                    TopAppBar(
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                        title = { Text("Sound Buddy") },
+                        actions = {
+                            Box {
+                                IconButton(onClick = { menuExpanded = true }) {
+                                    Icon(Icons.Rounded.MoreVert, contentDescription = "Menü")
+                                }
+                                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Einstellungen") },
+                                        leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onOpenSettings()
+                                        }
+                                    )
+                                }
                             }
                         }
-                    }
-                )
-            }
-        ) { padding ->
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                when (state) {
-                    is UiState.LoggedOut -> LoggedOutContent(state.reason, onLoginClick)
-                    is UiState.LoadingSpeakers -> CircularProgressIndicator()
-                    is UiState.Error -> ErrorContent(state.message, onRetryClick)
-                    is UiState.SpeakerList -> SpeakerHomeContent(
-                        speakers = speakers,
-                        selectedSpeaker = selectedSpeaker,
-                        nowPlaying = nowPlaying,
-                        maxVolume = maxVolume,
-                        playbackError = playbackError,
-                        onSelectSpeaker = onSelectSpeaker,
-                        controls = controls
                     )
                 }
+            ) { padding ->
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when (state) {
+                        is UiState.LoggedOut -> LoggedOutContent(state.reason, onLoginClick)
+                        is UiState.LoadingSpeakers -> CircularProgressIndicator()
+                        is UiState.Error -> ErrorContent(state.message, onRetryClick)
+                        is UiState.SpeakerList -> SpeakerHomeContent(
+                            speakers = speakers,
+                            selectedSpeaker = selectedSpeaker,
+                            nowPlaying = nowPlaying,
+                            maxVolume = maxVolume,
+                            playbackError = playbackError,
+                            onSelectSpeaker = onSelectSpeaker,
+                            controls = controls
+                        )
+                    }
+                }
             }
+
+            ErrorOverlay(
+                message = visiblePlaybackError.takeIf { state is UiState.SpeakerList },
+                onDismiss = onDismissPlaybackError
+            )
         }
     }
 }
@@ -157,13 +175,115 @@ private fun LoggedOutContent(reason: String?, onLoginClick: () -> Unit) {
 
 @Composable
 private fun ErrorContent(message: String, onRetryClick: () -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    ErrorCard(
+        message = message,
+        buttonText = "Nochmal versuchen",
+        onButtonClick = onRetryClick,
         modifier = Modifier.padding(24.dp)
+    )
+}
+
+/**
+ * Großer, nicht zu übersehender Hinweis über dem ganzen Bildschirm, wenn bei der
+ * Wiedergabe etwas schiefgeht. Bleibt stehen, bis jemand „Okay" drückt — so
+ * bemerken die Kinder ihn und können den Text einem Erwachsenen zeigen.
+ */
+@OptIn(ExperimentalAnimationApi::class)
+@Composable
+private fun ErrorOverlay(message: String?, onDismiss: () -> Unit) {
+    // Letzte Meldung merken, damit sie beim Ausblenden nicht schon leer ist
+    var lastMessage by remember { mutableStateOf("") }
+    if (message != null) lastMessage = message
+
+    if (message != null) BackHandler(onBack = onDismiss)
+
+    AnimatedVisibility(visible = message != null, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                // Tipps neben die Meldung nicht an die Knöpfe darunter durchreichen
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                .padding(24.dp)
+        ) {
+            ErrorCard(
+                message = lastMessage,
+                buttonText = "Okay",
+                onButtonClick = onDismiss,
+                modifier = Modifier.animateEnterExit(enter = scaleIn(initialScale = 0.8f), exit = scaleOut(targetScale = 0.8f))
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorCard(
+    message: String,
+    buttonText: String,
+    onButtonClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(32.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        modifier = modifier.fillMaxWidth()
     ) {
-        Text("Fehler: $message", textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onRetryClick) { Text("Erneut versuchen") }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp)
+        ) {
+            Icon(
+                Icons.Rounded.SentimentVeryDissatisfied,
+                contentDescription = null,
+                modifier = Modifier.size(96.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Ups! Da hat etwas nicht geklappt.",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Zeig das bitte einem Erwachsenen:",
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = onButtonClick,
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+            ) {
+                Text(buttonText, style = MaterialTheme.typography.titleLarge)
+            }
+        }
     }
 }
 
@@ -200,7 +320,6 @@ private fun SpeakerHomeContent(
             nowPlaying != null -> NowPlayingContent(
                 nowPlaying = nowPlaying,
                 maxVolume = maxVolume,
-                playbackError = playbackError,
                 controls = controls,
                 modifier = Modifier.weight(1f)
             )
@@ -317,7 +436,6 @@ class PlaybackControls(
 private fun NowPlayingContent(
     nowPlaying: NowPlaying,
     maxVolume: Int,
-    playbackError: String?,
     controls: PlaybackControls,
     modifier: Modifier = Modifier
 ) {
@@ -417,17 +535,6 @@ private fun NowPlayingContent(
 
         Spacer(modifier = Modifier.height(8.dp))
         PlaybackButtons(nowPlaying = nowPlaying, controls = controls)
-
-        if (playbackError != null) {
-            Text(
-                text = playbackError,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
     }
 }
 

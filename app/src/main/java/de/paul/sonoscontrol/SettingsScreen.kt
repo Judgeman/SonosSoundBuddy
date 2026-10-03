@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -22,10 +24,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -35,12 +41,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +63,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -65,7 +76,11 @@ fun SettingsScreen(
     availablePlayerIds: Set<String>?,
     settings: AppSettings,
     isLoggedIn: Boolean,
+    isRefreshingSpeakers: Boolean,
+    speakerRefreshMessage: String?,
     onBack: () -> Unit,
+    onRefreshSpeakers: () -> Unit,
+    onDeleteSpeaker: (String) -> Unit,
     onSpeakerEnabledChange: (String, Boolean) -> Unit,
     onSpeakerIconChange: (String, SpeakerIcon) -> Unit,
     onSpeakerMaxVolumeChange: (String, Int) -> Unit,
@@ -75,8 +90,16 @@ fun SettingsScreen(
     onLogout: () -> Unit
 ) {
     var iconPickerFor by remember { mutableStateOf<SpeakerConfig?>(null) }
+    var deleteConfirmFor by remember { mutableStateOf<SpeakerConfig?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Das ViewModel leert die Meldung vor jedem neuen Aktualisieren, gleiche Texte erscheinen also erneut
+    LaunchedEffect(speakerRefreshMessage) {
+        speakerRefreshMessage?.let { snackbarHostState.showSnackbar(it) }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Einstellungen") },
@@ -98,6 +121,21 @@ fun SettingsScreen(
                     description = "Lege fest, welche Speaker auf dem Startbildschirm auswählbar sind " +
                         "und wie laut sie höchstens werden dürfen. Tippe auf ein Icon, um es zu ändern."
                 )
+                if (isLoggedIn) {
+                    OutlinedButton(
+                        onClick = onRefreshSpeakers,
+                        enabled = !isRefreshingSpeakers,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    ) {
+                        if (isRefreshingSpeakers) {
+                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        } else {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Speaker-Liste aktualisieren")
+                    }
+                }
             }
             if (speakers.isEmpty()) {
                 item {
@@ -107,7 +145,8 @@ fun SettingsScreen(
                     )
                 }
             }
-            items(speakers, key = { it.playerId }) { speaker ->
+            // Neu gefundene Speaker oben, damit sie auffallen
+            items(speakers.sortedByDescending { it.isNew }, key = { it.playerId }) { speaker ->
                 val reachable = availablePlayerIds == null || speaker.playerId in availablePlayerIds
                 ListItem(
                     leadingContent = {
@@ -116,10 +155,40 @@ fun SettingsScreen(
                             modifier = Modifier.clickable { iconPickerFor = speaker }
                         )
                     },
-                    headlineContent = { Text(speaker.name, style = MaterialTheme.typography.titleMedium) },
+                    headlineContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                speaker.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (speaker.isNew) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                NewBadge()
+                            }
+                        }
+                    },
                     supportingContent = {
                         Column {
-                            Text(if (reachable) speaker.icon.label else "Gerade nicht erreichbar")
+                            if (reachable) {
+                                Text(speaker.icon.label)
+                            } else {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Gerade nicht erreichbar", modifier = Modifier.weight(1f))
+                                    TextButton(
+                                        onClick = { deleteConfirmFor = speaker },
+                                        colors = ButtonDefaults.textButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error
+                                        )
+                                    ) {
+                                        Icon(Icons.Rounded.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Entfernen")
+                                    }
+                                }
+                            }
                             MaxVolumeSlider(
                                 maxVolume = speaker.maxVolume,
                                 onMaxVolumeChange = { onSpeakerMaxVolumeChange(speaker.playerId, it) }
@@ -177,6 +246,47 @@ fun SettingsScreen(
                 iconPickerFor = null
             },
             onDismiss = { iconPickerFor = null }
+        )
+    }
+
+    deleteConfirmFor?.let { speaker ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirmFor = null },
+            icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+            title = { Text("${speaker.name} entfernen?") },
+            text = {
+                Text(
+                    "Icon und maximale Lautstärke dieses Speakers werden gelöscht. Taucht er später " +
+                        "wieder auf, erscheint er als neuer, noch nicht freigegebener Speaker."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteSpeaker(speaker.playerId)
+                    deleteConfirmFor = null
+                }) {
+                    Text("Entfernen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmFor = null }) { Text("Abbrechen") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun NewBadge() {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary
+    ) {
+        Text(
+            "Neu",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
         )
     }
 }
