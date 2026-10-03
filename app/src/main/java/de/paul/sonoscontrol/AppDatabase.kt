@@ -10,7 +10,6 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -131,135 +130,122 @@ interface AppSettingDao {
 }
 
 @Dao
-abstract class ProfileDao {
+interface ProfileDao {
     @Query("SELECT * FROM child_profile ORDER BY name COLLATE NOCASE, id")
-    abstract fun observeProfiles(): Flow<List<ChildProfile>>
+    fun observeProfiles(): Flow<List<ChildProfile>>
 
     @Query("SELECT * FROM music_category ORDER BY position, id")
-    abstract fun observeCategories(): Flow<List<MusicCategory>>
+    fun observeCategories(): Flow<List<MusicCategory>>
 
     @Query("SELECT * FROM music_item ORDER BY position, id")
-    abstract fun observeItems(): Flow<List<MusicItem>>
+    fun observeItems(): Flow<List<MusicItem>>
 
     @Insert
-    abstract suspend fun insertProfile(profile: ChildProfile): Long
+    suspend fun insertProfile(profile: ChildProfile): Long
 
     @Query("UPDATE child_profile SET name = :name WHERE id = :id")
-    abstract suspend fun setProfileName(id: Long, name: String)
+    suspend fun setProfileName(id: Long, name: String)
 
     @Query("UPDATE child_profile SET iconKey = :iconKey WHERE id = :id")
-    abstract suspend fun setProfileIcon(id: Long, iconKey: String)
+    suspend fun setProfileIcon(id: Long, iconKey: String)
 
     @Query("UPDATE child_profile SET enabled = :enabled WHERE id = :id")
-    abstract suspend fun setProfileEnabled(id: Long, enabled: Boolean)
+    suspend fun setProfileEnabled(id: Long, enabled: Boolean)
 
     @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM music_category WHERE profileId = :profileId")
-    abstract suspend fun nextCategoryPosition(profileId: Long): Int
+    suspend fun nextCategoryPosition(profileId: Long): Int
 
     @Insert
-    abstract suspend fun insertCategory(category: MusicCategory): Long
+    suspend fun insertCategory(category: MusicCategory): Long
 
     @Query("UPDATE music_category SET name = :name WHERE id = :id")
-    abstract suspend fun setCategoryName(id: Long, name: String)
+    suspend fun setCategoryName(id: Long, name: String)
 
     @Query("UPDATE music_category SET imageKey = :imageKey WHERE id = :id")
-    abstract suspend fun setCategoryImage(id: Long, imageKey: String?)
+    suspend fun setCategoryImage(id: Long, imageKey: String?)
 
     @Query("UPDATE music_category SET playOrder = :playOrder WHERE id = :id")
-    abstract suspend fun setCategoryPlayOrder(id: Long, playOrder: String)
+    suspend fun setCategoryPlayOrder(id: Long, playOrder: String)
 
     @Query("SELECT imageKey FROM music_category WHERE id = :id")
-    abstract suspend fun getCategoryImage(id: Long): String?
+    suspend fun getCategoryImage(id: Long): String?
 
     @Query("SELECT imageKey FROM music_category WHERE profileId = :profileId AND imageKey IS NOT NULL")
-    abstract suspend fun getCategoryImagesOfProfile(profileId: Long): List<String>
+    suspend fun getCategoryImagesOfProfile(profileId: Long): List<String>
 
     @Query("UPDATE music_item SET customImageKey = :imageKey WHERE id = :id")
-    abstract suspend fun setItemCustomImage(id: Long, imageKey: String?)
+    suspend fun setItemCustomImage(id: Long, imageKey: String?)
 
     @Query("SELECT customImageKey FROM music_item WHERE id = :id")
-    abstract suspend fun getItemCustomImage(id: Long): String?
+    suspend fun getItemCustomImage(id: Long): String?
 
     @Query("SELECT customImageKey FROM music_item WHERE categoryId = :categoryId AND customImageKey IS NOT NULL")
-    abstract suspend fun getItemImagesOfCategory(categoryId: Long): List<String>
+    suspend fun getItemImagesOfCategory(categoryId: Long): List<String>
 
     @Query(
         "SELECT customImageKey FROM music_item WHERE customImageKey IS NOT NULL AND categoryId IN " +
             "(SELECT id FROM music_category WHERE profileId = :profileId)"
     )
-    abstract suspend fun getItemImagesOfProfile(profileId: Long): List<String>
+    suspend fun getItemImagesOfProfile(profileId: Long): List<String>
 
     @Query(
         "SELECT customImageKey FROM music_item WHERE categoryId = :categoryId AND source = :source " +
             "AND sonosId = :sonosId AND customImageKey IS NOT NULL"
     )
-    abstract suspend fun getItemImagesFor(categoryId: Long, source: String, sonosId: String): List<String>
+    suspend fun getItemImagesFor(categoryId: Long, source: String, sonosId: String): List<String>
 
     @Query("UPDATE music_category SET position = :position WHERE id = :id")
-    abstract suspend fun setCategoryPosition(id: Long, position: Int)
+    suspend fun setCategoryPosition(id: Long, position: Int)
 
     @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM music_item WHERE categoryId = :categoryId")
-    abstract suspend fun nextItemPosition(categoryId: Long): Int
+    suspend fun nextItemPosition(categoryId: Long): Int
 
     @Insert
-    abstract suspend fun insertItem(item: MusicItem): Long
+    suspend fun insertItem(item: MusicItem): Long
 
     /** Einträge zu einem Katalog-Eintrag, deren Cover noch nicht auf dem Tablet gespeichert ist. */
     @Query(
         "SELECT * FROM music_item WHERE source = :source AND sonosId = :sonosId AND name = :name " +
             "AND (imageUrl IS NULL OR imageUrl NOT LIKE '/%')"
     )
-    abstract suspend fun getItemsWithoutStoredCover(source: String, sonosId: String, name: String): List<MusicItem>
+    suspend fun getItemsWithoutStoredCover(source: String, sonosId: String, name: String): List<MusicItem>
 
     @Query("SELECT * FROM music_item WHERE id = :id")
-    abstract suspend fun getItem(id: Long): MusicItem?
+    suspend fun getItem(id: Long): MusicItem?
 
     @Query("UPDATE music_item SET imageUrl = :imageUrl WHERE id = :id")
-    abstract suspend fun setItemImageUrl(id: Long, imageUrl: String?)
+    suspend fun setItemImageUrl(id: Long, imageUrl: String?)
 
     @Query("SELECT imageKey FROM music_category WHERE imageKey IS NOT NULL")
-    abstract suspend fun getAllCategoryImages(): List<String>
+    suspend fun getAllCategoryImages(): List<String>
 
     @Query("SELECT customImageKey FROM music_item WHERE customImageKey IS NOT NULL")
-    abstract suspend fun getAllItemCustomImages(): List<String>
+    suspend fun getAllItemCustomImages(): List<String>
 
     @Query("SELECT imageUrl FROM music_item WHERE imageUrl IS NOT NULL")
-    abstract suspend fun getAllItemImageUrls(): List<String>
+    suspend fun getAllItemImageUrls(): List<String>
 
     @Query("DELETE FROM music_item WHERE id = :id")
-    abstract suspend fun deleteItem(id: Long)
+    suspend fun deleteItem(id: Long)
 
     @Query("DELETE FROM music_item WHERE categoryId = :categoryId AND source = :source AND sonosId = :sonosId")
-    abstract suspend fun deleteItemFromCategory(categoryId: Long, source: String, sonosId: String)
+    suspend fun deleteItemFromCategory(categoryId: Long, source: String, sonosId: String)
 
-    // Ohne Foreign Keys: Kategorien und Einträge werden von Hand mitgelöscht
-    @Transaction
-    open suspend fun deleteCategory(id: Long) {
-        deleteItemsOfCategory(id)
-        deleteCategoryRow(id)
-    }
-
-    @Transaction
-    open suspend fun deleteProfile(id: Long) {
-        deleteItemsOfProfile(id)
-        deleteCategoriesOfProfile(id)
-        deleteProfileRow(id)
-    }
-
+    // Löschen von Kategorien und Profilen: im Repository in einer Transaktion zusammengefasst
     @Query("DELETE FROM music_item WHERE categoryId = :categoryId")
-    abstract suspend fun deleteItemsOfCategory(categoryId: Long)
+    suspend fun deleteItemsOfCategory(categoryId: Long)
 
     @Query("DELETE FROM music_category WHERE id = :id")
-    abstract suspend fun deleteCategoryRow(id: Long)
+    suspend fun deleteCategoryRow(id: Long)
 
     @Query("DELETE FROM music_item WHERE categoryId IN (SELECT id FROM music_category WHERE profileId = :profileId)")
-    abstract suspend fun deleteItemsOfProfile(profileId: Long)
+    suspend fun deleteItemsOfProfile(profileId: Long)
 
     @Query("DELETE FROM music_category WHERE profileId = :profileId")
-    abstract suspend fun deleteCategoriesOfProfile(profileId: Long)
+    suspend fun deleteCategoriesOfProfile(profileId: Long)
 
     @Query("DELETE FROM child_profile WHERE id = :id")
-    abstract suspend fun deleteProfileRow(id: Long)
+    suspend fun deleteProfileRow(id: Long)
 }
 
 @Database(
