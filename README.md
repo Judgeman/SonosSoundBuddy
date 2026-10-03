@@ -44,7 +44,9 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Cover-Kacheln. Ein Tipp spielt die Musik sofort auf dem gewählten
     Speaker (die Warteschlange wird ersetzt). Steht die Kategorie auf
     „Kinder entscheiden“, fragen zwei große Bild-Knöpfe: „Der Reihe nach“
-    oder „Durcheinander“.
+    (Entenmama mit Küken in einer Reihe) oder „Durcheinander“ (rollende
+    Würfel) — gezeichnet in `OrderIcons.kt`, damit auch Kinder ohne Lesen
+    wählen können.
   - Senkrechte **Lautstärke-Leiste** rechts neben dem Cover mit 10 großen,
     nach oben breiter werdenden Stufen: Tippen oder Ziehen setzt die
     Lautstärke, + / − gehen eine Stufe weiter. Die oberste Stufe ist die

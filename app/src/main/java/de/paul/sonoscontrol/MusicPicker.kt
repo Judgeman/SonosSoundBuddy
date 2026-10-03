@@ -26,10 +26,8 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.FormatListNumbered
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.QuestionMark
-import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -50,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -356,13 +355,15 @@ private fun PlayOrderQuestion(item: MusicItem, onChoose: (shuffle: Boolean) -> U
                 Spacer(modifier = Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     OrderChoiceButton(
-                        icon = Icons.Rounded.FormatListNumbered,
+                        icon = InOrderIcon,
+                        background = Color(0xFFE1F5FE),
                         label = "Der Reihe nach",
                         onClick = { onChoose(false) },
                         modifier = Modifier.weight(1f)
                     )
                     OrderChoiceButton(
-                        icon = Icons.Rounded.Shuffle,
+                        icon = ShuffleIcon,
+                        background = Color(0xFFFFF3E0),
                         label = "Durcheinander",
                         onClick = { onChoose(true) },
                         modifier = Modifier.weight(1f)
@@ -374,15 +375,23 @@ private fun PlayOrderQuestion(item: MusicItem, onChoose: (shuffle: Boolean) -> U
 }
 
 @Composable
-private fun OrderChoiceButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun OrderChoiceButton(
+    icon: ImageVector,
+    background: Color,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Das Bild ist die eigentliche Botschaft — groß und bunt, der Text nur für Erwachsene
     Button(
         onClick = onClick,
         shape = RoundedCornerShape(28.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = background, contentColor = Color(0xFF263238)),
         contentPadding = PaddingValues(12.dp),
-        modifier = modifier.height(150.dp)
+        modifier = modifier.height(200.dp)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(72.dp))
+            Icon(icon, contentDescription = label, tint = Color.Unspecified, modifier = Modifier.size(132.dp))
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 label,
