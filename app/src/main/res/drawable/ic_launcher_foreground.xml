@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Schallwellen -->
+    <path
+        android:pathData="M31,46 Q27,55 31,64"
+        android:strokeColor="#FFD54F"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M25,41 Q19,55 25,69"
+        android:strokeColor="#4DD0E1"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M77,46 Q81,55 77,64"
+        android:strokeColor="#FFD54F"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M83,41 Q89,55 83,69"
+        android:strokeColor="#4DD0E1"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round" />
+    <!-- Gehäuse mit Schatten -->
+    <path
+        android:pathData="M48,31.5 H60 A10,10 0 0 1 70,41.5 V71.5 A10,10 0 0 1 60,81.5 H48 A10,10 0 0 1 38,71.5 V41.5 A10,10 0 0 1 48,31.5 Z"
+        android:fillColor="#000000"
+        android:fillAlpha="0.18" />
+    <path
+        android:pathData="M48,29 H60 A10,10 0 0 1 70,39 V69 A10,10 0 0 1 60,79 H48 A10,10 0 0 1 38,69 V39 A10,10 0 0 1 48,29 Z"
+        android:fillColor="#FFFFFF" />
+    <!-- Augen -->
+    <path
+        android:pathData="M44.1,40 a3.4,3.4 0 1,1 6.8,0 a3.4,3.4 0 1,1 -6.8,0 Z M57.1,40 a3.4,3.4 0 1,1 6.8,0 a3.4,3.4 0 1,1 -6.8,0 Z"
+        android:fillColor="#3B2A5A" />
+    <path
+        android:pathData="M47.5,38.9 a1.1,1.1 0 1,1 2.2,0 a1.1,1.1 0 1,1 -2.2,0 Z M60.5,38.9 a1.1,1.1 0 1,1 2.2,0 a1.1,1.1 0 1,1 -2.2,0 Z"
+        android:fillColor="#FFFFFF" />
+    <!-- Bäckchen -->
+    <path
+        android:pathData="M40.7,45.5 a2.3,2.3 0 1,1 4.6,0 a2.3,2.3 0 1,1 -4.6,0 Z M62.7,45.5 a2.3,2.3 0 1,1 4.6,0 a2.3,2.3 0 1,1 -4.6,0 Z"
+        android:fillColor="#FF80AB"
+        android:fillAlpha="0.7" />
+    <!-- Lächeln -->
+    <path
+        android:pathData="M50.5,45.5 Q54,49 57.5,45.5"
+        android:strokeColor="#3B2A5A"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round" />
+    <!-- Tieftöner -->
+    <path
+        android:pathData="M43.5,64 a10.5,10.5 0 1,1 21,0 a10.5,10.5 0 1,1 -21,0 Z"
+        android:fillColor="#3B2A5A" />
+    <path
+        android:pathData="M46.5,64 a7.5,7.5 0 1,1 15,0 a7.5,7.5 0 1,1 -15,0 Z"
+        android:fillColor="#7C4DFF" />
+    <path
+        android:pathData="M51,64 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0 Z"
+        android:fillColor="#B39DDB" />
+</vector>

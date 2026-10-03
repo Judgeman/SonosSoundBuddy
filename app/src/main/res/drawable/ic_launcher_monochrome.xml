@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Schallwellen -->
+    <path
+        android:pathData="M31,46 Q27,55 31,64"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M25,41 Q19,55 25,69"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M77,46 Q81,55 77,64"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M83,41 Q89,55 83,69"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round" />
+    <!-- Gehäuse, Augen und Tieftöner ausgespart -->
+    <path
+        android:pathData="M48,29 H60 A10,10 0 0 1 70,39 V69 A10,10 0 0 1 60,79 H48 A10,10 0 0 1 38,69 V39 A10,10 0 0 1 48,29 Z M44.1,40 a3.4,3.4 0 1,1 6.8,0 a3.4,3.4 0 1,1 -6.8,0 Z M57.1,40 a3.4,3.4 0 1,1 6.8,0 a3.4,3.4 0 1,1 -6.8,0 Z M45.5,64 a8.5,8.5 0 1,1 17,0 a8.5,8.5 0 1,1 -17,0 Z"
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd" />
+    <path
+        android:pathData="M50,64 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0 Z"
+        android:fillColor="#FF000000" />
+</vector>

@@ -118,7 +118,7 @@ fun HomeScreen(
                 topBar = {
                     TopAppBar(
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                        title = { Text("Sound Buddy") },
+                        title = { Text("SoundBuddy") },
                         actions = {
                             Box {
                                 IconButton(onClick = { menuExpanded = true }) {
