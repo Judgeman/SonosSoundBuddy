@@ -84,6 +84,10 @@ fun SettingsScreen(
     onSpeakerEnabledChange: (String, Boolean) -> Unit,
     onSpeakerIconChange: (String, SpeakerIcon) -> Unit,
     onSpeakerMaxVolumeChange: (String, Int) -> Unit,
+    profiles: List<ProfileWithMusic>,
+    onCreateProfile: (String) -> Unit,
+    onOpenProfile: (Long) -> Unit,
+    onProfileEnabledChange: (Long, Boolean) -> Unit,
     onSavePassword: (String) -> Unit,
     onRemovePassword: () -> Unit,
     onPasswordRequiredChange: (Boolean) -> Unit,
@@ -91,6 +95,7 @@ fun SettingsScreen(
 ) {
     var iconPickerFor by remember { mutableStateOf<SpeakerConfig?>(null) }
     var deleteConfirmFor by remember { mutableStateOf<SpeakerConfig?>(null) }
+    var showNewProfile by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Das ViewModel leert die Meldung vor jedem neuen Aktualisieren, gleiche Texte erscheinen also erneut
@@ -204,6 +209,13 @@ fun SettingsScreen(
                 )
             }
 
+            profilesSection(
+                profiles = profiles,
+                onCreateProfile = { showNewProfile = true },
+                onOpenProfile = onOpenProfile,
+                onProfileEnabledChange = onProfileEnabledChange
+            )
+
             item {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 SectionHeader(
@@ -249,6 +261,20 @@ fun SettingsScreen(
         )
     }
 
+    if (showNewProfile) {
+        NameDialog(
+            title = "Neues Profil",
+            label = "Name des Kindes",
+            initialValue = "",
+            confirmText = "Anlegen",
+            onConfirm = {
+                showNewProfile = false
+                onCreateProfile(it)
+            },
+            onDismiss = { showNewProfile = false }
+        )
+    }
+
     deleteConfirmFor?.let { speaker ->
         AlertDialog(
             onDismissRequest = { deleteConfirmFor = null },
@@ -276,7 +302,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun NewBadge() {
+internal fun NewBadge() {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.primary,
@@ -316,7 +342,7 @@ private fun MaxVolumeSlider(maxVolume: Int, onMaxVolumeChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun SectionHeader(title: String, description: String?) {
+internal fun SectionHeader(title: String, description: String?) {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         if (description != null) {

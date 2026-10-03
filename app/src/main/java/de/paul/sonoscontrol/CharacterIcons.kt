@@ -14,19 +14,19 @@ import androidx.compose.ui.unit.dp
  * Material Symbols nicht gibt. Sie werden ohne Tint gezeichnet, siehe SpeakerIcon.multicolor.
  */
 
-private fun PathBuilder.circle(cx: Float, cy: Float, r: Float) = ellipse(cx, cy, r, r)
+internal fun PathBuilder.circle(cx: Float, cy: Float, r: Float) = ellipse(cx, cy, r, r)
 
-private fun PathBuilder.ellipse(cx: Float, cy: Float, rx: Float, ry: Float) {
+internal fun PathBuilder.ellipse(cx: Float, cy: Float, rx: Float, ry: Float) {
     moveTo(cx - rx, cy)
     arcToRelative(rx, ry, 0f, isMoreThanHalf = true, isPositiveArc = true, dx1 = 2 * rx, dy1 = 0f)
     arcToRelative(rx, ry, 0f, isMoreThanHalf = true, isPositiveArc = true, dx1 = -2 * rx, dy1 = 0f)
     close()
 }
 
-private fun ImageVector.Builder.fill(color: Long, block: PathBuilder.() -> Unit) =
+internal fun ImageVector.Builder.fill(color: Long, block: PathBuilder.() -> Unit) =
     path(fill = SolidColor(Color(color)), pathBuilder = block)
 
-private fun ImageVector.Builder.line(color: Long, width: Float, block: PathBuilder.() -> Unit) =
+internal fun ImageVector.Builder.line(color: Long, width: Float, block: PathBuilder.() -> Unit) =
     path(
         stroke = SolidColor(Color(color)),
         strokeLineWidth = width,
@@ -35,7 +35,7 @@ private fun ImageVector.Builder.line(color: Long, width: Float, block: PathBuild
         pathBuilder = block
     )
 
-private fun icon(name: String, block: ImageVector.Builder.() -> Unit): ImageVector =
+internal fun drawnIcon(name: String, block: ImageVector.Builder.() -> Unit): ImageVector =
     ImageVector.Builder(
         name = name,
         defaultWidth = 24.dp,
@@ -46,7 +46,7 @@ private fun icon(name: String, block: ImageVector.Builder.() -> Unit): ImageVect
 
 /** Fröhliches Einhorn von vorne: weißer Kopf, goldenes Horn, Regenbogen-Mähne. */
 val UnicornIcon: ImageVector by lazy {
-    icon("Unicorn") {
+    drawnIcon("Unicorn") {
         val white = 0xFFFFFFFF
         val outline = 0xFFD9CCEF
         val dark = 0xFF4A3B5C
@@ -90,7 +90,7 @@ val UnicornIcon: ImageVector by lazy {
 
 /** Pikachu-Gesicht: gelber Kopf, Ohren mit schwarzen Spitzen, rote Bäckchen. */
 val PikachuIcon: ImageVector by lazy {
-    icon("Pikachu") {
+    drawnIcon("Pikachu") {
         val yellow = 0xFFFFD93B
         val black = 0xFF2B2B2B
 
