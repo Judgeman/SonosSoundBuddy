@@ -10,23 +10,36 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 /*
- * Selbst gezeichnete, mehrfarbige Figuren-Icons (24×24-Viewport), die es in den
+ * Selbst gezeichnete, mehrfarbige Figuren-Icons und das Platzhalter-Cover (24×24-Viewport), die es in den
  * Material Symbols nicht gibt. Sie werden ohne Tint gezeichnet, siehe SpeakerIcon.multicolor.
  */
 
-private fun PathBuilder.circle(cx: Float, cy: Float, r: Float) = ellipse(cx, cy, r, r)
+internal fun PathBuilder.circle(cx: Float, cy: Float, r: Float) = ellipse(cx, cy, r, r)
 
-private fun PathBuilder.ellipse(cx: Float, cy: Float, rx: Float, ry: Float) {
+internal fun PathBuilder.ellipse(cx: Float, cy: Float, rx: Float, ry: Float) {
     moveTo(cx - rx, cy)
     arcToRelative(rx, ry, 0f, isMoreThanHalf = true, isPositiveArc = true, dx1 = 2 * rx, dy1 = 0f)
     arcToRelative(rx, ry, 0f, isMoreThanHalf = true, isPositiveArc = true, dx1 = -2 * rx, dy1 = 0f)
     close()
 }
 
-private fun ImageVector.Builder.fill(color: Long, block: PathBuilder.() -> Unit) =
+internal fun ImageVector.Builder.fill(color: Long, block: PathBuilder.() -> Unit) =
     path(fill = SolidColor(Color(color)), pathBuilder = block)
 
-private fun ImageVector.Builder.line(color: Long, width: Float, block: PathBuilder.() -> Unit) =
+/** Gefüllte Fläche mit dünner Kontur, damit Weiß sich vom hellen Badge abhebt. */
+internal fun ImageVector.Builder.fill(
+    color: Long,
+    outline: Long,
+    outlineWidth: Float,
+    block: PathBuilder.() -> Unit
+) = path(
+    fill = SolidColor(Color(color)),
+    stroke = SolidColor(Color(outline)),
+    strokeLineWidth = outlineWidth,
+    pathBuilder = block
+)
+
+internal fun ImageVector.Builder.line(color: Long, width: Float, block: PathBuilder.() -> Unit) =
     path(
         stroke = SolidColor(Color(color)),
         strokeLineWidth = width,
@@ -35,7 +48,7 @@ private fun ImageVector.Builder.line(color: Long, width: Float, block: PathBuild
         pathBuilder = block
     )
 
-private fun icon(name: String, block: ImageVector.Builder.() -> Unit): ImageVector =
+internal fun drawnIcon(name: String, block: ImageVector.Builder.() -> Unit): ImageVector =
     ImageVector.Builder(
         name = name,
         defaultWidth = 24.dp,
@@ -46,7 +59,7 @@ private fun icon(name: String, block: ImageVector.Builder.() -> Unit): ImageVect
 
 /** Fröhliches Einhorn von vorne: weißer Kopf, goldenes Horn, Regenbogen-Mähne. */
 val UnicornIcon: ImageVector by lazy {
-    icon("Unicorn") {
+    drawnIcon("Unicorn") {
         val white = 0xFFFFFFFF
         val outline = 0xFFD9CCEF
         val dark = 0xFF4A3B5C
@@ -90,7 +103,7 @@ val UnicornIcon: ImageVector by lazy {
 
 /** Pikachu-Gesicht: gelber Kopf, Ohren mit schwarzen Spitzen, rote Bäckchen. */
 val PikachuIcon: ImageVector by lazy {
-    icon("Pikachu") {
+    drawnIcon("Pikachu") {
         val yellow = 0xFFFFD93B
         val black = 0xFF2B2B2B
 
@@ -120,5 +133,56 @@ val PikachuIcon: ImageVector by lazy {
         // Rote Bäckchen
         fill(0xFFE8443A) { circle(6.2f, 16.3f, 1.55f) }
         fill(0xFFE8443A) { circle(17.8f, 16.3f, 1.55f) }
+    }
+}
+
+/** Buntes Platzhalter-Cover: Regenbogen, Wölkchen, Glitzer und lachende Noten (ohne Hintergrund). */
+val DefaultCoverArt: ImageVector by lazy {
+    drawnIcon("DefaultCover") {
+        val white = 0xFFFFFFFF
+        val dark = 0xFF3B2A4D
+
+        // Regenbogen mit zwei Wölkchen
+        line(0xFFFF5A5F, 1.3f) { moveTo(3.0f, 13.0f); curveTo(3.0f, 1.03f, 21.0f, 1.03f, 21.0f, 13.0f) }
+        line(0xFFFFA62B, 1.3f) { moveTo(4.3f, 13.0f); curveTo(4.3f, 2.76f, 19.7f, 2.76f, 19.7f, 13.0f) }
+        line(0xFFFFE14D, 1.3f) { moveTo(5.6f, 13.0f); curveTo(5.6f, 4.49f, 18.4f, 4.49f, 18.4f, 13.0f) }
+        line(0xFF6EDB6A, 1.3f) { moveTo(6.9f, 13.0f); curveTo(6.9f, 6.22f, 17.1f, 6.22f, 17.1f, 13.0f) }
+        line(0xFF4FC3F7, 1.3f) { moveTo(8.2f, 13.0f); curveTo(8.2f, 7.95f, 15.8f, 7.95f, 15.8f, 13.0f) }
+        line(0xFF9C7BFF, 1.3f) { moveTo(9.5f, 13.0f); curveTo(9.5f, 9.68f, 14.5f, 9.68f, 14.5f, 13.0f) }
+        fill(white) { circle(1.9f, 13.3f, 1.4f) }
+        fill(white) { circle(4.5f, 13.3f, 1.4f) }
+        fill(white) { circle(3.2f, 12.5f, 1.7f) }
+        fill(white) { ellipse(3.2f, 13.9f, 2.6f, 0.9f) }
+        fill(white) { circle(19.5f, 13.3f, 1.4f) }
+        fill(white) { circle(22.1f, 13.3f, 1.4f) }
+        fill(white) { circle(20.8f, 12.5f, 1.7f) }
+        fill(white) { ellipse(20.8f, 13.9f, 2.6f, 0.9f) }
+
+        // Glitzersterne
+        fill(white) { moveTo(4.0f, 2.6f); quadTo(4.39f, 3.61f, 5.4f, 4.0f); quadTo(4.39f, 4.39f, 4.0f, 5.4f); quadTo(3.61f, 4.39f, 2.6f, 4.0f); quadTo(3.61f, 3.61f, 4.0f, 2.6f); close() }
+        fill(0xFFFFF59D) { moveTo(20.4f, 4.2f); quadTo(20.68f, 4.92f, 21.4f, 5.2f); quadTo(20.68f, 5.48f, 20.4f, 6.2f); quadTo(20.12f, 5.48f, 19.4f, 5.2f); quadTo(20.12f, 4.92f, 20.4f, 4.2f); close() }
+        fill(white) { moveTo(20.8f, 16.4f); quadTo(21.14f, 17.26f, 22.0f, 17.6f); quadTo(21.14f, 17.94f, 20.8f, 18.8f); quadTo(20.46f, 17.94f, 19.6f, 17.6f); quadTo(20.46f, 17.26f, 20.8f, 16.4f); close() }
+        fill(0xFFFFF59D) { moveTo(3.6f, 19.5f); quadTo(3.85f, 20.15f, 4.5f, 20.4f); quadTo(3.85f, 20.65f, 3.6f, 21.3f); quadTo(3.35f, 20.65f, 2.7f, 20.4f); quadTo(3.35f, 20.15f, 3.6f, 19.5f); close() }
+
+        // Kleine bunte Noten
+        fill(0xFFFFE14D) { ellipse(6.2f, 18.4f, 0.85f, 0.68f) }
+        line(0xFFFFE14D, 0.41f) { moveTo(6.92f, 18.22f); lineTo(6.92f, 15.34f); quadTo(7.82f, 16.06f, 8.18f, 16.78f) }
+        fill(0xFF6EDB6A) { ellipse(19.0f, 22.0f, 0.76f, 0.6f) }
+        line(0xFF6EDB6A, 0.36f) { moveTo(19.64f, 21.84f); lineTo(19.64f, 19.28f); quadTo(20.44f, 19.92f, 20.76f, 20.56f) }
+
+        // Große Doppelnote mit lachenden Gesichtern
+        fill(0xFFFF4F9A) { moveTo(10.2f, 19.6f); lineTo(10.2f, 11.8f); lineTo(17.6f, 10.2f); lineTo(17.6f, 18.0f); lineTo(16.6f, 18.0f); lineTo(16.6f, 12.6f); lineTo(11.2f, 13.8f); lineTo(11.2f, 19.6f); close() }
+        fill(0xFFFF4F9A) { ellipse(8.8f, 19.8f, 2.3f, 1.9f) }
+        fill(0xFFFF4F9A) { ellipse(15.2f, 18.2f, 2.3f, 1.9f) }
+        line(dark, 0.35f) { moveTo(7.85f, 19.4f); quadTo(8.2f, 18.85f, 8.55f, 19.4f) }
+        line(dark, 0.35f) { moveTo(14.25f, 17.8f); quadTo(14.6f, 17.25f, 14.95f, 17.8f) }
+        line(dark, 0.35f) { moveTo(9.05f, 19.4f); quadTo(9.4f, 18.85f, 9.75f, 19.4f) }
+        line(dark, 0.35f) { moveTo(15.45f, 17.8f); quadTo(15.8f, 17.25f, 16.15f, 17.8f) }
+        line(dark, 0.35f) { moveTo(8.3f, 20.1f); quadTo(8.8f, 20.7f, 9.3f, 20.1f) }
+        line(dark, 0.35f) { moveTo(14.7f, 18.5f); quadTo(15.2f, 19.1f, 15.7f, 18.5f) }
+        fill(0xFFFFB3D1) { circle(7.4f, 20.1f, 0.35f) }
+        fill(0xFFFFB3D1) { circle(10.2f, 20.1f, 0.35f) }
+        fill(0xFFFFB3D1) { circle(13.8f, 18.5f, 0.35f) }
+        fill(0xFFFFB3D1) { circle(16.6f, 18.5f, 0.35f) }
     }
 }

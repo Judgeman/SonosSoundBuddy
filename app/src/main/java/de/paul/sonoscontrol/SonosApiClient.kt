@@ -8,6 +8,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -76,9 +80,9 @@ class SonosApiClient(
         val body = get("$baseUrl/groups/$groupId/playbackMetadata")
         val metadata = json.decodeFromString(PlaybackMetadata.serializer(), body)
         // Hilft bei der Fehlersuche, wenn eine Quelle kein Cover liefert (nur bei Änderung loggen)
-        if (metadata.coverUrl == null && body != lastLoggedMetadataWithoutCover) {
+        if ((metadata.coverUrl == null || metadata.containerCoverUrl == null) && body != lastLoggedMetadataWithoutCover) {
             lastLoggedMetadataWithoutCover = body
-            Log.d(TAG, "Kein Cover in playbackMetadata für Gruppe $groupId: $body")
+            Log.d(TAG, "Kein Cover (Titel oder Playlist/Album) in playbackMetadata für Gruppe $groupId: $body")
         }
         return metadata
     }
@@ -102,6 +106,61 @@ class SonosApiClient(
 
     suspend fun setPlayerVolume(playerId: String, volume: Int) {
         post("$baseUrl/players/$playerId/playerVolume", """{"volume":${volume.coerceIn(0, 100)}}""")
+    }
+
+    suspend fun getFavorites(householdId: String): List<SonosFavorite> {
+        val body = get("$baseUrl/households/$householdId/favorites")
+        val items = (json.parseToJsonElement(body) as? JsonObject)?.get("items") as? JsonArray ?: return emptyList()
+        return items.filterIsInstance<JsonObject>().map { item ->
+            val favorite = json.decodeFromJsonElement(SonosFavorite.serializer(), item)
+            val image = findImageUrl(item)
+            // Hilft bei der Fehlersuche, wenn ein Musikdienst sein Cover woanders ablegt
+            if (image == null) Log.d(TAG, "Kein Cover im Favoriten „${favorite.name}“: $item")
+            favorite.copy(foundImageUrl = image, rawJson = item.toString())
+        }
+    }
+
+    suspend fun getPlaylists(householdId: String): List<SonosPlaylist> {
+        val body = get("$baseUrl/households/$householdId/playlists")
+        return json.decodeFromString(PlaylistsResponse.serializer(), body).playlists
+    }
+
+    suspend fun getPlaylist(householdId: String, playlistId: String): PlaylistDetails {
+        val request = buildJsonObject { put("playlistId", playlistId) }
+        val body = post("$baseUrl/households/$householdId/playlists/getPlaylist", request.toString())
+        return json.decodeFromString(PlaylistDetails.serializer(), body)
+    }
+
+    /** Ersetzt die Warteschlange der Gruppe durch den Favoriten; [play] startet ihn sofort. */
+    suspend fun loadFavorite(groupId: String, favoriteId: String, play: Boolean = true) {
+        val request = buildJsonObject {
+            put("favoriteId", favoriteId)
+            put("playOnCompletion", play)
+            put("action", "REPLACE")
+        }
+        post("$baseUrl/groups/$groupId/favorites", request.toString())
+    }
+
+    /** Ersetzt die Warteschlange der Gruppe durch die Playlist; [play] startet sie sofort. */
+    suspend fun loadPlaylist(groupId: String, playlistId: String, play: Boolean = true) {
+        val request = buildJsonObject {
+            put("playlistId", playlistId)
+            put("playOnCompletion", play)
+            put("action", "REPLACE")
+        }
+        post("$baseUrl/groups/$groupId/playlists", request.toString())
+    }
+
+    /** Zufallswiedergabe der Gruppe an- oder ausschalten (setPlayModes). */
+    suspend fun setShuffle(groupId: String, shuffle: Boolean) {
+        val request = buildJsonObject {
+            put("playModes", buildJsonObject { put("shuffle", shuffle) })
+        }
+        post("$baseUrl/groups/$groupId/playback/playMode", request.toString())
+    }
+
+    suspend fun play(groupId: String) {
+        post("$baseUrl/groups/$groupId/playback/play")
     }
 
     private suspend fun get(url: String): String =

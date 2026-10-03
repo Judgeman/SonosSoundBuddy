@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,6 +25,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -32,7 +35,6 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SentimentVeryDissatisfied
@@ -68,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -92,6 +95,12 @@ fun HomeScreen(
     visiblePlaybackError: String?,
     onDismissPlaybackError: () -> Unit,
     onSelectSpeaker: (String) -> Unit,
+    profiles: List<ProfileWithMusic>,
+    selectedProfile: ProfileWithMusic?,
+    /** Musik, die gerade gestartet wird — solange sperrt ein Popup den Bildschirm. */
+    startingMusic: MusicItem?,
+    onSelectProfile: (Long) -> Unit,
+    onPlayMusic: (MusicItem, Boolean?) -> Unit,
     controls: PlaybackControls,
     onOpenSettings: () -> Unit,
     onLoginClick: () -> Unit,
@@ -145,11 +154,18 @@ fun HomeScreen(
                             maxVolume = maxVolume,
                             playbackError = playbackError,
                             onSelectSpeaker = onSelectSpeaker,
+                            profiles = profiles,
+                            selectedProfile = selectedProfile,
+                            isStartingMusic = startingMusic != null,
+                            onSelectProfile = onSelectProfile,
+                            onPlayMusic = onPlayMusic,
                             controls = controls
                         )
                     }
                 }
             }
+
+            StartingMusicOverlay(item = startingMusic.takeIf { state is UiState.SpeakerList })
 
             ErrorOverlay(
                 message = visiblePlaybackError.takeIf { state is UiState.SpeakerList },
@@ -188,6 +204,75 @@ private fun ErrorContent(message: String, onRetryClick: () -> Unit) {
  * Wiedergabe etwas schiefgeht. Bleibt stehen, bis jemand „Okay" drückt — so
  * bemerken die Kinder ihn und können den Text einem Erwachsenen zeigen.
  */
+/**
+ * Popup, solange neue Musik gestartet wird: zeigt, was gleich kommt, und fängt
+ * alle Berührungen (und die Zurück-Taste) ab — so können die Kinder nicht
+ * dazwischen tippen, während die App Sonos mehrere Befehle schickt.
+ */
+@OptIn(ExperimentalAnimationApi::class)
+@Composable
+private fun StartingMusicOverlay(item: MusicItem?) {
+    // Letzten Eintrag merken, damit beim Ausblenden noch etwas zu sehen ist
+    var lastItem by remember { mutableStateOf<MusicItem?>(null) }
+    if (item != null) lastItem = item
+
+    if (item != null) BackHandler {}
+
+    AnimatedVisibility(visible = item != null, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                .padding(24.dp)
+        ) {
+            val shown = lastItem ?: return@Box
+            // Normales App-Theme: in den Cover-Farben wäre die Schrift auf der Karte weiß auf hell
+            SoundBuddyTheme {
+                Card(
+                    shape = RoundedCornerShape(32.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    modifier = Modifier
+                        .widthIn(max = 420.dp)
+                        .animateEnterExit(enter = scaleIn(initialScale = 0.8f), exit = scaleOut(targetScale = 0.8f))
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            MusicItemImage(shown, size = 220.dp)
+                            Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.45f), modifier = Modifier.size(96.dp)) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 6.dp,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            shown.name,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Gleich geht's los …",
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 private fun ErrorOverlay(message: String?, onDismiss: () -> Unit) {
@@ -295,8 +380,16 @@ private fun SpeakerHomeContent(
     maxVolume: Int,
     playbackError: String?,
     onSelectSpeaker: (String) -> Unit,
+    profiles: List<ProfileWithMusic>,
+    selectedProfile: ProfileWithMusic?,
+    isStartingMusic: Boolean,
+    onSelectProfile: (Long) -> Unit,
+    onPlayMusic: (MusicItem, Boolean?) -> Unit,
     controls: PlaybackControls
 ) {
+    var profileMenuExpanded by remember { mutableStateOf(false) }
+    var showMusicPicker by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -308,23 +401,69 @@ private fun SpeakerHomeContent(
             return@Column
         }
 
-        SpeakerDropdown(
-            speakers = speakers,
-            selectedSpeaker = selectedSpeaker,
-            onSelectSpeaker = onSelectSpeaker
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        when {
-            selectedSpeaker == null -> HintText("Wähle oben einen Speaker aus.")
-            nowPlaying != null -> NowPlayingContent(
-                nowPlaying = nowPlaying,
-                maxVolume = maxVolume,
-                controls = controls,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SpeakerDropdown(
+                speakers = speakers,
+                selectedSpeaker = selectedSpeaker,
+                onSelectSpeaker = onSelectSpeaker,
                 modifier = Modifier.weight(1f)
             )
-            playbackError != null -> HintText(playbackError)
-            else -> CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+            if (profiles.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(12.dp))
+                ProfileDropdown(
+                    profiles = profiles,
+                    selectedProfile = selectedProfile,
+                    expanded = profileMenuExpanded,
+                    onExpandedChange = { profileMenuExpanded = it },
+                    onSelectProfile = onSelectProfile
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Box(
+            contentAlignment = Alignment.TopCenter,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            when {
+                selectedSpeaker == null -> HintText("Wähle oben einen Speaker aus.")
+                nowPlaying != null -> NowPlayingContent(
+                    nowPlaying = nowPlaying,
+                    maxVolume = maxVolume,
+                    controls = controls,
+                    modifier = Modifier.fillMaxSize()
+                )
+                playbackError != null -> HintText(playbackError)
+                else -> CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+            }
+        }
+
+        // Musikauswahl des Profils ganz unten, unter dem Play-Knopf
+        if (selectedSpeaker != null && profiles.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            MusicChooserButton(
+                selectedProfile = selectedProfile,
+                isStartingMusic = isStartingMusic,
+                onClick = {
+                    if (selectedProfile == null) profileMenuExpanded = true else showMusicPicker = true
+                }
+            )
+        }
+    }
+
+    if (showMusicPicker && selectedProfile != null) {
+        // Im normalen App-Theme, nicht in den Cover-Farben — die Cover der Kacheln sollen wirken
+        SoundBuddyTheme {
+            MusicPickerDialog(
+                profile = selectedProfile,
+                onPlay = { item, shuffle ->
+                    showMusicPicker = false
+                    onPlayMusic(item, shuffle)
+                },
+                onDismiss = { showMusicPicker = false }
+            )
         }
     }
 }
@@ -345,13 +484,14 @@ private fun HintText(text: String) {
 private fun SpeakerDropdown(
     speakers: List<SpeakerConfig>,
     selectedSpeaker: SpeakerConfig?,
-    onSelectSpeaker: (String) -> Unit
+    onSelectSpeaker: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
     var anchorWidthPx by remember { mutableStateOf(0) }
     val canChoose = speakers.size > 1
 
-    Box(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = modifier) {
         Card(
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
@@ -593,20 +733,24 @@ private fun PlaybackButtons(nowPlaying: NowPlaying, controls: PlaybackControls) 
 
 private val CoverShape = RoundedCornerShape(28.dp)
 
+/** Bonbon-Verlauf hinter Platzhalter-Covern: Rosa → Lila → Himmelblau. */
+val DefaultCoverBackground = Brush.linearGradient(
+    listOf(Color(0xFFFF8AD8), Color(0xFFA47CFF), Color(0xFF5CC8FF))
+)
+
 @Composable
 private fun CoverImage(imageUrl: String?, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .shadow(elevation = 24.dp, shape = CoverShape)
             .clip(CoverShape)
-            .background(MaterialTheme.colorScheme.secondaryContainer),
+            .background(DefaultCoverBackground),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            Icons.Rounded.MusicNote,
+        Image(
+            imageVector = DefaultCoverArt,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.size(120.dp)
+            modifier = Modifier.fillMaxSize(0.84f)
         )
         if (imageUrl != null) {
             AsyncImage(
