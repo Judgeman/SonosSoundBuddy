@@ -181,6 +181,16 @@ abstract class ProfileDao {
     @Insert
     abstract suspend fun insertItem(item: MusicItem): Long
 
+    /** Cover eines Eintrags nachtragen, z. B. wenn es erst später bekannt wird. */
+    @Query(
+        "UPDATE music_item SET imageUrl = :imageUrl " +
+            "WHERE source = :source AND sonosId = :sonosId AND name = :name AND imageUrl IS NOT :imageUrl"
+    )
+    abstract suspend fun setItemImage(source: String, sonosId: String, name: String, imageUrl: String)
+
+    @Query("UPDATE music_item SET imageUrl = :imageUrl WHERE id = :id AND imageUrl IS NULL")
+    abstract suspend fun setMissingItemImage(id: Long, imageUrl: String)
+
     @Query("DELETE FROM music_item WHERE id = :id")
     abstract suspend fun deleteItem(id: Long)
 

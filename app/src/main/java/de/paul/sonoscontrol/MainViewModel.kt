@@ -2,6 +2,7 @@ package de.paul.sonoscontrol
 
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -257,7 +258,7 @@ class MainViewModel(
         uiState = UiState.LoadingSpeakers
         viewModelScope.launch {
             uiState = try {
-                UiState.SpeakerList(fetchAndSyncPlayers().players)
+                UiState.SpeakerList(fetchAndSyncPlayers().players).also { refreshMusicImagesQuietly() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -566,7 +567,17 @@ class MainViewModel(
             .firstOrNull { it.category.id == item.categoryId }?.category?.playOrderMode ?: PlayOrder.ORDERED
         val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
         isStartingMusic = true
-        sendPlaybackCommand(refreshDelayMillis = MUSIC_REFRESH_DELAY_MS, onFinished = { isStartingMusic = false }) {
+        sendPlaybackCommand(
+            refreshDelayMillis = MUSIC_REFRESH_DELAY_MS,
+            onFinished = { isStartingMusic = false },
+            // Liefert der Katalog kein Cover, wenigstens das beim Abspielen gezeigte merken
+            onPlaying = { playing ->
+                val cover = playing.imageUrl
+                if (item.imageUrl == null && cover != null) {
+                    viewModelScope.launch { repository.setMissingMusicImage(item.id, cover) }
+                }
+            }
+        ) {
             val group = findGroup(household, playerId)
             val type = item.musicType
             // Radio hat keine Warteschlange — dort gibt es keine Reihenfolge, also direkt starten
@@ -612,6 +623,7 @@ class MainViewModel(
     private fun sendPlaybackCommand(
         refreshDelayMillis: Long = COMMAND_REFRESH_DELAY_MS,
         onFinished: () -> Unit = {},
+        onPlaying: (NowPlaying) -> Unit = {},
         command: suspend () -> Unit
     ) {
         val playerId = selectedPlayerId ?: return onFinished()
@@ -624,7 +636,7 @@ class MainViewModel(
                 // Sonos braucht einen Moment, bis Track und Status aktualisiert sind
                 delay(refreshDelayMillis)
                 if (selectedPlayerId == playerId) {
-                    nowPlaying = fetchNowPlaying(household, playerId)
+                    nowPlaying = fetchNowPlaying(household, playerId).also(onPlaying)
                     clearPlaybackError()
                 }
             } catch (e: CancellationException) {
@@ -831,13 +843,7 @@ class MainViewModel(
         catalogJob = viewModelScope.launch {
             catalogState = try {
                 val household = householdId ?: apiClient.getFirstHouseholdId().also { householdId = it }
-                coroutineScope {
-                    val favorites = async { apiClient.getFavorites(household) }
-                    val playlists = async { apiClient.getPlaylists(household) }
-                    CatalogState.Loaded(
-                        favorites.await().map(CatalogEntry::from) + playlists.await().map(CatalogEntry::from)
-                    )
-                }
+                CatalogState.Loaded(fetchCatalog(household).also { repository.refreshMusicImages(it) })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -845,6 +851,27 @@ class MainViewModel(
                 return@launch
             } catch (e: Exception) {
                 CatalogState.Error(e.message ?: "Musik-Katalog konnte nicht geladen werden")
+            }
+        }
+    }
+
+    private suspend fun fetchCatalog(household: String): List<CatalogEntry> = coroutineScope {
+        val favorites = async { apiClient.getFavorites(household) }
+        val playlists = async { apiClient.getPlaylists(household) }
+        favorites.await().map(CatalogEntry::from) + playlists.await().map(CatalogEntry::from)
+    }
+
+    /** Cover der gespeicherten Musikauswahl still im Hintergrund auffrischen. */
+    private fun refreshMusicImagesQuietly() {
+        val household = householdId ?: return
+        if (profiles.none { it.itemCount > 0 }) return
+        viewModelScope.launch {
+            try {
+                repository.refreshMusicImages(fetchCatalog(household))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.d(TAG, "Cover der Musikauswahl nicht aufgefrischt: ${e.message}")
             }
         }
     }
@@ -898,6 +925,7 @@ class MainViewModel(
     }
 
     companion object {
+        private const val TAG = "SoundBuddy"
         private const val POLL_INTERVAL_MS = 5_000L
         private const val COMMAND_REFRESH_DELAY_MS = 600L
         private const val VOLUME_DEBOUNCE_MS = 150L

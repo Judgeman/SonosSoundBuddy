@@ -181,6 +181,14 @@ Radiosender kommen also über „Zu Sonos-Favoriten hinzufügen“ in der
 Sonos-App in die Auswahl. Einzelne Titel *aus* einer Sonos-Playlist lassen
 sich nicht gezielt starten.
 
+Cover sucht die App im ganzen Favoriten (`imageUrl`, `images`, auch an
+`resource` oder verschachtelt, nicht aber das Logo des Musikdienstes) und
+ersetzt Größen-Platzhalter wie `{w}x{h}`. Findet sie keins, steht im Logcat
+(Tag `SonosApi`) „Kein Cover im Favoriten …“ mit dem Roh-JSON; Ladefehler
+stehen unter Tag `Cover`. Gespeicherte Einträge bekommen ihr Cover beim
+Öffnen des Katalogs und beim App-Start nachgetragen; hat ein Eintrag gar
+keins, übernimmt die App beim ersten Abspielen das Cover der Wiedergabe.
+
 Gespeichert werden Id, Name und Cover. Sonos vergibt die Ids selbst. Hat
 sich die Id inzwischen geändert (Favorit gelöscht und neu angelegt), sucht
 die App beim Abspielen über den Namen.

@@ -179,6 +179,21 @@ class SettingsRepository(database: AppDatabase, private val imageStore: Category
 
     suspend fun removeMusicItem(itemId: Long) = profileDao.deleteItem(itemId)
 
+    /**
+     * Übernimmt die Cover aus dem aktuellen Katalog in die gespeicherte Auswahl —
+     * so bekommen auch früher ohne Cover hinzugefügte Einträge ihr Bild.
+     */
+    suspend fun refreshMusicImages(entries: List<CatalogEntry>) {
+        entries.forEach { entry ->
+            val url = entry.imageUrl ?: return@forEach
+            profileDao.setItemImage(entry.source.name, entry.sonosId, entry.name, url)
+        }
+    }
+
+    /** Hat ein Eintrag gar kein Cover, wird das beim Abspielen gezeigte übernommen. */
+    suspend fun setMissingMusicImage(itemId: Long, imageUrl: String) =
+        profileDao.setMissingItemImage(itemId, imageUrl)
+
     /** Speichert ein neues Passwort und aktiviert dabei direkt den Passwortschutz. */
     suspend fun setPassword(password: String) {
         val salt = PasswordHasher.newSalt()

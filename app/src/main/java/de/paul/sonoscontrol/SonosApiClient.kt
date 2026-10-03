@@ -8,6 +8,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.Call
@@ -108,7 +110,14 @@ class SonosApiClient(
 
     suspend fun getFavorites(householdId: String): List<SonosFavorite> {
         val body = get("$baseUrl/households/$householdId/favorites")
-        return json.decodeFromString(FavoritesResponse.serializer(), body).items
+        val items = (json.parseToJsonElement(body) as? JsonObject)?.get("items") as? JsonArray ?: return emptyList()
+        return items.filterIsInstance<JsonObject>().map { item ->
+            val favorite = json.decodeFromJsonElement(SonosFavorite.serializer(), item)
+            val image = findImageUrl(item)
+            // Hilft bei der Fehlersuche, wenn ein Musikdienst sein Cover woanders ablegt
+            if (image == null) Log.d(TAG, "Kein Cover im Favoriten „${favorite.name}“: $item")
+            favorite.copy(foundImageUrl = image)
+        }
     }
 
     suspend fun getPlaylists(householdId: String): List<SonosPlaylist> {

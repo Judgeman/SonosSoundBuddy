@@ -1,5 +1,6 @@
 package de.paul.sonoscontrol
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -70,6 +71,7 @@ fun MusicCover(
                 model = if (isFile) File(imageUrl) else imageUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                onError = { Log.w("Cover", "Cover konnte nicht geladen werden: $imageUrl", it.result.throwable) },
                 modifier = Modifier.fillMaxSize()
             )
         }
