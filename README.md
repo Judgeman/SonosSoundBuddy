@@ -48,7 +48,8 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     „Kinder entscheiden“, fragen zwei große Bild-Knöpfe: „Der Reihe nach“
     (Entenmama mit Küken in einer Reihe) oder „Durcheinander“ (rollende
     Würfel) — gezeichnet in `OrderIcons.kt`, damit auch Kinder ohne Lesen
-    wählen können.
+    wählen können. Playlisten mit nur einem Titel laufen ohne Frage der
+    Reihe nach.
   - Senkrechte **Lautstärke-Leiste** rechts neben dem Cover mit 10 großen,
     nach oben breiter werdenden Stufen: Tippen oder Ziehen setzt die
     Lautstärke, + / − gehen eine Stufe weiter. Die oberste Stufe ist die
@@ -81,8 +82,8 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
       gedacht vor allem für Sonos-Playlisten, die von Sonos kein Cover
       bekommen. „Cover von Sonos“ stellt das Original wieder her.
     - die **Abspielreihenfolge**: „Der Reihe nach“, „Zufällig“ oder „Kinder
-      entscheiden“. Gilt für Playlisten und Alben; Songs und Radio laufen
-      einfach los. „Musik
+      entscheiden“. Gilt für Playlisten und Alben; Songs, Radio und
+      Sonos-Playlisten mit nur einem Titel laufen einfach los. „Musik
     hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
     Sonos-Playlisten) mit Suche und Filter nach Songs, Playlisten, Alben und
     Radio; ein Tipp nimmt einen Eintrag in die Kategorie auf oder wieder
@@ -259,7 +260,7 @@ wird ohne diese Schritte direkt gestartet.
 
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 6):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 7):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
@@ -273,7 +274,9 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 6):
 - `music_item` — Kategorie, Quelle (Favorit/Playlist), Sonos-Id, Name,
   Beschreibung, Cover-URL, Art (Song, Album, …), Position, eigenes Bild
   (seit Version 6, Migration `MIGRATION_5_6`; sie setzt außerdem früher als
-  Kategorie-Bild gewählte Cover zurück)
+  Kategorie-Bild gewählte Cover zurück), Anzahl der Titel (seit Version 7,
+  Migration `MIGRATION_6_7`; übernimmt sie aus der Beschreibung, danach
+  aktualisiert beim Laden des Katalogs)
 
 ## Projektstruktur
 
