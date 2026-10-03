@@ -288,7 +288,7 @@ fun MusicPickerDialog(
                                 title = item.name,
                                 onClick = {
                                     val ask = openCategory.category.playOrderMode == PlayOrder.CHILD_CHOICE &&
-                                        item.musicType.hasMultipleTracks
+                                        item.hasMultipleTracks
                                     if (ask) askOrderFor = item else onPlay(item, null)
                                 }
                             ) { MusicItemImage(item) }

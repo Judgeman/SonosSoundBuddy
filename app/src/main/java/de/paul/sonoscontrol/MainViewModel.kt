@@ -605,7 +605,7 @@ class MainViewModel(
             if (controlsOrder) {
                 // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
                 // Klappt das nicht (manche Quellen erlauben es nicht), trotzdem abspielen.
-                val shuffled = useShuffle && type.hasMultipleTracks &&
+                val shuffled = useShuffle && item.hasMultipleTracks &&
                     runCatching { apiClient.setShuffle(group.id, true) }.isSuccess
                 if (!shuffled) runCatching { apiClient.setShuffle(group.id, false) }
                 // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen

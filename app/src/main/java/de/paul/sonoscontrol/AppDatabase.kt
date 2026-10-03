@@ -80,7 +80,9 @@ data class MusicItem(
     val type: String,
     val position: Int,
     /** Selbst gewähltes Bild ([CustomImage]-Schlüssel) statt des Covers von Sonos. */
-    val customImageKey: String? = null
+    val customImageKey: String? = null,
+    /** Anzahl der Titel laut Sonos, null = unbekannt (nur Sonos-Playlisten liefern sie). */
+    val trackCount: Int? = null
 )
 
 val MusicItem.musicSource: MusicSource get() = MusicSource.fromKey(source)
@@ -216,6 +218,12 @@ interface ProfileDao {
     @Query("UPDATE music_item SET imageUrl = :imageUrl WHERE id = :id")
     suspend fun setItemImageUrl(id: Long, imageUrl: String?)
 
+    @Query(
+        "UPDATE music_item SET trackCount = :trackCount, description = :description " +
+            "WHERE source = :source AND sonosId = :sonosId AND name = :name AND trackCount IS NOT :trackCount"
+    )
+    suspend fun setTrackCount(source: String, sonosId: String, name: String, trackCount: Int, description: String?)
+
     @Query("SELECT imageKey FROM music_category WHERE imageKey IS NOT NULL")
     suspend fun getAllCategoryImages(): List<String>
 
@@ -250,7 +258,7 @@ interface ProfileDao {
 
 @Database(
     entities = [SpeakerConfig::class, AppSetting::class, ChildProfile::class, MusicCategory::class, MusicItem::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -306,6 +314,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE music_item ADD COLUMN trackCount INTEGER")
+                // Bei Sonos-Playlisten steht die Anzahl schon in der Beschreibung („3 Titel")
+                db.execSQL(
+                    "UPDATE music_item SET trackCount = CAST(description AS INTEGER) " +
+                        "WHERE source = 'PLAYLIST' AND description LIKE '% Titel'"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -316,7 +335,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sound_buddy.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { instance = it }
             }

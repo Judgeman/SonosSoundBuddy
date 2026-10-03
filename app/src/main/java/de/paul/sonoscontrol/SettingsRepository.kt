@@ -189,7 +189,8 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
                 description = entry.description,
                 imageUrl = entry.imageUrl,
                 type = entry.type.name,
-                position = profileDao.nextItemPosition(categoryId)
+                position = profileDao.nextItemPosition(categoryId),
+                trackCount = entry.trackCount
             )
         )
         // Danach, damit das Hinzufügen nicht auf den Download wartet
@@ -223,10 +224,15 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     /**
      * Übernimmt die Cover aus dem aktuellen Katalog in die gespeicherte Auswahl —
-     * so bekommen auch früher ohne Cover hinzugefügte Einträge ihr Bild.
+     * so bekommen auch früher ohne Cover hinzugefügte Einträge ihr Bild. Ebenso die
+     * Titel-Anzahl der Sonos-Playlisten.
      */
     suspend fun refreshMusicImages(entries: List<CatalogEntry>) {
         entries.forEach { entry ->
+            // Playlisten werden in der Sonos-App weiter bearbeitet
+            if (entry.trackCount != null) {
+                profileDao.setTrackCount(entry.source.name, entry.sonosId, entry.name, entry.trackCount, entry.description)
+            }
             val url = entry.imageUrl ?: return@forEach
             profileDao.getItemsWithoutStoredCover(entry.source.name, entry.sonosId, entry.name).forEach { item ->
                 if (!storeCover(item.id, url) && item.imageUrl != url) profileDao.setItemImageUrl(item.id, url)

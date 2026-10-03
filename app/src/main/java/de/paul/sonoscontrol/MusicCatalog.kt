@@ -44,6 +44,8 @@ data class CatalogEntry(
     val description: String?,
     val imageUrl: String?,
     val type: MusicType,
+    /** Anzahl der Titel, falls Sonos sie nennt (nur bei Sonos-Playlisten). */
+    val trackCount: Int? = null,
     /** Woher das Cover stammt (Sonos-Cloud, Speaker im Heimnetz) — für die Detail-Ansicht. */
     val coverOrigin: String? = null,
     /** Rohdaten von Sonos, zur Fehlersuche in der Detail-Ansicht. */
@@ -70,6 +72,7 @@ data class CatalogEntry(
             description = playlist.trackCount?.let { if (it == 1) "1 Titel" else "$it Titel" },
             imageUrl = null,
             type = MusicType.PLAYLIST,
+            trackCount = playlist.trackCount,
             rawData = playlist.toString()
         )
     }
@@ -110,6 +113,13 @@ val MusicCategory.playOrderMode: PlayOrder get() = PlayOrder.fromKey(playOrder)
 /** Reihenfolge und Zufall haben nur bei Inhalten mit mehreren Titeln eine Bedeutung. */
 val MusicType.hasMultipleTracks: Boolean
     get() = this == MusicType.PLAYLIST || this == MusicType.ALBUM || this == MusicType.OTHER
+
+/**
+ * Wie [MusicType.hasMultipleTracks], aber eine Playlist mit nur einem Titel
+ * (z. B. genau das eine Lieblingslied) zählt nicht — die läuft immer der Reihe nach.
+ */
+val MusicItem.hasMultipleTracks: Boolean
+    get() = musicType.hasMultipleTracks && trackCount != 1
 
 /**
  * Selbst gewähltes Bild einer Kategorie oder eines Musik-Eintrags: eine bunte
