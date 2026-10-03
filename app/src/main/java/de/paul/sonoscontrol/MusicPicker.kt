@@ -292,7 +292,7 @@ fun MusicPickerDialog(
                                         item.musicType.hasMultipleTracks
                                     if (ask) askOrderFor = item else onPlay(item, null)
                                 }
-                            ) { MusicCover(item.imageUrl, item.musicType) }
+                            ) { MusicItemImage(item) }
                         }
                     }
                 }
@@ -343,7 +343,7 @@ private fun PlayOrderQuestion(item: MusicItem, onChoose: (shuffle: Boolean) -> U
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(24.dp)
             ) {
-                MusicCover(item.imageUrl, item.musicType, size = 120.dp)
+                MusicItemImage(item, size = 120.dp)
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     item.name,

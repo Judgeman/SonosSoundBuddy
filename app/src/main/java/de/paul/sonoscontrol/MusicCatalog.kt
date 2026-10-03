@@ -105,43 +105,41 @@ val MusicType.hasMultipleTracks: Boolean
     get() = this == MusicType.PLAYLIST || this == MusicType.ALBUM || this == MusicType.OTHER
 
 /**
- * Bild einer Kategorie. In der Datenbank als Text gespeichert, z. B.
- * `cover:https://…`, `icon:ROCKET`, `animal:FOX` oder `file:/data/…/bild.jpg`.
- * Ohne gewähltes Bild ([Auto]) wird das erste Cover der Kategorie gezeigt.
+ * Selbst gewähltes Bild einer Kategorie oder eines Musik-Eintrags: ein Icon,
+ * ein Tier oder ein eigenes Foto. In der Datenbank als Text gespeichert, z. B.
+ * `icon:ROCKET`, `animal:FOX` oder `file:/data/…/bild.jpg`.
+ * [Default] = nichts gewählt: Kategorien zeigen dann ein Musik-Icon,
+ * Einträge ihr Cover von Sonos.
  */
-sealed interface CategoryImage {
-    data object Auto : CategoryImage
-    data class Cover(val url: String) : CategoryImage
-    data class Icon(val icon: SpeakerIcon) : CategoryImage
-    data class Animal(val icon: ProfileIcon) : CategoryImage
-    data class File(val path: String) : CategoryImage
+sealed interface CustomImage {
+    data object Default : CustomImage
+    data class Icon(val icon: SpeakerIcon) : CustomImage
+    data class Animal(val icon: ProfileIcon) : CustomImage
+    data class File(val path: String) : CustomImage
 
     val key: String?
         get() = when (this) {
-            Auto -> null
-            is Cover -> "cover:$url"
+            Default -> null
             is Icon -> "icon:${icon.name}"
             is Animal -> "animal:${icon.name}"
             is File -> "file:$path"
         }
 
     companion object {
-        fun fromKey(key: String?): CategoryImage {
-            val kind = key?.substringBefore(':', missingDelimiterValue = "") ?: return Auto
+        fun fromKey(key: String?): CustomImage {
+            val kind = key?.substringBefore(':', missingDelimiterValue = "") ?: return Default
             val value = key.substringAfter(':')
             return when (kind) {
-                "cover" -> Cover(value)
-                "icon" -> SpeakerIcon.entries.firstOrNull { it.name == value }?.let(::Icon) ?: Auto
-                "animal" -> ProfileIcon.entries.firstOrNull { it.name == value }?.let(::Animal) ?: Auto
+                "icon" -> SpeakerIcon.entries.firstOrNull { it.name == value }?.let(::Icon) ?: Default
+                "animal" -> ProfileIcon.entries.firstOrNull { it.name == value }?.let(::Animal) ?: Default
                 "file" -> File(value)
-                else -> Auto
+                // Früher gab es hier auch Cover (`cover:…`) — die gelten jetzt als nicht gewählt
+                else -> Default
             }
         }
     }
 }
 
-val MusicCategory.image: CategoryImage get() = CategoryImage.fromKey(imageKey)
+val MusicCategory.image: CustomImage get() = CustomImage.fromKey(imageKey)
 
-/** Covers der Einträge einer Kategorie, ohne Doppelte — Auswahl für das Kategorie-Bild. */
-val CategoryWithMusic.itemCovers: List<String>
-    get() = items.mapNotNull { it.imageUrl }.distinct()
+val MusicItem.customImage: CustomImage get() = CustomImage.fromKey(customImageKey)

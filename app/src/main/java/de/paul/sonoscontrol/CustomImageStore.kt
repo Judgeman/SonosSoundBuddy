@@ -12,17 +12,19 @@ import java.io.File
 import java.io.IOException
 
 /**
- * Eigene Bilder für Kategorien. Das gewählte Foto wird verkleinert in den
+ * Eigene Bilder für Kategorien und Musik-Einträge. Das gewählte Foto wird verkleinert in den
  * App-Speicher kopiert — so bleibt es erhalten, auch wenn es in der Galerie
  * gelöscht wird, und die App braucht keine Speicher-Berechtigung.
  */
-class CategoryImageStore(context: Context) {
+class CustomImageStore(context: Context) {
 
     private val resolver = context.contentResolver
-    private val directory = File(context.filesDir, "category_images")
+    private val directory = File(context.filesDir, "custom_images")
+    /** Ordner einer früheren Version, nur noch zum Aufräumen. */
+    private val legacyDirectory = File(context.filesDir, "category_images")
 
-    /** Kopiert das Bild hinter [uri] und gibt den Pfad der Kopie zurück. */
-    suspend fun import(uri: Uri, categoryId: Long): String = withContext(Dispatchers.IO) {
+    /** Kopiert das Bild hinter [uri] und gibt den Pfad der Kopie zurück. [name] landet im Dateinamen. */
+    suspend fun import(uri: Uri, name: String): String = withContext(Dispatchers.IO) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IOException("Das Bild konnte nicht gelesen werden.")
@@ -37,18 +39,19 @@ class CategoryImageStore(context: Context) {
         val bitmap = scaleDown(rotateUpright(decoded, uri))
         directory.mkdirs()
         // Neuer Dateiname bei jedem Import, damit Coil kein altes Bild aus dem Cache zeigt
-        val file = File(directory, "category-$categoryId-${System.currentTimeMillis()}.jpg")
+        val file = File(directory, "$name-${System.currentTimeMillis()}.jpg")
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
         file.absolutePath
     }
 
     /** Löscht ein früher importiertes Bild; andere Bild-Arten werden ignoriert. */
     suspend fun delete(imageKey: String?) {
-        val image = CategoryImage.fromKey(imageKey) as? CategoryImage.File ?: return
+        val image = CustomImage.fromKey(imageKey) as? CustomImage.File ?: return
         withContext(Dispatchers.IO) {
             val file = File(image.path)
             // Nur Dateien aus dem eigenen Ordner anfassen
-            if (file.parentFile?.canonicalPath == directory.canonicalPath) file.delete()
+            val parent = file.parentFile?.canonicalPath
+            if (parent == directory.canonicalPath || parent == legacyDirectory.canonicalPath) file.delete()
         }
     }
 

@@ -80,55 +80,66 @@ fun MusicCover(
 
 private val MusicCoverLargeThreshold = 80.dp
 
-/**
- * Quadratisches Bild einer Kategorie: Cover, eigenes Foto oder Icon.
- * Automatisch = erstes Cover der Kategorie, sonst ein Musik-Symbol.
- */
+/** Bild einer Kategorie: Icon, Tier oder eigenes Foto; ohne Auswahl ein Musik-Icon. */
 @Composable
 fun CategoryImageView(category: CategoryWithMusic, modifier: Modifier = Modifier, size: Dp? = null) {
-    CategoryImageView(
-        image = category.category.image,
-        fallbackCover = category.itemCovers.firstOrNull(),
-        modifier = modifier,
-        size = size
-    )
+    CustomImageView(category.category.image, modifier, size, default = CategoryDefaultImage)
 }
 
+/** Bild eines Musik-Eintrags: das selbst gewählte, sonst das Cover von Sonos. */
 @Composable
-fun CategoryImageView(image: CategoryImage, fallbackCover: String?, modifier: Modifier = Modifier, size: Dp? = null) {
+fun MusicItemImage(item: MusicItem, modifier: Modifier = Modifier, size: Dp? = null) {
+    CustomImageView(item.customImage, modifier, size, default = CustomImage.Default) {
+        MusicCover(item.imageUrl, item.musicType, modifier = it)
+    }
+}
+
+private val CategoryDefaultImage = CustomImage.Icon(SpeakerIcon.MUSIC)
+
+/**
+ * Quadratische Anzeige eines [CustomImage]. Ist nichts gewählt, wird [default]
+ * gezeigt — oder, wenn das auch [CustomImage.Default] ist, [fallback].
+ */
+@Composable
+fun CustomImageView(
+    image: CustomImage,
+    modifier: Modifier = Modifier,
+    size: Dp? = null,
+    default: CustomImage = CustomImage.Default,
+    fallback: @Composable (Modifier) -> Unit = { MusicCover(null, MusicType.OTHER, modifier = it) }
+) {
     val shape = RoundedCornerShape(if (size != null && size < MusicCoverLargeThreshold) 12.dp else 24.dp)
     val sized = modifier
         .then(if (size != null) Modifier.size(size) else Modifier.fillMaxWidth())
         .aspectRatio(1f)
         .clip(shape)
 
-    when (image) {
-        is CategoryImage.Icon -> Box(
+    when (val shown = if (image == CustomImage.Default) default else image) {
+        is CustomImage.Icon -> Box(
             contentAlignment = Alignment.Center,
-            modifier = sized.background(image.icon.color)
+            modifier = sized.background(shown.icon.color)
         ) {
             Icon(
-                imageVector = image.icon.vector,
+                imageVector = shown.icon.vector,
                 contentDescription = null,
-                tint = if (image.icon.multicolor) Color.Unspecified else Color.White,
-                modifier = Modifier.fillMaxSize(if (image.icon.multicolor) 0.8f else 0.6f)
+                tint = if (shown.icon.multicolor) Color.Unspecified else Color.White,
+                modifier = Modifier.fillMaxSize(if (shown.icon.multicolor) 0.8f else 0.6f)
             )
         }
 
-        is CategoryImage.Animal -> Box(
+        is CustomImage.Animal -> Box(
             contentAlignment = Alignment.Center,
-            modifier = sized.background(image.icon.color)
+            modifier = sized.background(shown.icon.color)
         ) {
             Icon(
-                imageVector = image.icon.vector,
+                imageVector = shown.icon.vector,
                 contentDescription = null,
                 tint = Color.Unspecified,
                 modifier = Modifier.fillMaxSize(0.85f)
             )
         }
 
-        is CategoryImage.Cover -> MusicCover(image.url, MusicType.OTHER, modifier = sized)
-        is CategoryImage.File -> MusicCover(image.path, MusicType.OTHER, modifier = sized, isFile = true)
-        CategoryImage.Auto -> MusicCover(fallbackCover, MusicType.OTHER, modifier = sized)
+        is CustomImage.File -> MusicCover(shown.path, MusicType.OTHER, modifier = sized, isFile = true)
+        CustomImage.Default -> fallback(sized)
     }
 }

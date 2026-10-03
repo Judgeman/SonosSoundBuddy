@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
             TokenStore(applicationContext),
             SettingsRepository(
                 AppDatabase.getInstance(applicationContext),
-                CategoryImageStore(applicationContext)
+                CustomImageStore(applicationContext)
             )
         )
     }
@@ -153,8 +153,9 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                             onAddMusic = viewModel::openCatalog,
                             onRemoveMusicItem = viewModel::removeMusicItem,
                             onCategoryImageChange = viewModel::setCategoryImage,
-                            onRandomCategoryCover = viewModel::pickRandomCategoryCover,
                             onImportCategoryImage = viewModel::importCategoryImage,
+                            onItemImageChange = viewModel::setMusicItemImage,
+                            onImportItemImage = viewModel::importMusicItemImage,
                             onPlayOrderChange = viewModel::setCategoryPlayOrder,
                             onDismissImageError = viewModel::dismissImageImportError
                         )

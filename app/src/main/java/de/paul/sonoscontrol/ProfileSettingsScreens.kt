@@ -44,7 +44,6 @@ import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
-import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChildCare
 import androidx.compose.material.icons.rounded.Close
@@ -96,6 +95,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 // --- Abschnitt „Kinder-Profile" auf der Settings-Hauptseite -----------------
@@ -187,9 +187,10 @@ class ProfileEditorActions(
     val onMoveCategory: (Long, Int) -> Unit,
     val onAddMusic: (Long) -> Unit,
     val onRemoveMusicItem: (Long) -> Unit,
-    val onCategoryImageChange: (Long, CategoryImage) -> Unit,
-    val onRandomCategoryCover: (Long) -> Unit,
+    val onCategoryImageChange: (Long, CustomImage) -> Unit,
     val onImportCategoryImage: (Long, Uri) -> Unit,
+    val onItemImageChange: (Long, CustomImage) -> Unit,
+    val onImportItemImage: (Long, Uri) -> Unit,
     val onPlayOrderChange: (Long, PlayOrder) -> Unit,
     val onDismissImageError: () -> Unit
 )
@@ -198,13 +199,24 @@ class ProfileEditorActions(
 @Composable
 fun ProfileEditorScreen(profile: ProfileWithMusic, imageError: String?, actions: ProfileEditorActions) {
     val id = profile.profile.id
-    var imageDialogFor by remember { mutableStateOf<Long?>(null) }
-    // Kategorie, für die gerade die Android-Fotoauswahl offen ist
-    var importFor by rememberSaveable { mutableStateOf<Long?>(null) }
+    // Wofür der Bild-Dialog bzw. die Android-Fotoauswahl gerade offen ist, z. B. "category:3" oder "item:7"
+    var imageDialogFor by remember { mutableStateOf<String?>(null) }
+    var importFor by rememberSaveable { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        val categoryId = importFor
-        if (uri != null && categoryId != null) actions.onImportCategoryImage(categoryId, uri)
+        val target = importFor
         importFor = null
+        if (uri == null || target == null) return@rememberLauncherForActivityResult
+        val targetId = target.substringAfter(':').toLong()
+        if (target.startsWith(CATEGORY_TARGET)) {
+            actions.onImportCategoryImage(targetId, uri)
+        } else {
+            actions.onImportItemImage(targetId, uri)
+        }
+    }
+    fun openPhotoPicker(target: String) {
+        importFor = target
+        imageDialogFor = null
+        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(imageError) {
@@ -271,7 +283,8 @@ fun ProfileEditorScreen(profile: ProfileWithMusic, imageError: String?, actions:
                     onDelete = { deleteCategory = category },
                     onAddMusic = { actions.onAddMusic(category.category.id) },
                     onRemoveItem = actions.onRemoveMusicItem,
-                    onImageClick = { imageDialogFor = category.category.id },
+                    onImageClick = { imageDialogFor = "$CATEGORY_TARGET:${category.category.id}" },
+                    onItemImageClick = { imageDialogFor = "$ITEM_TARGET:$it" },
                     onPlayOrderChange = { actions.onPlayOrderChange(category.category.id, it) }
                 )
             }
@@ -299,19 +312,32 @@ fun ProfileEditorScreen(profile: ProfileWithMusic, imageError: String?, actions:
         }
     }
 
-    imageDialogFor?.let { categoryId ->
-        profile.categories.firstOrNull { it.category.id == categoryId }?.let { category ->
-            CategoryImageDialog(
-                category = category,
-                onSelect = { actions.onCategoryImageChange(categoryId, it) },
-                onRandomCover = { actions.onRandomCategoryCover(categoryId) },
-                onUploadClick = {
-                    importFor = categoryId
-                    imageDialogFor = null
-                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                },
-                onDismiss = { imageDialogFor = null }
-            )
+    imageDialogFor?.let { target ->
+        val targetId = target.substringAfter(':').toLong()
+        if (target.startsWith(CATEGORY_TARGET)) {
+            profile.categories.firstOrNull { it.category.id == targetId }?.let { category ->
+                ImageChoiceDialog(
+                    title = "Bild für „${category.category.name}“",
+                    current = category.category.image,
+                    defaultLabel = "Standard-Icon",
+                    preview = { CategoryImageView(category, size = 96.dp) },
+                    onSelect = { actions.onCategoryImageChange(targetId, it) },
+                    onUploadClick = { openPhotoPicker(target) },
+                    onDismiss = { imageDialogFor = null }
+                )
+            }
+        } else {
+            profile.categories.flatMap { it.items }.firstOrNull { it.id == targetId }?.let { item ->
+                ImageChoiceDialog(
+                    title = "Bild für „${item.name}“",
+                    current = item.customImage,
+                    defaultLabel = "Cover von Sonos",
+                    preview = { MusicItemImage(item, size = 96.dp) },
+                    onSelect = { actions.onItemImageChange(targetId, it) },
+                    onUploadClick = { openPhotoPicker(target) },
+                    onDismiss = { imageDialogFor = null }
+                )
+            }
         }
     }
 
@@ -449,6 +475,7 @@ private fun CategoryCard(
     onAddMusic: () -> Unit,
     onRemoveItem: (Long) -> Unit,
     onImageClick: () -> Unit,
+    onItemImageClick: (Long) -> Unit,
     onPlayOrderChange: (PlayOrder) -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -463,24 +490,7 @@ private fun CategoryCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp)
         ) {
-            Box(modifier = Modifier.clickable(onClick = onImageClick)) {
-                CategoryImageView(category, size = 72.dp)
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(2.dp)
-                        .size(24.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.Edit,
-                        contentDescription = "Bild ändern",
-                        modifier = Modifier.padding(4.dp)
-                    )
-                }
-            }
+            EditableImage(onClick = onImageClick) { CategoryImageView(category, size = 72.dp) }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -540,7 +550,9 @@ private fun CategoryCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp)
             ) {
-                MusicCover(item.imageUrl, item.musicType, size = 48.dp)
+                EditableImage(onClick = { onItemImageClick(item.id) }, badgeSize = 20.dp) {
+                    MusicItemImage(item, size = 52.dp)
+                }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -611,24 +623,45 @@ val PlayOrder.icon: ImageVector
         PlayOrder.CHILD_CHOICE -> Icons.Rounded.ChildCare
     }
 
+private const val CATEGORY_TARGET = "category"
+private const val ITEM_TARGET = "item"
+
+/** Bild mit kleinem Stift-Symbol: zeigt, dass ein Tipp das Bild ändert. */
+@Composable
+private fun EditableImage(onClick: () -> Unit, badgeSize: Dp = 24.dp, image: @Composable () -> Unit) {
+    Box(modifier = Modifier.clickable(onClick = onClick)) {
+        image()
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(2.dp)
+                .size(badgeSize)
+        ) {
+            Icon(Icons.Rounded.Edit, contentDescription = "Bild ändern", modifier = Modifier.padding(4.dp))
+        }
+    }
+}
+
 /**
- * Bild der Kategorie wählen: ein Cover aus der Kategorie (auch per Zufall),
- * ein eigenes Foto vom Tablet oder eins der Icons.
+ * Bild wählen — für Kategorien und Musik-Einträge: ein eigenes Foto vom Tablet,
+ * eins der Icons oder Tiere, oder zurück zum Standard ([defaultLabel]).
  */
 @Composable
-private fun CategoryImageDialog(
-    category: CategoryWithMusic,
-    onSelect: (CategoryImage) -> Unit,
-    onRandomCover: () -> Unit,
+private fun ImageChoiceDialog(
+    title: String,
+    current: CustomImage,
+    defaultLabel: String,
+    preview: @Composable () -> Unit,
+    onSelect: (CustomImage) -> Unit,
     onUploadClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val current = category.category.image
-    val covers = category.itemCovers
-
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Bild für „${category.category.name}“") },
+        title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 76.dp),
@@ -638,56 +671,34 @@ private fun CategoryImageDialog(
             ) {
                 fullWidthItem {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        CategoryImageView(category, size = 96.dp)
+                        preview()
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
-                            Button(onClick = onRandomCover, enabled = covers.isNotEmpty()) {
-                                Icon(Icons.Rounded.Casino, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Zufälliges Cover")
-                            }
-                            OutlinedButton(onClick = onUploadClick) {
+                            Button(onClick = onUploadClick) {
                                 Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text("Eigenes Bild")
+                            }
+                            TextButton(onClick = { onSelect(CustomImage.Default) }, enabled = current != CustomImage.Default) {
+                                Text(defaultLabel)
                             }
                         }
                     }
                 }
 
-                fullWidthItem { DialogSectionTitle("Cover aus der Kategorie") }
-                if (covers.isEmpty()) {
-                    fullWidthItem {
-                        Text(
-                            "Noch keine Cover — füge zuerst Musik hinzu.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                items(covers) { url ->
-                    SelectableImage(selected = current == CategoryImage.Cover(url), onClick = { onSelect(CategoryImage.Cover(url)) }) {
-                        CategoryImageView(CategoryImage.Cover(url), fallbackCover = null)
-                    }
-                }
-
                 fullWidthItem { DialogSectionTitle("Icons") }
                 items(SpeakerIcon.entries) { icon ->
-                    SelectableImage(selected = current == CategoryImage.Icon(icon), onClick = { onSelect(CategoryImage.Icon(icon)) }) {
-                        CategoryImageView(CategoryImage.Icon(icon), fallbackCover = null)
+                    val image = CustomImage.Icon(icon)
+                    SelectableImage(selected = current == image, onClick = { onSelect(image) }) {
+                        CustomImageView(image)
                     }
                 }
 
                 fullWidthItem { DialogSectionTitle("Tiere") }
                 items(ProfileIcon.entries) { icon ->
-                    SelectableImage(selected = current == CategoryImage.Animal(icon), onClick = { onSelect(CategoryImage.Animal(icon)) }) {
-                        CategoryImageView(CategoryImage.Animal(icon), fallbackCover = null)
-                    }
-                }
-
-                fullWidthItem {
-                    TextButton(onClick = { onSelect(CategoryImage.Auto) }, enabled = current != CategoryImage.Auto) {
-                        Text("Automatisch (erstes Cover)")
+                    val image = CustomImage.Animal(icon)
+                    SelectableImage(selected = current == image, onClick = { onSelect(image) }) {
+                        CustomImageView(image)
                     }
                 }
             }

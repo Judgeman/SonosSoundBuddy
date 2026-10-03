@@ -20,7 +20,7 @@ data class AppSettings(
     val isLocked: Boolean get() = hasPassword && passwordRequired
 }
 
-class SettingsRepository(database: AppDatabase, private val imageStore: CategoryImageStore) {
+class SettingsRepository(database: AppDatabase, private val imageStore: CustomImageStore) {
 
     private val speakerDao = database.speakerConfigDao()
     private val settingDao = database.appSettingDao()
@@ -119,7 +119,7 @@ class SettingsRepository(database: AppDatabase, private val imageStore: Category
         profileDao.setProfileEnabled(profileId, enabled)
 
     suspend fun deleteProfile(profileId: Long) {
-        val images = profileDao.getCategoryImagesOfProfile(profileId)
+        val images = profileDao.getCategoryImagesOfProfile(profileId) + profileDao.getItemImagesOfProfile(profileId)
         profileDao.deleteProfile(profileId)
         images.forEach { imageStore.delete(it) }
     }
@@ -136,13 +136,14 @@ class SettingsRepository(database: AppDatabase, private val imageStore: Category
     suspend fun setCategoryName(categoryId: Long, name: String) = profileDao.setCategoryName(categoryId, name.trim())
 
     suspend fun deleteCategory(categoryId: Long) {
-        val image = profileDao.getCategoryImage(categoryId)
+        val images = listOfNotNull(profileDao.getCategoryImage(categoryId)) +
+            profileDao.getItemImagesOfCategory(categoryId)
         profileDao.deleteCategory(categoryId)
-        imageStore.delete(image)
+        images.forEach { imageStore.delete(it) }
     }
 
     /** Setzt das Kategorie-Bild; ein vorher hochgeladenes eigenes Bild wird gelöscht. */
-    suspend fun setCategoryImage(categoryId: Long, image: CategoryImage) {
+    suspend fun setCategoryImage(categoryId: Long, image: CustomImage) {
         val previous = profileDao.getCategoryImage(categoryId)
         profileDao.setCategoryImage(categoryId, image.key)
         if (previous != image.key) imageStore.delete(previous)
@@ -150,7 +151,17 @@ class SettingsRepository(database: AppDatabase, private val imageStore: Category
 
     /** Kopiert ein Bild vom Tablet in die App und setzt es als Kategorie-Bild. */
     suspend fun importCategoryImage(categoryId: Long, uri: Uri) =
-        setCategoryImage(categoryId, CategoryImage.File(imageStore.import(uri, categoryId)))
+        setCategoryImage(categoryId, CustomImage.File(imageStore.import(uri, "category-$categoryId")))
+
+    /** Setzt das eigene Bild eines Musik-Eintrags; ein vorher hochgeladenes wird gelöscht. */
+    suspend fun setItemImage(itemId: Long, image: CustomImage) {
+        val previous = profileDao.getItemCustomImage(itemId)
+        profileDao.setItemCustomImage(itemId, image.key)
+        if (previous != image.key) imageStore.delete(previous)
+    }
+
+    suspend fun importItemImage(itemId: Long, uri: Uri) =
+        setItemImage(itemId, CustomImage.File(imageStore.import(uri, "item-$itemId")))
 
     suspend fun setCategoryPlayOrder(categoryId: Long, playOrder: PlayOrder) =
         profileDao.setCategoryPlayOrder(categoryId, playOrder.name)
@@ -174,10 +185,17 @@ class SettingsRepository(database: AppDatabase, private val imageStore: Category
         )
     }
 
-    suspend fun removeMusic(categoryId: Long, entry: CatalogEntry) =
+    suspend fun removeMusic(categoryId: Long, entry: CatalogEntry) {
+        val images = profileDao.getItemImagesFor(categoryId, entry.source.name, entry.sonosId)
         profileDao.deleteItemFromCategory(categoryId, entry.source.name, entry.sonosId)
+        images.forEach { imageStore.delete(it) }
+    }
 
-    suspend fun removeMusicItem(itemId: Long) = profileDao.deleteItem(itemId)
+    suspend fun removeMusicItem(itemId: Long) {
+        val image = profileDao.getItemCustomImage(itemId)
+        profileDao.deleteItem(itemId)
+        imageStore.delete(image)
+    }
 
     /**
      * Übernimmt die Cover aus dem aktuellen Katalog in die gespeicherte Auswahl —

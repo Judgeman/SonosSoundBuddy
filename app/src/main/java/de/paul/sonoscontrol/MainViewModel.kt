@@ -772,23 +772,23 @@ class MainViewModel(
     }
 
     /** Verschiebt eine Kategorie innerhalb ihres Profils um [offset] Plätze (−1 = nach oben). */
-    fun setCategoryImage(categoryId: Long, image: CategoryImage) {
+    fun setCategoryImage(categoryId: Long, image: CustomImage) {
         viewModelScope.launch { repository.setCategoryImage(categoryId, image) }
     }
 
-    /** Wählt per Zufall eins der Cover aus der Kategorie (möglichst ein anderes als das aktuelle). */
-    fun pickRandomCategoryCover(categoryId: Long) {
-        val category = profiles.flatMap { it.categories }.firstOrNull { it.category.id == categoryId } ?: return
-        val current = (category.category.image as? CategoryImage.Cover)?.url
-        val candidates = category.itemCovers.filter { it != current }.ifEmpty { category.itemCovers }
-        val url = candidates.randomOrNull() ?: return
-        setCategoryImage(categoryId, CategoryImage.Cover(url))
+    fun importCategoryImage(categoryId: Long, uri: Uri) = importImage { repository.importCategoryImage(categoryId, uri) }
+
+    /** Eigenes Bild für einen Musik-Eintrag, z. B. für Sonos-Playlisten ohne Cover. */
+    fun setMusicItemImage(itemId: Long, image: CustomImage) {
+        viewModelScope.launch { repository.setItemImage(itemId, image) }
     }
 
-    fun importCategoryImage(categoryId: Long, uri: Uri) {
+    fun importMusicItemImage(itemId: Long, uri: Uri) = importImage { repository.importItemImage(itemId, uri) }
+
+    private fun importImage(import: suspend () -> Unit) {
         viewModelScope.launch {
             try {
-                repository.importCategoryImage(categoryId, uri)
+                import()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

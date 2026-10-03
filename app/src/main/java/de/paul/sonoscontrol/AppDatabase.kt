@@ -56,7 +56,7 @@ data class MusicCategory(
     val profileId: Long,
     val name: String,
     val position: Int,
-    /** [CategoryImage]-Schlüssel, null = automatisch (erstes Cover). */
+    /** [CustomImage]-Schlüssel, null = Standard-Icon. */
     val imageKey: String? = null,
     /** [PlayOrder]-Name. */
     val playOrder: String = PlayOrder.ORDERED.name
@@ -79,7 +79,9 @@ data class MusicItem(
     val imageUrl: String?,
     /** [MusicType]-Name: Song, Album, Playlist, Radio, ... */
     val type: String,
-    val position: Int
+    val position: Int,
+    /** Selbst gewähltes Bild ([CustomImage]-Schlüssel) statt des Covers von Sonos. */
+    val customImageKey: String? = null
 )
 
 val MusicItem.musicSource: MusicSource get() = MusicSource.fromKey(source)
@@ -172,6 +174,27 @@ abstract class ProfileDao {
     @Query("SELECT imageKey FROM music_category WHERE profileId = :profileId AND imageKey IS NOT NULL")
     abstract suspend fun getCategoryImagesOfProfile(profileId: Long): List<String>
 
+    @Query("UPDATE music_item SET customImageKey = :imageKey WHERE id = :id")
+    abstract suspend fun setItemCustomImage(id: Long, imageKey: String?)
+
+    @Query("SELECT customImageKey FROM music_item WHERE id = :id")
+    abstract suspend fun getItemCustomImage(id: Long): String?
+
+    @Query("SELECT customImageKey FROM music_item WHERE categoryId = :categoryId AND customImageKey IS NOT NULL")
+    abstract suspend fun getItemImagesOfCategory(categoryId: Long): List<String>
+
+    @Query(
+        "SELECT customImageKey FROM music_item WHERE customImageKey IS NOT NULL AND categoryId IN " +
+            "(SELECT id FROM music_category WHERE profileId = :profileId)"
+    )
+    abstract suspend fun getItemImagesOfProfile(profileId: Long): List<String>
+
+    @Query(
+        "SELECT customImageKey FROM music_item WHERE categoryId = :categoryId AND source = :source " +
+            "AND sonosId = :sonosId AND customImageKey IS NOT NULL"
+    )
+    abstract suspend fun getItemImagesFor(categoryId: Long, source: String, sonosId: String): List<String>
+
     @Query("UPDATE music_category SET position = :position WHERE id = :id")
     abstract suspend fun setCategoryPosition(id: Long, position: Int)
 
@@ -229,7 +252,7 @@ abstract class ProfileDao {
 
 @Database(
     entities = [SpeakerConfig::class, AppSetting::class, ChildProfile::class, MusicCategory::class, MusicItem::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -277,6 +300,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE music_item ADD COLUMN customImageKey TEXT")
+                // Cover als Kategorie-Bild gibt es nicht mehr → wieder Standard-Icon
+                db.execSQL("UPDATE music_category SET imageKey = NULL WHERE imageKey LIKE 'cover:%'")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -287,7 +318,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sound_buddy.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }

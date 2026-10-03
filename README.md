@@ -68,10 +68,12 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Tablet aktiv“. Ein Tipp öffnet die Profil-Seite mit Name, **Icon**
     (16 gezeichnete Tiere, Einhorn, Pikachu) und der **Musikauswahl**:
     Kategorien anlegen, umbenennen, sortieren und löschen. Pro Kategorie:
-    - ein **Bild**: ein zufälliges oder bestimmtes Cover aus der Kategorie,
-      eins der Speaker-Icons oder Tiere, oder ein **eigenes Foto** (Android-
-      Fotoauswahl, ohne Berechtigung; wird verkleinert in den App-Speicher
-      kopiert). Ohne Auswahl wird das erste Cover gezeigt.
+    - ein **Bild**: eins der Speaker-Icons oder Tiere oder ein **eigenes
+      Foto** (Android-Fotoauswahl, ohne Berechtigung; wird verkleinert in den
+      App-Speicher kopiert). Ohne Auswahl ein Musik-Icon.
+    - pro Musik-Eintrag ebenfalls ein eigenes Bild (Tipp auf das Cover) —
+      gedacht vor allem für Sonos-Playlisten, die von Sonos kein Cover
+      bekommen. „Cover von Sonos“ stellt das Original wieder her.
     - die **Abspielreihenfolge**: „Der Reihe nach“, „Zufällig“ oder „Kinder
       entscheiden“. Gilt für Playlisten und Alben; Songs und Radio laufen
       einfach los. „Musik
@@ -201,7 +203,7 @@ wird ohne diese Schritte direkt gestartet.
 
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 5):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 6):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
@@ -209,11 +211,13 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 5):
   zuletzt gewählter Speaker und zuletzt gewähltes Profil
 - `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
   (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden)
-- `music_category` — Profil, Name, Position, Bild (`cover:…`, `icon:…`,
-  `animal:…`, `file:…` oder leer = automatisch), Abspielreihenfolge
+- `music_category` — Profil, Name, Position, Bild (`icon:…`, `animal:…`,
+  `file:…` oder leer = Standard-Icon), Abspielreihenfolge
   (Bild und Reihenfolge seit Version 5, Migration `MIGRATION_4_5`)
 - `music_item` — Kategorie, Quelle (Favorit/Playlist), Sonos-Id, Name,
-  Beschreibung, Cover-URL, Art (Song, Album, …), Position
+  Beschreibung, Cover-URL, Art (Song, Album, …), Position, eigenes Bild
+  (seit Version 6, Migration `MIGRATION_5_6`; sie setzt außerdem früher als
+  Kategorie-Bild gewählte Cover zurück)
 
 ## Projektstruktur
 
@@ -229,8 +233,8 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
 | `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite mit Kategorien, Katalog-Auswahl |
-| `MusicCatalog.kt`, `MusicCover.kt` | Katalog-Einträge, Musik-Typen, Abspielreihenfolge, Kategorie-Bild, Cover-Kachel |
-| `CategoryImageStore.kt` | Eigene Kategorie-Bilder importieren (verkleinern, drehen) und löschen |
+| `MusicCatalog.kt`, `MusicCover.kt` | Katalog-Einträge, Musik-Typen, Abspielreihenfolge, eigene Bilder, Cover-Kachel |
+| `CustomImageStore.kt` | Eigene Bilder für Kategorien und Einträge importieren (verkleinern, drehen) und löschen |
 | `SpeakerIcons.kt`, `CharacterIcons.kt` | Icon-Katalog, Einhorn und Pikachu |
 | `ProfileIcons.kt`, `AnimalIcons.kt` | Profil-Icons, gezeichnete Tiere |
 | `SonosApiClient.kt`, `SonosModels.kt` | Sonos-API inkl. Token-Erneuerung |
