@@ -1,4 +1,4 @@
-# Sound Buddy
+# SoundBuddy
 
 Native Android-App (Kotlin, Jetpack Compose) zum kindgerechten Steuern von
 Sonos-Speakern über die offizielle Sonos Control API. Gedacht für ein
