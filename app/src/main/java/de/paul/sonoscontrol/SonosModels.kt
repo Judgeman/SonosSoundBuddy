@@ -87,9 +87,9 @@ data class MetadataImage(
     val height: Int? = null
 )
 
-private fun String?.orNullIfBlank(): String? = this?.takeIf { it.isNotBlank() }
+internal fun String?.orNullIfBlank(): String? = this?.takeIf { it.isNotBlank() }
 
-private fun List<MetadataImage>.largestUrl(): String? =
+internal fun List<MetadataImage>.largestUrl(): String? =
     filter { !it.url.isNullOrBlank() }
         .maxByOrNull { (it.width ?: 0) * (it.height ?: 0) }
         ?.url
@@ -128,4 +128,61 @@ data class PlayerVolume(
     val volume: Int = 0,
     val muted: Boolean = false,
     val fixed: Boolean = false
+)
+
+/** Antwort von GET /households/{householdId}/favorites */
+@Serializable
+data class FavoritesResponse(
+    val items: List<SonosFavorite> = emptyList()
+)
+
+@Serializable
+data class SonosFavorite(
+    val id: String,
+    val name: String = "",
+    val description: String? = null,
+    val imageUrl: String? = null,
+    val images: List<MetadataImage> = emptyList(),
+    val service: FavoriteService? = null,
+    val resource: FavoriteResource? = null
+) {
+    val coverUrl: String? get() = imageUrl.orNullIfBlank() ?: images.largestUrl()
+}
+
+@Serializable
+data class FavoriteService(
+    val name: String? = null
+)
+
+@Serializable
+data class FavoriteResource(
+    /** z. B. TRACK, ALBUM, PLAYLIST, PROGRAM (Radio), ARTIST */
+    val type: String? = null
+)
+
+/** Antwort von GET /households/{householdId}/playlists */
+@Serializable
+data class PlaylistsResponse(
+    val playlists: List<SonosPlaylist> = emptyList()
+)
+
+@Serializable
+data class SonosPlaylist(
+    val id: String,
+    val name: String = "",
+    val trackCount: Int? = null
+)
+
+/** Antwort von POST /households/{householdId}/playlists/getPlaylist */
+@Serializable
+data class PlaylistDetails(
+    val name: String? = null,
+    val tracks: List<PlaylistTrack> = emptyList()
+)
+
+@Serializable
+data class PlaylistTrack(
+    val name: String? = null,
+    val artist: String? = null,
+    val album: String? = null
 )

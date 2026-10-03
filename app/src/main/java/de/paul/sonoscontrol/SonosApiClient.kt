@@ -8,6 +8,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -102,6 +104,42 @@ class SonosApiClient(
 
     suspend fun setPlayerVolume(playerId: String, volume: Int) {
         post("$baseUrl/players/$playerId/playerVolume", """{"volume":${volume.coerceIn(0, 100)}}""")
+    }
+
+    suspend fun getFavorites(householdId: String): List<SonosFavorite> {
+        val body = get("$baseUrl/households/$householdId/favorites")
+        return json.decodeFromString(FavoritesResponse.serializer(), body).items
+    }
+
+    suspend fun getPlaylists(householdId: String): List<SonosPlaylist> {
+        val body = get("$baseUrl/households/$householdId/playlists")
+        return json.decodeFromString(PlaylistsResponse.serializer(), body).playlists
+    }
+
+    suspend fun getPlaylist(householdId: String, playlistId: String): PlaylistDetails {
+        val request = buildJsonObject { put("playlistId", playlistId) }
+        val body = post("$baseUrl/households/$householdId/playlists/getPlaylist", request.toString())
+        return json.decodeFromString(PlaylistDetails.serializer(), body)
+    }
+
+    /** Ersetzt die Warteschlange der Gruppe durch den Favoriten und spielt ihn sofort ab. */
+    suspend fun loadFavorite(groupId: String, favoriteId: String) {
+        val request = buildJsonObject {
+            put("favoriteId", favoriteId)
+            put("playOnCompletion", true)
+            put("action", "REPLACE")
+        }
+        post("$baseUrl/groups/$groupId/favorites", request.toString())
+    }
+
+    /** Ersetzt die Warteschlange der Gruppe durch die Playlist und spielt sie sofort ab. */
+    suspend fun loadPlaylist(groupId: String, playlistId: String) {
+        val request = buildJsonObject {
+            put("playlistId", playlistId)
+            put("playOnCompletion", true)
+            put("action", "REPLACE")
+        }
+        post("$baseUrl/groups/$groupId/playlists", request.toString())
     }
 
     private suspend fun get(url: String): String =

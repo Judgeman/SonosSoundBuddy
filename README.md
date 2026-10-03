@@ -28,12 +28,20 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
   - Ist in den Settings nur **ein** Speaker freigegeben, ist er immer
     automatisch gewählt (ohne Dropdown-Pfeil). Ansonsten wird beim Start
     der zuletzt gewählte Speaker wiederhergestellt.
+  - Rechts daneben die **Profil-Auswahl**, die nur das Tier-Icon des
+    gewählten Kinder-Profils zeigt. Gleiche Logik wie bei den Speakern: ein
+    aktives Profil ist fest gewählt, bei mehreren wird das zuletzt gewählte
+    wiederhergestellt.
   - Aktuelle Wiedergabe über den ganzen Bildschirm, ohne Scrollen: Das Cover
     wächst mit dem freien Platz, darunter Titel und Interpret,
     Fortschrittsbalken mit Position und Dauer („Live“ bei Radio) und klein
     die Lautstärke in Prozent.
   - Große Knöpfe für vorherigen Track, Play/Pause und nächsten Track.
     Skip-Knöpfe sind ausgegraut, wenn die Quelle es nicht erlaubt.
+  - Ganz unten der Knopf **„Musik aussuchen“**: öffnet ein großes Popup mit
+    der Musikauswahl des Profils — pro Kategorie eine Überschrift und große
+    Cover-Kacheln. Ein Tipp spielt die Musik sofort auf dem gewählten
+    Speaker (die Warteschlange wird ersetzt).
   - Senkrechte **Lautstärke-Leiste** rechts neben dem Cover mit 10 großen,
     nach oben breiter werdenden Stufen: Tippen oder Ziehen setzt die
     Lautstärke, + / − gehen eine Stufe weiter. Die oberste Stufe ist die
@@ -53,6 +61,14 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     ein Regler für die **maximale Lautstärke** (5–100 % in 5er-Schritten)
     und ein frei wählbares **Icon**. Beim ersten Abgleich sind alle Speaker
     freigegeben, später neu gefundene müssen erst freigegeben werden.
+  - **Kinder-Profile:** Profile anlegen, pro Profil ein Schalter „auf diesem
+    Tablet aktiv“. Ein Tipp öffnet die Profil-Seite mit Name, **Icon**
+    (16 gezeichnete Tiere, Einhorn, Pikachu) und der **Musikauswahl**:
+    Kategorien anlegen, umbenennen, sortieren und löschen. „Musik
+    hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
+    Sonos-Playlisten) mit Suche und Filter nach Songs, Playlisten, Alben und
+    Radio; ein Tipp nimmt einen Eintrag in die Kategorie auf oder wieder
+    heraus. Bei Sonos-Playlisten lässt sich die Titelliste ansehen.
   - **Abmelden** vom Sonos-Konto.
 - **Lautstärke-Obergrenze:** Wird ein Speaker woanders (Sonos-App, Tasten am
   Gerät) über sein Maximum gestellt, regelt die App ihn bei der nächsten
@@ -67,6 +83,11 @@ Wohnzimmer, Kinderzimmer, Rakete, Roboter, Stern, Eis …) sowie zwei selbst
 gezeichnete, mehrfarbige Figuren in `CharacterIcons.kt`: **Einhorn** und
 **Pikachu**. Beim ersten Abgleich schlägt die App anhand des Raumnamens ein
 passendes Icon vor.
+
+Für die Kinder-Profile gibt es eigene Icons (`ProfileIcons.kt`): 16 selbst
+gezeichnete Tiergesichter in `AnimalIcons.kt` (Katze, Hund, Bär, Panda,
+Fuchs, Frosch, Löwe, Schwein, Maus, Hase, Eule, Pinguin, Affe, Koala,
+Küken, Marienkäfer) sowie Einhorn und Pikachu.
 
 > Pikachu ist eine geschützte Figur von Nintendo/The Pokémon Company. Für
 > den privaten Gebrauch ok — vor einer Veröffentlichung im Play Store das
@@ -132,19 +153,40 @@ nach einer erfolgreichen Erneuerung „Access-Token erneuert“.
 | Titel, Interpret, Cover | `GET /groups/{id}/playbackMetadata` |
 | Lautstärke lesen / setzen | `GET` / `POST /players/{id}/playerVolume` |
 | Play/Pause, Skip | `POST /groups/{id}/playback/togglePlayPause`, `skipToNextTrack`, `skipToPreviousTrack` |
+| Sonos-Favoriten / -Playlisten | `GET /households/{id}/favorites`, `GET /households/{id}/playlists` |
+| Titel einer Playlist | `POST /households/{id}/playlists/getPlaylist` |
+| Musik abspielen | `POST /groups/{id}/favorites`, `POST /groups/{id}/playlists` (`action: REPLACE`) |
 
 Die Wiedergabe wird alle 5 s abgefragt, solange die App im Vordergrund ist;
 dazwischen läuft die Position lokal weiter. Das Cover wird aus `imageUrl`
 oder der `images`-Liste des Tracks bzw. Containers gelesen.
 
+### Musik-Katalog
+
+Die Control API kann keine Musikdienste durchsuchen, sondern nur
+**Sonos-Favoriten** und **Sonos-Playlisten** abspielen. Das ist der Katalog
+für die Musikauswahl. Einzelne Songs, Alben, Spotify-Playlisten oder
+Radiosender kommen also über „Zu Sonos-Favoriten hinzufügen“ in der
+Sonos-App in die Auswahl. Einzelne Titel *aus* einer Sonos-Playlist lassen
+sich nicht gezielt starten.
+
+Gespeichert werden Id, Name und Cover. Sonos vergibt die Ids selbst. Hat
+sich die Id inzwischen geändert (Favorit gelöscht und neu angelegt), sucht
+die App beim Abspielen über den Namen.
+
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 2):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 4):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
 - `app_setting` — Key-Value: Passwort-Hash/-Salt, Passwortschutz an/aus,
-  zuletzt gewählter Speaker
+  zuletzt gewählter Speaker und zuletzt gewähltes Profil
+- `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
+  (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden)
+- `music_category` — Profil, Name, Position
+- `music_item` — Kategorie, Quelle (Favorit/Playlist), Sonos-Id, Name,
+  Beschreibung, Cover-URL, Art (Song, Album, …), Position
 
 ## Projektstruktur
 
@@ -152,13 +194,17 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 
 | Datei | Inhalt |
 |---|---|
-| `MainActivity.kt` | Einstieg, Navigation Home/Settings, Theme |
-| `MainViewModel.kt` | Zustand, Speaker-Auswahl, Polling, Befehle, Passwort |
+| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Katalog, Theme |
+| `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
+| `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
+| `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite mit Kategorien, Katalog-Auswahl |
+| `MusicCatalog.kt`, `MusicCover.kt` | Katalog-Einträge, Musik-Typen, Cover-Kachel |
 | `SpeakerIcons.kt`, `CharacterIcons.kt` | Icon-Katalog, Einhorn und Pikachu |
+| `ProfileIcons.kt`, `AnimalIcons.kt` | Profil-Icons, gezeichnete Tiere |
 | `SonosApiClient.kt`, `SonosModels.kt` | Sonos-API inkl. Token-Erneuerung |
 | `SonosAuthManager.kt`, `TokenStore.kt`, `SonosConfig.kt` | Login und Tokens |
 | `AppDatabase.kt`, `SettingsRepository.kt`, `PasswordHasher.kt` | Datenbank und Einstellungen |

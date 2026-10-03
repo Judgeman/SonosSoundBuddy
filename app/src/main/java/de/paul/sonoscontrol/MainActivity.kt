@@ -84,6 +84,11 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
             visiblePlaybackError = viewModel.visiblePlaybackError,
             onDismissPlaybackError = viewModel::dismissPlaybackError,
             onSelectSpeaker = viewModel::selectSpeaker,
+            profiles = viewModel.selectableProfiles,
+            selectedProfile = viewModel.selectedProfile,
+            isStartingMusic = viewModel.isStartingMusic,
+            onSelectProfile = viewModel::selectProfile,
+            onPlayMusic = viewModel::playMusic,
             controls = remember(viewModel) {
                 PlaybackControls(
                     onTogglePlayPause = viewModel::togglePlayPause,
@@ -98,14 +103,14 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
         )
 
         Screen.Settings -> {
-            BackHandler(onBack = viewModel::closeSettings)
+            BackHandler(onBack = viewModel::navigateBack)
             StatusBarIcons(light = !isSystemInDarkTheme())
             SettingsScreen(
                 speakers = viewModel.speakerConfigs,
                 availablePlayerIds = viewModel.availablePlayerIds,
                 settings = viewModel.settings,
                 isLoggedIn = viewModel.uiState !is UiState.LoggedOut,
-                onBack = viewModel::closeSettings,
+                onBack = viewModel::navigateBack,
                 isRefreshingSpeakers = viewModel.isRefreshingSpeakers,
                 speakerRefreshMessage = viewModel.speakerRefreshMessage,
                 onRefreshSpeakers = viewModel::refreshSpeakers,
@@ -113,11 +118,57 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                 onSpeakerEnabledChange = viewModel::setSpeakerEnabled,
                 onSpeakerIconChange = viewModel::setSpeakerIcon,
                 onSpeakerMaxVolumeChange = viewModel::setSpeakerMaxVolume,
+                profiles = viewModel.profiles,
+                onCreateProfile = viewModel::createProfile,
+                onOpenProfile = viewModel::openProfile,
+                onProfileEnabledChange = viewModel::setProfileEnabled,
                 onSavePassword = viewModel::savePassword,
                 onRemovePassword = viewModel::removePassword,
                 onPasswordRequiredChange = viewModel::setPasswordRequired,
                 onLogout = viewModel::logout
             )
+        }
+
+        Screen.ProfileEditor -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            viewModel.editingProfile?.let { profile ->
+                ProfileEditorScreen(
+                    profile = profile,
+                    actions = remember(viewModel) {
+                        ProfileEditorActions(
+                            onBack = viewModel::navigateBack,
+                            onNameChange = viewModel::setProfileName,
+                            onIconChange = viewModel::setProfileIcon,
+                            onEnabledChange = viewModel::setProfileEnabled,
+                            onDeleteProfile = viewModel::deleteProfile,
+                            onCreateCategory = viewModel::createCategory,
+                            onRenameCategory = viewModel::renameCategory,
+                            onDeleteCategory = viewModel::deleteCategory,
+                            onMoveCategory = viewModel::moveCategory,
+                            onAddMusic = viewModel::openCatalog,
+                            onRemoveMusicItem = viewModel::removeMusicItem
+                        )
+                    }
+                )
+            }
+        }
+
+        Screen.MusicCatalog -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            viewModel.catalogCategory?.let { category ->
+                MusicCatalogScreen(
+                    category = category,
+                    state = viewModel.catalogState,
+                    playlistPreview = viewModel.playlistPreview,
+                    onBack = viewModel::navigateBack,
+                    onReload = viewModel::loadCatalog,
+                    onToggleEntry = viewModel::toggleCatalogEntry,
+                    onShowPlaylist = viewModel::showPlaylistPreview,
+                    onDismissPlaylist = viewModel::dismissPlaylistPreview
+                )
+            }
         }
     }
 
