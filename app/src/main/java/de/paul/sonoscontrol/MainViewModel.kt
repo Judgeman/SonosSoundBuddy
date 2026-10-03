@@ -868,7 +868,11 @@ class MainViewModel(
         val local = localClient.loadCovers(addressHint = nowPlaying?.imageUrl) ?: return entries
         return entries.map { entry ->
             val cover = local.coverFor(entry) ?: return@map entry
-            entry.copy(imageUrl = cover, coverOrigin = "Speaker im Heimnetz")
+            // Speaker-Cover zuerst, das aus der Cloud als Ersatz, falls es nicht lädt
+            entry.copy(
+                imageUrl = joinImageUrls(listOf(cover) + imageUrlCandidates(entry.imageUrl)),
+                coverOrigin = if (entry.imageUrl == null) "Speaker im Heimnetz" else "Speaker im Heimnetz, sonst Sonos-Cloud"
+            )
         }
     }
 

@@ -960,7 +960,7 @@ private fun CatalogList(
 /** Was Sonos zu einem Katalog-Eintrag liefert — Cover-URL, ob sie lädt, Rohdaten. */
 @Composable
 private fun CatalogEntryDetailsDialog(entry: CatalogEntry, onDismiss: () -> Unit) {
-    var loadResult by remember(entry.imageUrl) { mutableStateOf(if (entry.imageUrl == null) "kein Cover" else "lädt …") }
+    val candidates = imageUrlCandidates(entry.imageUrl)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -968,22 +968,13 @@ private fun CatalogEntryDetailsDialog(entry: CatalogEntry, onDismiss: () -> Unit
         text = {
             SelectionContainer {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    if (entry.imageUrl != null) {
-                        AsyncImage(
-                            model = entry.imageUrl,
-                            contentDescription = null,
-                            onSuccess = { loadResult = "geladen" },
-                            onError = { loadResult = "Fehler: ${it.result.throwable.message ?: it.result.throwable.javaClass.simpleName}" },
-                            modifier = Modifier.size(120.dp).clip(RoundedCornerShape(12.dp))
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
                     DetailLine("Quelle", entry.source.label)
                     DetailLine("Sonos-Id", entry.sonosId)
                     DetailLine("Art", entry.type.label)
                     DetailLine("Cover von", entry.coverOrigin ?: "—")
-                    DetailLine("Cover-URL", entry.imageUrl ?: "—")
-                    DetailLine("Cover laden", loadResult)
+                    if (candidates.isEmpty()) DetailLine("Cover-URL", "— (Sonos liefert keins)")
+                    // Jede bekannte Adresse einzeln laden, damit man sieht, welche klappt
+                    candidates.forEachIndexed { index, url -> CoverCandidate(index + 1, url) }
                     entry.rawData?.let { DetailLine("Daten von Sonos", it) }
                 }
             }
@@ -992,6 +983,27 @@ private fun CatalogEntryDetailsDialog(entry: CatalogEntry, onDismiss: () -> Unit
             TextButton(onClick = onDismiss) { Text("Schließen") }
         }
     )
+}
+
+@Composable
+private fun CoverCandidate(number: Int, url: String) {
+    var result by remember(url) { mutableStateOf("lädt …") }
+    Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(bottom = 8.dp)) {
+        AsyncImage(
+            model = url,
+            contentDescription = null,
+            onSuccess = { result = "geladen" },
+            onError = { result = "Fehler: ${it.result.throwable.message ?: it.result.throwable.javaClass.simpleName}" },
+            modifier = Modifier
+                .size(64.dp)
+                .clip(RoundedCornerShape(8.dp))
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            DetailLine("Cover-URL $number", url)
+            DetailLine("Laden", result)
+        }
+    }
 }
 
 @Composable

@@ -193,13 +193,16 @@ Speaker per mDNS (`_sonos._tcp`) finden, dann UPnP-„Browse“ auf
 `http://<ip>:1400/MediaServer/ContentDirectory/Control` für `FV:2`
 (Favoriten) und `SQ:` (Sonos-Playlisten; ohne eigenes Bild das Cover des
 ersten Titels). Zugeordnet wird über die Id (`13` ↔ `FV:2/13` bzw.
-`SQ:13`), sonst über den Namen. Diese Cover haben Vorrang; klappt die
-lokale Abfrage nicht, bleibt das Cover aus der Cloud. Logcat-Tag:
+`SQ:13`), sonst über den Namen. Diese Cover haben Vorrang; das Cover aus
+der Cloud bleibt als Ersatz gespeichert (mehrere Adressen, durch
+Zeilenumbruch getrennt) — lädt die erste nicht, probiert die App die
+nächste. Apple-Music-Vorlagen wie `{w}x{h}{c}.{f}` werden zu
+`600x600bb.jpg` ausgefüllt. Logcat-Tag:
 `SonosLocal`.
 
 **Fehlersuche:** Langes Drücken auf einen Eintrag im Katalog zeigt Quelle,
-Id, woher das Cover kommt, die Cover-URL, ob sie sich laden lässt (sonst
-mit Fehlermeldung) und die Rohdaten von Sonos.
+Id, woher das Cover kommt, jede bekannte Cover-URL mit Vorschau und ob sie
+sich laden lässt (sonst mit Fehlermeldung) sowie die Rohdaten von Sonos.
 
 Darüber hinaus sucht die App im ganzen Favoriten (`imageUrl`, `images`, auch an
 `resource` oder verschachtelt, nicht aber das Logo des Musikdienstes) und

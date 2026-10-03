@@ -199,20 +199,32 @@ private val IMAGE_URL_KEYS = listOf("imageUrl", "albumArtUri", "albumArtURI", "a
 
 /**
  * Macht aus dem, was Sonos als Bild-URL liefert, eine ladbare Adresse:
- * protokoll-relative URLs bekommen https, Platzhalter für die Größe
- * (z. B. Apple Music `{w}x{h}`) werden ersetzt. Relative Pfade wie
- * `/getaa?…` lassen sich ohne Adresse des Speakers nicht laden → null.
+ * protokoll-relative URLs bekommen https, die Platzhalter aus Apple-Music-
+ * Vorlagen (`{w}x{h}{c}.{f}` = Breite, Höhe, Zuschnitt, Format) werden ersetzt.
+ * Relative Pfade wie `/getaa?…` lassen sich ohne Adresse des Speakers nicht laden → null.
  */
 fun normalizeImageUrl(raw: String): String? {
     var url = raw.trim()
     if (url.isEmpty()) return null
     if (url.startsWith("//")) url = "https:$url"
-    url = url.replace("{w}", COVER_SIZE).replace("{h}", COVER_SIZE)
-        .replace("%7Bw%7D", COVER_SIZE).replace("%7Bh%7D", COVER_SIZE)
+    IMAGE_URL_PLACEHOLDERS.forEach { (placeholder, value) ->
+        url = url.replace("{$placeholder}", value).replace("%7B$placeholder%7D", value, ignoreCase = true)
+    }
     return url.takeIf { it.startsWith("http://") || it.startsWith("https://") }
 }
 
-private const val COVER_SIZE = "600"
+private val IMAGE_URL_PLACEHOLDERS = listOf("w" to "600", "h" to "600", "c" to "bb", "f" to "jpg")
+
+/**
+ * Mehrere Cover-Adressen für denselben Eintrag (z. B. vom Speaker und aus der
+ * Cloud) werden durch Zeilenumbrüche getrennt in einem Feld gespeichert —
+ * lädt die erste nicht, wird die nächste probiert.
+ */
+fun imageUrlCandidates(imageUrl: String?): List<String> =
+    imageUrl?.split('\n')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+
+fun joinImageUrls(urls: List<String?>): String? =
+    urls.filterNotNull().filter { it.isNotBlank() }.distinct().joinToString("\n").ifEmpty { null }
 
 @Serializable
 data class FavoriteService(

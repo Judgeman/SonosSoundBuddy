@@ -17,6 +17,10 @@ import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -66,12 +70,18 @@ fun MusicCover(
             tint = MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.fillMaxSize(0.5f)
         )
-        if (imageUrl != null) {
+        val candidates = if (isFile) listOfNotNull(imageUrl) else imageUrlCandidates(imageUrl)
+        // Lädt eine Adresse nicht, die nächste probieren
+        var attempt by remember(imageUrl) { mutableIntStateOf(0) }
+        candidates.getOrNull(attempt)?.let { url ->
             AsyncImage(
-                model = if (isFile) File(imageUrl) else imageUrl,
+                model = if (isFile) File(url) else url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                onError = { Log.w("Cover", "Cover konnte nicht geladen werden: $imageUrl", it.result.throwable) },
+                onError = {
+                    Log.w("Cover", "Cover konnte nicht geladen werden: $url", it.result.throwable)
+                    attempt++
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }
