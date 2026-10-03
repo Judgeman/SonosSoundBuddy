@@ -144,8 +144,10 @@ class MainViewModel(
         private set
 
     /** Wird gerade Musik aus der Auswahl gestartet? Zeigt auf dem Homescreen einen Ladekreis. */
-    var isStartingMusic: Boolean by mutableStateOf(false)
+    var startingMusic: MusicItem? by mutableStateOf(null)
         private set
+
+    val isStartingMusic: Boolean get() = startingMusic != null
 
     var showPasswordPrompt: Boolean by mutableStateOf(false)
         private set
@@ -578,10 +580,10 @@ class MainViewModel(
         val order = profiles.flatMap { it.categories }
             .firstOrNull { it.category.id == item.categoryId }?.category?.playOrderMode ?: PlayOrder.ORDERED
         val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
-        isStartingMusic = true
+        startingMusic = item
         sendPlaybackCommand(
             refreshDelayMillis = MUSIC_REFRESH_DELAY_MS,
-            onFinished = { isStartingMusic = false },
+            onFinished = { startingMusic = null },
             // Ist das Cover noch nicht auf dem Tablet gespeichert (z. B. abgelaufene Apple-Music-
             // Adresse), das frische aus der Wiedergabe nehmen — für Playlisten das der Playlist
             onPlaying = { playing ->
