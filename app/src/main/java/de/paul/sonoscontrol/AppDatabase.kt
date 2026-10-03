@@ -14,6 +14,7 @@ import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import java.util.UUID
 
 /** Pro Sonos-Player: darf er auf dem Homescreen gewählt werden und welches Icon bekommt er. */
 @Entity(tableName = "speaker_config")
@@ -43,7 +44,12 @@ data class ChildProfile(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val iconKey: String,
-    val enabled: Boolean
+    val enabled: Boolean,
+    /**
+     * Auf allen Tablets gleiche Kennung — [id] zählt jedes Tablet selbst hoch.
+     * Beim Abgleich findet ein Tablet darüber sein Profil wieder.
+     */
+    val syncId: String = UUID.randomUUID().toString()
 )
 
 val ChildProfile.icon: ProfileIcon get() = ProfileIcon.fromKey(iconKey)
@@ -99,6 +105,12 @@ interface SpeakerConfigDao {
     @Upsert
     suspend fun upsertAll(configs: List<SpeakerConfig>)
 
+    @Insert
+    suspend fun insert(config: SpeakerConfig)
+
+    @Query("UPDATE speaker_config SET iconKey = :iconKey, maxVolume = :maxVolume WHERE playerId = :playerId")
+    suspend fun setIconAndMaxVolume(playerId: String, iconKey: String, maxVolume: Int)
+
     // Wer einen Speaker bearbeitet, hat ihn gesehen → „Neu"-Markierung fällt weg
     @Query("UPDATE speaker_config SET enabled = :enabled, isNew = 0 WHERE playerId = :playerId")
     suspend fun setEnabled(playerId: String, enabled: Boolean)
@@ -144,6 +156,19 @@ interface ProfileDao {
 
     @Insert
     suspend fun insertProfile(profile: ChildProfile): Long
+
+    // Für Export und Import auf einen Schlag, ohne Flow
+    @Query("SELECT * FROM child_profile ORDER BY name COLLATE NOCASE, id")
+    suspend fun getProfiles(): List<ChildProfile>
+
+    @Query("SELECT * FROM music_category ORDER BY position, id")
+    suspend fun getCategories(): List<MusicCategory>
+
+    @Query("SELECT * FROM music_item ORDER BY position, id")
+    suspend fun getItems(): List<MusicItem>
+
+    @Query("UPDATE child_profile SET name = :name, iconKey = :iconKey, syncId = :syncId WHERE id = :id")
+    suspend fun updateSyncedProfile(id: Long, name: String, iconKey: String, syncId: String)
 
     @Query("UPDATE child_profile SET name = :name WHERE id = :id")
     suspend fun setProfileName(id: Long, name: String)
@@ -258,7 +283,7 @@ interface ProfileDao {
 
 @Database(
     entities = [SpeakerConfig::class, AppSetting::class, ChildProfile::class, MusicCategory::class, MusicItem::class],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -325,6 +350,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE child_profile ADD COLUMN syncId TEXT NOT NULL DEFAULT ''")
+                // randomblob() wird pro Zeile neu ausgewertet → jedes Profil eine eigene Kennung
+                db.execSQL("UPDATE child_profile SET syncId = lower(hex(randomblob(16)))")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -335,7 +368,10 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sound_buddy.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(
+                        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+                        MIGRATION_7_8
+                    )
                     .build()
                     .also { instance = it }
             }

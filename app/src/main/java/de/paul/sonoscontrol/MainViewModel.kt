@@ -25,8 +25,8 @@ sealed interface UiState {
     data class Error(val message: String) : UiState
 }
 
-/** [ProfileEditor] und [MusicCatalog] sind Unterseiten der Settings. */
-enum class Screen { Home, Settings, ProfileEditor, MusicCatalog }
+/** [ProfileEditor], [MusicCatalog] und [Sync] sind Unterseiten der Settings. */
+enum class Screen { Home, Settings, ProfileEditor, MusicCatalog, Sync }
 
 /** Inhalt des Sonos-Katalogs (Favoriten + Playlisten) beim Zusammenstellen der Musikauswahl. */
 sealed interface CatalogState {
@@ -708,6 +708,7 @@ class MainViewModel(
                 screen = Screen.Settings
                 editingProfileId = null
             }
+            Screen.Sync -> screen = Screen.Settings
             Screen.Settings -> closeSettings()
             Screen.Home -> Unit
         }
@@ -721,6 +722,11 @@ class MainViewModel(
         // Neue Speaker wurden in den Settings gesehen → beim nächsten Mal nicht mehr „Neu"
         viewModelScope.launch { repository.clearNewFlags() }
         restartPolling()
+    }
+
+    /** Öffnet „Tablets abgleichen“. */
+    fun openSync() {
+        screen = Screen.Sync
     }
 
     fun setSpeakerEnabled(playerId: String, enabled: Boolean) {

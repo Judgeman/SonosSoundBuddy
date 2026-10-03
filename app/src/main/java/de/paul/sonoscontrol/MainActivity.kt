@@ -31,6 +31,17 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private val syncViewModel: SyncViewModel by viewModels {
+        SyncViewModelFactory(
+            SyncRepository(
+                applicationContext,
+                AppDatabase.getInstance(applicationContext),
+                CustomImageStore(applicationContext)
+            ),
+            LocalTransfer(applicationContext)
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Inhalt bis unter die Statusleiste zeichnen, damit der Cover-Verlauf den ganzen Bildschirm füllt
         enableEdgeToEdge()
@@ -42,6 +53,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     SoundBuddyApp(
                         viewModel = viewModel,
+                        syncViewModel = syncViewModel,
                         onLoginClick = { viewModel.authManager.startLogin(this) }
                     )
                 }
@@ -57,6 +69,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         viewModel.onForegroundChanged(false)
+        // Im Hintergrund nicht weiter im WLAN freigeben oder suchen
+        syncViewModel.stopNetwork()
         super.onStop()
     }
 
@@ -76,7 +90,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
+fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLoginClick: () -> Unit) {
     when (viewModel.screen) {
         Screen.Home -> HomeScreen(
             state = viewModel.uiState,
@@ -129,6 +143,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                 onSavePassword = viewModel::savePassword,
                 onRemovePassword = viewModel::removePassword,
                 onPasswordRequiredChange = viewModel::setPasswordRequired,
+                onOpenSync = viewModel::openSync,
                 onLogout = viewModel::logout
             )
         }
@@ -163,6 +178,12 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                     }
                 )
             }
+        }
+
+        Screen.Sync -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            SyncScreen(viewModel = syncViewModel, onBack = viewModel::navigateBack)
         }
 
         Screen.MusicCatalog -> {

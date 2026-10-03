@@ -88,6 +88,8 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Sonos-Playlisten) mit Suche und Filter nach Songs, Playlisten, Alben und
     Radio; ein Tipp nimmt einen Eintrag in die Kategorie auf oder wieder
     heraus. Bei Sonos-Playlisten lässt sich die Titelliste ansehen.
+  - **Tablets abgleichen** (siehe unten): Stand eines Tablets im WLAN oder
+    als Datei auf ein anderes übertragen.
   - **Abmelden** vom Sonos-Konto.
 - **Lautstärke-Obergrenze:** Wird ein Speaker woanders (Sonos-App, Tasten am
   Gerät) über sein Maximum gestellt, regelt die App ihn bei der nächsten
@@ -258,16 +260,58 @@ Mal an) und startet die Wiedergabe. Im Zufallsmodus springt sie vorher
 einen Titel weiter, damit nicht immer der erste Titel zuerst läuft. Radio
 wird ohne diese Schritte direkt gestartet.
 
+## Mehrere Tablets abgleichen
+
+Ein Tablet wird fertig eingestellt, die anderen übernehmen seinen Stand
+(Einstellungen → „Tablets abgleichen“). Das empfangende Tablet sucht sich
+aus, was es übernimmt:
+
+| Bereich | Inhalt | Vorauswahl |
+|---|---|---|
+| Kinder-Profile | Name, Icon, Kategorien, Musik, Reihenfolge, eigene Bilder und gespeicherte Cover | an |
+| Speaker-Einstellungen | Icon und maximale Lautstärke | an |
+| Speaker-Freigabe | „auf dem Homescreen auswählbar“ | aus |
+| Passwort | Hash, Salt und „nur mit Passwort öffnen“ | aus |
+
+Die zuletzt gewählten Bereiche merkt sich das Tablet als Vorauswahl.
+Übernommenes ersetzt den Stand auf dem Tablet: Profile, die es auf dem
+sendenden Tablet nicht gibt, werden gelöscht. Je Tablet erhalten bleiben,
+welche Profile dort aktiv sind und welcher Speaker und welches Profil
+zuletzt gewählt waren. Speaker werden nur ergänzt, nie gelöscht; noch
+unbekannte kommen ohne übernommene Freigabe gesperrt und als „Neu“ dazu.
+
+Profile finden sich über eine Kennung (`syncId`) wieder, die auf allen
+Tablets gleich ist. Beim allerersten Abgleich, wenn auf beiden Tablets
+schon von Hand Profile angelegt wurden, werden sie über den Namen
+zugeordnet. Speaker und Musik passen ohne Umrechnung zusammen, weil die
+Ids von Sonos im ganzen Haushalt gleich sind.
+
+**Im WLAN:** Auf dem einen Tablet „Dieses Tablet freigeben“ tippen. Es
+meldet sich per mDNS (`_soundbuddy._tcp`) im Heimnetz an und zeigt einen
+vierstelligen Code. Auf dem anderen Tablet „Daten von einem anderen Tablet
+holen“ tippen, das Tablet wählen und den Code eingeben. Mehrere Tablets
+können nacheinander abholen. Nach 5 falschen Codes endet die Freigabe,
+ebenso beim Verlassen der Seite oder wenn die App in den Hintergrund geht.
+Die Daten gehen unverschlüsselt durchs Heimnetz (`LocalTransfer.kt`, eigenes
+kleines TCP-Protokoll); das Passwort wird nur als Hash übertragen.
+
+**Als Datei:** „Exportieren“ speichert eine ZIP-Datei (`soundbuddy.json`
+plus `images/`) über die Android-Dateiauswahl, z. B. in Google Drive. Das
+Passwort kommt nur mit, wenn es beim Export angehakt wird. „Importieren“
+liest die Datei auf dem anderen Tablet ein.
+
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 7):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 8):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
 - `app_setting` — Key-Value: Passwort-Hash/-Salt, Passwortschutz an/aus,
   zuletzt gewählter Speaker und zuletzt gewähltes Profil
 - `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
-  (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden)
+  (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden),
+  Kennung für den Abgleich zwischen Tablets (`syncId`, seit Version 8,
+  Migration `MIGRATION_7_8`; vergibt jedem vorhandenen Profil eine)
 - `music_category` — Profil, Name, Position, Bild (`scene:…`, `icon:…`,
   `animal:…`, `file:…` oder leer = Standard-Bild), Abspielreihenfolge
   (Bild und Reihenfolge seit Version 5, Migration `MIGRATION_4_5`)
@@ -284,7 +328,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 
 | Datei | Inhalt |
 |---|---|
-| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Katalog, Theme |
+| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Katalog/Abgleich, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
@@ -300,6 +344,9 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `LocalSonosClient.kt` | Cover direkt vom Speaker im Heimnetz (mDNS + UPnP) |
 | `SonosAuthManager.kt`, `TokenStore.kt`, `SonosConfig.kt` | Login und Tokens |
 | `AppDatabase.kt`, `SettingsRepository.kt`, `PasswordHasher.kt` | Datenbank und Einstellungen |
+| `SyncScreen.kt`, `SyncViewModel.kt` | Seite „Tablets abgleichen“ |
+| `SyncPackage.kt`, `SyncRepository.kt` | Datenformat (ZIP) für den Abgleich, Einpacken und Übernehmen |
+| `LocalTransfer.kt` | Übertragung zwischen Tablets im WLAN (mDNS + TCP) |
 
 Wichtige Bibliotheken: Compose Material 3 und `material-icons-extended`,
 Room 2.6 (über KSP), Coil 2 für Cover, `androidx.palette`, OkHttp,
