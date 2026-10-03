@@ -81,6 +81,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
             nowPlaying = viewModel.nowPlaying,
             maxVolume = viewModel.selectedMaxVolume,
             playbackError = viewModel.playbackError,
+            visiblePlaybackError = viewModel.visiblePlaybackError,
+            onDismissPlaybackError = viewModel::dismissPlaybackError,
             onSelectSpeaker = viewModel::selectSpeaker,
             controls = remember(viewModel) {
                 PlaybackControls(
