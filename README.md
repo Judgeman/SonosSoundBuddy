@@ -206,9 +206,34 @@ nächste. Apple-Music-Vorlagen wie `{w}x{h}{c}.{f}` werden zu
 `600x600bb.jpg` ausgefüllt. Logcat-Tag:
 `SonosLocal`.
 
-**Fehlersuche:** Langes Drücken auf einen Eintrag im Katalog zeigt Quelle,
+**Abgelaufene Cover (Apple Music):** Apple liefert Cover als signierte
+Adressen, die nur 24 h gültig sind (`X-Amz-Date` + `X-Amz-Expires`). Sonos
+speichert die Adresse beim Anlegen des Favoriten und gibt danach immer
+dieselbe, längst abgelaufene aus (Antwort: 400). Deshalb:
+- abgelaufene Adressen werden erkannt und übersprungen,
+- der Speaker liefert über `/getaa?u=<Abspiel-Adresse>` ein frisches Cover
+  (die Abspiel-Adresse steht im `res` des lokalen Favoriten),
+- Cover werden beim Hinzufügen zur Auswahl **auf dem Tablet gespeichert**
+  (`custom_images/cover-item-…jpg`),
+- beim Abspielen übernimmt die App das Cover der Playlist bzw. des Albums
+  aus der Wiedergabe (`container` in `playbackMetadata`, frische Adresse)
+  und ersetzt damit ein vorher gespeichertes Cover — der Speaker liefert
+  über `/getaa` bei Apple-Music-Playlisten nur das Cover eines Titels.
+  Solche Dateien tragen `-container` im Namen und werden nicht mehr
+  überschrieben. Gibt es kein Playlist-Cover, dient das des Titels als
+  Ersatz, solange noch gar keins gespeichert ist.
+- auch im Katalog sichert die App jede noch gültige signierte Adresse
+  sofort (`custom_images/catalog-<hash>-…jpg`, werden beim Aufräumen nicht
+  gelöscht). Speichert man einen Favoriten in der Sonos-App neu, ist dessen
+  Adresse wieder 24 h gültig — einmal den Katalog öffnen, dann bleibt das
+  Cover. Für Apple-Music-Bibliotheks-Playlisten gibt Sonos sonst kein
+  Playlist-Cover heraus (auch nicht in der Wiedergabe).
+Nicht mehr benutzte Bilder räumt die App beim Start auf.
+
+**Fehlersuche:** Der ⓘ-Knopf an jedem Eintrag im Katalog zeigt Quelle,
 Id, woher das Cover kommt, jede bekannte Cover-URL mit Vorschau und ob sie
 sich laden lässt (sonst mit Fehlermeldung) sowie die Rohdaten von Sonos.
+„Kopieren“ legt alles als Text in die Zwischenablage.
 
 Darüber hinaus sucht die App im ganzen Favoriten (`imageUrl`, `images`, auch an
 `resource` oder verschachtelt, nicht aber das Logo des Musikdienstes) und

@@ -5,10 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,7 +35,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -53,6 +50,7 @@ import androidx.compose.material.icons.rounded.ChildCare
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
@@ -94,6 +92,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -835,7 +835,6 @@ fun MusicCatalogScreen(
     detailsFor?.let { CatalogEntryDetailsDialog(it, onDismiss = { detailsFor = null }) }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CatalogList(
     entries: List<CatalogEntry>,
@@ -935,6 +934,10 @@ private fun CatalogList(
                 },
                 trailingContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Zeigt, was Sonos zu dem Eintrag liefert (Fehlersuche bei Covern)
+                        IconButton(onClick = { onShowDetails(entry) }) {
+                            Icon(Icons.Rounded.Info, contentDescription = "Details")
+                        }
                         if (entry.source == MusicSource.PLAYLIST) {
                             IconButton(onClick = { onShowPlaylist(entry) }) {
                                 Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Titel ansehen")
@@ -948,11 +951,7 @@ private fun CatalogList(
                         )
                     }
                 },
-                // Langes Drücken zeigt, was Sonos zu dem Eintrag liefert (Fehlersuche bei Covern)
-                modifier = Modifier.combinedClickable(
-                    onClick = { onToggleEntry(entry) },
-                    onLongClick = { onShowDetails(entry) }
-                )
+                modifier = Modifier.clickable { onToggleEntry(entry) }
             )
         }
     }
@@ -962,28 +961,47 @@ private fun CatalogList(
 @Composable
 private fun CatalogEntryDetailsDialog(entry: CatalogEntry, onDismiss: () -> Unit) {
     val candidates = imageUrlCandidates(entry.imageUrl)
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
-            SelectionContainer {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    DetailLine("Quelle", entry.source.label)
-                    DetailLine("Sonos-Id", entry.sonosId)
-                    DetailLine("Art", entry.type.label)
-                    DetailLine("Cover von", entry.coverOrigin ?: "—")
-                    if (candidates.isEmpty()) DetailLine("Cover-URL", "— (Sonos liefert keins)")
-                    // Jede bekannte Adresse einzeln laden, damit man sieht, welche klappt
-                    candidates.forEachIndexed { index, url -> CoverCandidate(index + 1, url) }
-                    entry.rawData?.let { DetailLine("Daten von Sonos", it) }
-                }
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                DetailLine("Quelle", entry.source.label)
+                DetailLine("Sonos-Id", entry.sonosId)
+                DetailLine("Art", entry.type.label)
+                DetailLine("Cover von", entry.coverOrigin ?: "—")
+                if (candidates.isEmpty()) DetailLine("Cover-URL", "— (Sonos liefert keins)")
+                // Jede bekannte Adresse einzeln laden, damit man sieht, welche klappt
+                candidates.forEachIndexed { index, url -> CoverCandidate(index + 1, url) }
+                entry.rawData?.let { DetailLine("Daten von Sonos", it) }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Schließen") }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(describeForSupport(entry)))
+                copied = true
+            }) {
+                Text(if (copied) "Kopiert" else "Kopieren")
+            }
         }
     )
+}
+
+/** Alle Angaben als Text — zum Einfügen in eine Nachricht. */
+private fun describeForSupport(entry: CatalogEntry): String = buildString {
+    appendLine("Name: ${entry.name}")
+    appendLine("Quelle: ${entry.source.label}")
+    appendLine("Sonos-Id: ${entry.sonosId}")
+    appendLine("Art: ${entry.type.label}")
+    appendLine("Cover von: ${entry.coverOrigin ?: "—"}")
+    imageUrlCandidates(entry.imageUrl).forEachIndexed { index, url -> appendLine("Cover-URL ${index + 1}: $url") }
+    entry.rawData?.let { appendLine("Daten von Sonos: $it") }
 }
 
 @Composable
@@ -991,7 +1009,7 @@ private fun CoverCandidate(number: Int, url: String) {
     var result by remember(url) { mutableStateOf("lädt …") }
     Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(bottom = 8.dp)) {
         AsyncImage(
-            model = url,
+            model = if (url.startsWith("/")) java.io.File(url) else url,
             contentDescription = null,
             onSuccess = { result = "geladen" },
             onError = { result = "Fehler: ${it.result.throwable.message ?: it.result.throwable.javaClass.simpleName}" },

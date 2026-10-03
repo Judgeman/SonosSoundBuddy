@@ -74,7 +74,8 @@ fun MusicCover(
         var attempt by remember(imageUrl) { mutableIntStateOf(0) }
         candidates.getOrNull(attempt)?.let { url ->
             AsyncImage(
-                model = if (isFile) File(url) else url,
+                // Auf dem Tablet gespeicherte Cover sind Pfade
+                model = if (isFile || url.startsWith("/")) File(url) else url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 onError = {

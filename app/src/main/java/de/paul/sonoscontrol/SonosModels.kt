@@ -83,7 +83,11 @@ data class PlaybackMetadata(
      */
     val coverUrl: String?
         get() = currentItem?.track?.let { it.imageUrl.orNullIfBlank() ?: it.images.largestUrl() }
-            ?: container?.let { it.imageUrl.orNullIfBlank() ?: it.images.largestUrl() }
+            ?: containerCoverUrl
+
+    /** Cover des Containers (Playlist, Album, Sender) — für eine Playlist passender als das des Titels. */
+    val containerCoverUrl: String?
+        get() = container?.let { it.imageUrl.orNullIfBlank() ?: it.images.largestUrl() }
 }
 
 @Serializable
@@ -236,6 +240,33 @@ data class FavoriteResource(
     /** z. B. TRACK, ALBUM, PLAYLIST, PROGRAM (Radio), ARTIST */
     val type: String? = null
 )
+
+/**
+ * Zeitlich begrenzte (signierte) Adresse, z. B. Apple Music über Amazon S3
+ * (`X-Amz-Date` + `X-Amz-Expires`) oder CloudFront (`Expires=<Unix-Zeit>`).
+ * Sonos speichert solche Cover-Adressen beim Anlegen eines Favoriten und
+ * liefert sie danach unverändert weiter aus — nach Ablauf antwortet der Server
+ * mit 400/403. Solche Cover müssen deshalb sofort auf dem Tablet gespeichert werden.
+ */
+fun isSignedUrl(url: String): Boolean =
+    url.contains("X-Amz-Expires=", ignoreCase = true) || Regex("[?&]Expires=\\d+").containsMatchIn(url)
+
+/** Ist eine signierte Adresse schon abgelaufen? Unsignierte gelten nie als abgelaufen. */
+fun isExpiredUrl(url: String, nowMillis: Long = System.currentTimeMillis()): Boolean {
+    val query = url.substringAfter('?', "").split('&').associate {
+        val value = it.substringAfter('=', "")
+        it.substringBefore('=').lowercase() to (runCatching { java.net.URLDecoder.decode(value, "UTF-8") }.getOrNull() ?: value)
+    }
+    query["expires"]?.toLongOrNull()?.let { return it * 1000 < nowMillis }
+    val date = query["x-amz-date"] ?: return false
+    val seconds = query["x-amz-expires"]?.toLongOrNull() ?: return false
+    val signedAt = runCatching {
+        java.text.SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+            .parse(date)?.time
+    }.getOrNull() ?: return false
+    return signedAt + seconds * 1000 < nowMillis
+}
 
 /** Antwort von GET /households/{householdId}/playlists */
 @Serializable
