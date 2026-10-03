@@ -112,14 +112,16 @@ val MusicType.hasMultipleTracks: Boolean
     get() = this == MusicType.PLAYLIST || this == MusicType.ALBUM || this == MusicType.OTHER
 
 /**
- * Selbst gewähltes Bild einer Kategorie oder eines Musik-Eintrags: ein Icon,
- * ein Tier oder ein eigenes Foto. In der Datenbank als Text gespeichert, z. B.
- * `icon:ROCKET`, `animal:FOX` oder `file:/data/…/bild.jpg`.
- * [Default] = nichts gewählt: Kategorien zeigen dann ein Musik-Icon,
+ * Selbst gewähltes Bild einer Kategorie oder eines Musik-Eintrags: eine bunte
+ * Szene, ein Icon, ein Tier oder ein eigenes Foto. In der Datenbank als Text
+ * gespeichert, z. B. `scene:POP_UP_BOOK`, `icon:ROCKET`, `animal:FOX` oder
+ * `file:/data/…/bild.jpg`.
+ * [Default] = nichts gewählt: Kategorien zeigen dann die Tanzparty,
  * Einträge ihr Cover von Sonos.
  */
 sealed interface CustomImage {
     data object Default : CustomImage
+    data class Scene(val icon: CategoryIcon) : CustomImage
     data class Icon(val icon: SpeakerIcon) : CustomImage
     data class Animal(val icon: ProfileIcon) : CustomImage
     data class File(val path: String) : CustomImage
@@ -127,6 +129,7 @@ sealed interface CustomImage {
     val key: String?
         get() = when (this) {
             Default -> null
+            is Scene -> "scene:${icon.name}"
             is Icon -> "icon:${icon.name}"
             is Animal -> "animal:${icon.name}"
             is File -> "file:$path"
@@ -137,6 +140,7 @@ sealed interface CustomImage {
             val kind = key?.substringBefore(':', missingDelimiterValue = "") ?: return Default
             val value = key.substringAfter(':')
             return when (kind) {
+                "scene" -> CategoryIcon.entries.firstOrNull { it.name == value }?.let(::Scene) ?: Default
                 "icon" -> SpeakerIcon.entries.firstOrNull { it.name == value }?.let(::Icon) ?: Default
                 "animal" -> ProfileIcon.entries.firstOrNull { it.name == value }?.let(::Animal) ?: Default
                 "file" -> File(value)

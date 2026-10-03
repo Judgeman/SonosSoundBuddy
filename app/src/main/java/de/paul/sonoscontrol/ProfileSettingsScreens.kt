@@ -324,7 +324,7 @@ fun ProfileEditorScreen(profile: ProfileWithMusic, imageError: String?, actions:
                 ImageChoiceDialog(
                     title = "Bild für „${category.category.name}“",
                     current = category.category.image,
-                    defaultLabel = "Standard-Icon",
+                    defaultLabel = "Standard-Bild",
                     preview = { CategoryImageView(category, size = 96.dp) },
                     onSelect = { actions.onCategoryImageChange(targetId, it) },
                     onUploadClick = { openPhotoPicker(target) },
@@ -697,8 +697,17 @@ private fun ImageChoiceDialog(
                     }
                 }
 
+                fullWidthItem { DialogSectionTitle("Bilder") }
+                items(CategoryIcon.entries) { icon ->
+                    val image = CustomImage.Scene(icon)
+                    SelectableImage(selected = current == image, onClick = { onSelect(image) }) {
+                        CustomImageView(image)
+                    }
+                }
+
                 fullWidthItem { DialogSectionTitle("Icons") }
-                items(SpeakerIcon.entries) { icon ->
+                // Einhorn und Pikachu stehen schon unter „Tiere“
+                items(SpeakerIcon.entries.filterNot { it.multicolor }) { icon ->
                     val image = CustomImage.Icon(icon)
                     SelectableImage(selected = current == image, onClick = { onSelect(image) }) {
                         CustomImageView(image)

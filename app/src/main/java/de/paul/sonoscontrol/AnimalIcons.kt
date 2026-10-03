@@ -374,3 +374,43 @@ val LadybugIcon: ImageVector by lazy {
         }
     }
 }
+
+/** Fröhliche Kuh: weißer Kopf mit schwarzen Flecken, Hörnchen und rosa Schnauze. */
+val CowIcon: ImageVector by lazy {
+    drawnIcon("Cow") {
+        val white = 0xFFFFFFFF
+        val dark = 0xFF2E2A33
+
+        // Hörner
+        fill(0xFFF3D9A4) { moveTo(6.2f, 7.6f); quadTo(3.6f, 6.4f, 3.8f, 3.2f); quadTo(6.2f, 4.6f, 8.4f, 6.4f); close() }
+        fill(0xFFF3D9A4) { moveTo(17.8f, 7.6f); quadTo(20.4f, 6.4f, 20.2f, 3.2f); quadTo(17.8f, 4.6f, 15.6f, 6.4f); close() }
+
+        // Ohren
+        fill(white, outline = 0xFFD7CCC8, outlineWidth = 0.35f) { ellipse(3.6f, 10.0f, 2.6f, 1.4f) }
+        fill(white, outline = 0xFFD7CCC8, outlineWidth = 0.35f) { ellipse(20.4f, 10.0f, 2.6f, 1.4f) }
+        fill(0xFFF8BBD0) { ellipse(3.4f, 10.0f, 1.5f, 0.7f) }
+        fill(0xFFF8BBD0) { ellipse(20.6f, 10.0f, 1.5f, 0.7f) }
+
+        // Kopf mit Flecken
+        fill(white, outline = 0xFFD7CCC8, outlineWidth = 0.4f) { ellipse(12.0f, 11.6f, 6.4f, 6.6f) }
+        fill(dark) { moveTo(6.3f, 9.8f); quadTo(6.8f, 6.2f, 10.0f, 5.3f); quadTo(10.6f, 7.6f, 9.4f, 9.0f); quadTo(7.8f, 8.8f, 6.3f, 9.8f); close() }
+        fill(dark) { ellipse(16.0f, 7.9f, 1.5f, 1.1f) }
+
+        // Haarbüschel
+        fill(0xFF6D4C41) { moveTo(10.6f, 5.6f); quadTo(11.2f, 3.6f, 12.0f, 5.0f); quadTo(12.8f, 3.6f, 13.4f, 5.6f); close() }
+
+        // Augen und Bäckchen
+        fill(dark) { circle(9.3f, 11.2f, 1.15f) }
+        fill(dark) { circle(14.7f, 11.2f, 1.15f) }
+        fill(white) { circle(8.92f, 10.78f, 0.44f) }
+        fill(white) { circle(14.32f, 10.78f, 0.44f) }
+        fill(0xFFF48FB1) { circle(7.2f, 13.4f, 1.0f) }
+        fill(0xFFF48FB1) { circle(16.8f, 13.4f, 1.0f) }
+
+        // Schnauze mit Nasenlöchern und Lächeln
+        fill(0xFFF8A5C2) { ellipse(12.0f, 17.4f, 5.0f, 3.6f) }
+        fill(0xFFC2185B) { ellipse(10.0f, 16.6f, 0.75f, 0.55f) }
+        fill(0xFFC2185B) { ellipse(14.0f, 16.6f, 0.75f, 0.55f) }
+        line(0xFFAD1457, 0.5f) { moveTo(10.4f, 18.8f); quadTo(12.0f, 20.0f, 13.6f, 18.8f) }
+    }
+}

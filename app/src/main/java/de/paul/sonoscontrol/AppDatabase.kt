@@ -55,7 +55,7 @@ data class MusicCategory(
     val profileId: Long,
     val name: String,
     val position: Int,
-    /** [CustomImage]-Schlüssel, null = Standard-Icon. */
+    /** [CustomImage]-Schlüssel, null = Standard-Bild. */
     val imageKey: String? = null,
     /** [PlayOrder]-Name. */
     val playOrder: String = PlayOrder.ORDERED.name
