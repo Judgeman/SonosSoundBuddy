@@ -158,6 +158,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                             onItemImageChange = viewModel::setMusicItemImage,
                             onImportItemImage = viewModel::importMusicItemImage,
                             onPlayOrderChange = viewModel::setCategoryPlayOrder,
+                            onItemSortChange = viewModel::setCategoryItemSort,
+                            onMoveMusicItem = viewModel::moveMusicItem,
                             onDismissImageError = viewModel::dismissImageImportError
                         )
                     }

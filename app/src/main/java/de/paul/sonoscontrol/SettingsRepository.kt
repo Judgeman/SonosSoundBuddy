@@ -52,7 +52,7 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
             ProfileWithMusic(
                 profile = profile,
                 categories = categoriesByProfile[profile.id].orEmpty().map { category ->
-                    CategoryWithMusic(category, itemsByCategory[category.id].orEmpty())
+                    CategoryWithMusic(category, category.sortItems(itemsByCategory[category.id].orEmpty()))
                 }
             )
         }
@@ -174,6 +174,13 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     suspend fun setCategoryPlayOrder(categoryId: Long, playOrder: PlayOrder) =
         profileDao.setCategoryPlayOrder(categoryId, playOrder.name)
+
+    suspend fun setCategoryItemSort(categoryId: Long, sort: ItemSort, descending: Boolean) =
+        profileDao.setCategoryItemSort(categoryId, sort.name, descending)
+
+    /** Schreibt die manuelle Reihenfolge der Musik einer Kategorie neu (nach Verschieben). */
+    suspend fun reorderItems(orderedIds: List<Long>) =
+        orderedIds.forEachIndexed { index, id -> profileDao.setItemPosition(id, index) }
 
     /** Schreibt die Reihenfolge der Kategorien eines Profils neu (nach Verschieben). */
     suspend fun reorderCategories(orderedIds: List<Long>) =

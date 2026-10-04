@@ -110,6 +110,57 @@ enum class PlayOrder(val label: String) {
 
 val MusicCategory.playOrderMode: PlayOrder get() = PlayOrder.fromKey(playOrder)
 
+/** Wie die Musik innerhalb einer Kategorie sortiert ist. Der Enum-Name steht in der Datenbank. */
+enum class ItemSort(val label: String, val ascendingLabel: String, val descendingLabel: String) {
+    MANUAL("Manuell", "", ""),
+    ALPHABETICAL("Alphabetisch", "A–Z", "Z–A"),
+    ADDED("Hinzugefügt", "Älteste zuerst", "Neueste zuerst");
+
+    companion object {
+        fun fromKey(key: String?): ItemSort = entries.firstOrNull { it.name == key } ?: MANUAL
+    }
+}
+
+val MusicCategory.itemSortMode: ItemSort get() = ItemSort.fromKey(itemSort)
+
+/** Die Musik einer Kategorie in der dort eingestellten Sortierung; [items] kommt nach Position sortiert. */
+fun MusicCategory.sortItems(items: List<MusicItem>): List<MusicItem> {
+    val comparator: Comparator<MusicItem> = when (itemSortMode) {
+        ItemSort.MANUAL -> return items
+        ItemSort.ALPHABETICAL -> compareBy<MusicItem, String>(NaturalOrder) { it.name }.thenBy { it.id }
+        // Vor dem Datums-Feld hinzugefügte Einträge haben 0 und sind damit die ältesten, untereinander nach Id
+        ItemSort.ADDED -> compareBy<MusicItem> { it.addedAt }.thenBy { it.id }
+    }
+    return items.sortedWith(if (itemSortDescending) comparator.reversed() else comparator)
+}
+
+/**
+ * Sortiert Text wie ein Mensch: ohne Groß-/Kleinschreibung, Umlaute an ihrem
+ * Platz im Alphabet und Zahlen nach ihrem Wert — „Folge 2" vor „Folge 10".
+ */
+private object NaturalOrder : Comparator<String> {
+    private val collator = java.text.Collator.getInstance(java.util.Locale.GERMAN).apply {
+        strength = java.text.Collator.SECONDARY
+    }
+    private val chunks = Regex("\\d+|\\D+")
+
+    override fun compare(a: String, b: String): Int {
+        val left = chunks.findAll(a.trim()).map { it.value }.toList()
+        val right = chunks.findAll(b.trim()).map { it.value }.toList()
+        for (i in 0 until minOf(left.size, right.size)) {
+            val x = left[i]
+            val y = right[i]
+            val result = if (x[0].isDigit() && y[0].isDigit()) {
+                compareValuesBy(x, y, { it.trimStart('0').length }, { it.trimStart('0') })
+            } else {
+                collator.compare(x, y)
+            }
+            if (result != 0) return result
+        }
+        return left.size - right.size
+    }
+}
+
 /** Reihenfolge und Zufall haben nur bei Inhalten mit mehreren Titeln eine Bedeutung. */
 val MusicType.hasMultipleTracks: Boolean
     get() = this == MusicType.PLAYLIST || this == MusicType.ALBUM || this == MusicType.OTHER

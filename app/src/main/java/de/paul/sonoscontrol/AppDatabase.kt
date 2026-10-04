@@ -58,7 +58,11 @@ data class MusicCategory(
     /** [CustomImage]-Schlüssel, null = Standard-Bild. */
     val imageKey: String? = null,
     /** [PlayOrder]-Name. */
-    val playOrder: String = PlayOrder.ORDERED.name
+    val playOrder: String = PlayOrder.ORDERED.name,
+    /** [ItemSort]-Name: wie die Musik innerhalb der Kategorie sortiert ist. */
+    val itemSort: String = ItemSort.MANUAL.name,
+    /** Alphabetisch bzw. nach Datum absteigend (Z–A, Neueste zuerst). Bei manueller Sortierung ohne Bedeutung. */
+    val itemSortDescending: Boolean = false
 )
 
 /**
@@ -82,7 +86,9 @@ data class MusicItem(
     /** Selbst gewähltes Bild ([CustomImage]-Schlüssel) statt des Covers von Sonos. */
     val customImageKey: String? = null,
     /** Anzahl der Titel laut Sonos, null = unbekannt (nur Sonos-Playlisten liefern sie). */
-    val trackCount: Int? = null
+    val trackCount: Int? = null,
+    /** Zeitpunkt des Hinzufügens (Millisekunden), 0 = vor Einführung des Feldes hinzugefügt. */
+    val addedAt: Long = System.currentTimeMillis()
 )
 
 val MusicItem.musicSource: MusicSource get() = MusicSource.fromKey(source)
@@ -169,6 +175,9 @@ interface ProfileDao {
     @Query("UPDATE music_category SET playOrder = :playOrder WHERE id = :id")
     suspend fun setCategoryPlayOrder(id: Long, playOrder: String)
 
+    @Query("UPDATE music_category SET itemSort = :itemSort, itemSortDescending = :descending WHERE id = :id")
+    suspend fun setCategoryItemSort(id: Long, itemSort: String, descending: Boolean)
+
     @Query("SELECT imageKey FROM music_category WHERE id = :id")
     suspend fun getCategoryImage(id: Long): String?
 
@@ -198,6 +207,9 @@ interface ProfileDao {
 
     @Query("UPDATE music_category SET position = :position WHERE id = :id")
     suspend fun setCategoryPosition(id: Long, position: Int)
+
+    @Query("UPDATE music_item SET position = :position WHERE id = :id")
+    suspend fun setItemPosition(id: Long, position: Int)
 
     @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM music_item WHERE categoryId = :categoryId")
     suspend fun nextItemPosition(categoryId: Long): Int
@@ -258,7 +270,7 @@ interface ProfileDao {
 
 @Database(
     entities = [SpeakerConfig::class, AppSetting::class, ChildProfile::class, MusicCategory::class, MusicItem::class],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -325,6 +337,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE music_category ADD COLUMN itemSort TEXT NOT NULL DEFAULT 'MANUAL'")
+                db.execSQL("ALTER TABLE music_category ADD COLUMN itemSortDescending INTEGER NOT NULL DEFAULT 0")
+                // Das Datum bisheriger Einträge ist unbekannt — bei 0 entscheidet die Id, also die Reihenfolge des Hinzufügens
+                db.execSQL("ALTER TABLE music_item ADD COLUMN addedAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -335,7 +356,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sound_buddy.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build()
                     .also { instance = it }
             }
