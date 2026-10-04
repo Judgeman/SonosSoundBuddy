@@ -84,6 +84,8 @@ fun SettingsScreen(
     onSpeakerEnabledChange: (String, Boolean) -> Unit,
     onSpeakerIconChange: (String, SpeakerIcon) -> Unit,
     onSpeakerMaxVolumeChange: (String, Int) -> Unit,
+    categories: List<CategoryWithMusic>,
+    onOpenLibrary: () -> Unit,
     profiles: List<ProfileWithMusic>,
     onCreateProfile: (String) -> Unit,
     onOpenProfile: (Long) -> Unit,
@@ -208,6 +210,8 @@ fun SettingsScreen(
                     }
                 )
             }
+
+            musicLibrarySection(categories = categories, onOpenLibrary = onOpenLibrary)
 
             profilesSection(
                 profiles = profiles,

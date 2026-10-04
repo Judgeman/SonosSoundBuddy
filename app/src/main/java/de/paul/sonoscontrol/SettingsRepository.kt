@@ -40,20 +40,29 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         )
     }
 
-    /** Alle Profile mit ihren Kategorien und Einträgen, fertig sortiert. */
-    val profiles: Flow<List<ProfileWithMusic>> = combine(
-        profileDao.observeProfiles(),
+    /** Die zentrale Musikauswahl: alle Kategorien mit Einträgen und zugeordneten Profilen, fertig sortiert. */
+    val categories: Flow<List<CategoryWithMusic>> = combine(
         profileDao.observeCategories(),
-        profileDao.observeItems()
-    ) { profiles, categories, items ->
+        profileDao.observeItems(),
+        profileDao.observeAssignments()
+    ) { categories, items, assignments ->
         val itemsByCategory = items.groupBy { it.categoryId }
-        val categoriesByProfile = categories.groupBy { it.profileId }
+        val profilesByCategory = assignments.groupBy({ it.categoryId }, { it.profileId })
+        categories.map { category ->
+            CategoryWithMusic(
+                category = category,
+                items = itemsByCategory[category.id].orEmpty(),
+                profileIds = profilesByCategory[category.id].orEmpty().toSet()
+            )
+        }
+    }
+
+    /** Alle Profile mit den Kategorien, die sie sehen, in der Reihenfolge der Musikauswahl. */
+    val profiles: Flow<List<ProfileWithMusic>> = combine(profileDao.observeProfiles(), categories) { profiles, categories ->
         profiles.map { profile ->
             ProfileWithMusic(
                 profile = profile,
-                categories = categoriesByProfile[profile.id].orEmpty().map { category ->
-                    CategoryWithMusic(category, itemsByCategory[category.id].orEmpty())
-                }
+                categories = categories.filter { profile.id in it.profileIds }
             )
         }
     }
@@ -119,25 +128,35 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     suspend fun setProfileEnabled(profileId: Long, enabled: Boolean) =
         profileDao.setProfileEnabled(profileId, enabled)
 
-    suspend fun deleteProfile(profileId: Long) {
-        val images = profileDao.getCategoryImagesOfProfile(profileId) + profileDao.getItemImagesOfProfile(profileId)
-        // Ohne Foreign Keys: Kategorien und Einträge werden von Hand mitgelöscht
+    /** Löscht nur das Profil — die Kategorien bleiben in der Musikauswahl für die anderen. */
+    suspend fun deleteProfile(profileId: Long) =
         database.withTransaction {
-            profileDao.deleteItemsOfProfile(profileId)
-            profileDao.deleteCategoriesOfProfile(profileId)
+            profileDao.deleteAssignmentsOfProfile(profileId)
             profileDao.deleteProfileRow(profileId)
         }
-        images.forEach { imageStore.delete(it) }
-    }
 
-    suspend fun createCategory(profileId: Long, name: String): Long =
-        profileDao.insertCategory(
-            MusicCategory(
-                profileId = profileId,
-                name = name.trim(),
-                position = profileDao.nextCategoryPosition(profileId)
+    /**
+     * Legt eine Kategorie in der Musikauswahl an. Sichtbar ist sie für [profileIds],
+     * bei null für alle Profile.
+     */
+    suspend fun createCategory(name: String, profileIds: Collection<Long>? = null): Long =
+        database.withTransaction {
+            val id = profileDao.insertCategory(
+                MusicCategory(name = name.trim(), position = profileDao.nextCategoryPosition())
             )
-        )
+            val visibleFor = profileIds ?: profileDao.getProfileIds()
+            profileDao.insertAssignments(visibleFor.map { ProfileCategory(profileId = it, categoryId = id) })
+            id
+        }
+
+    /** Legt fest, ob das Profil die Kategorie sieht. */
+    suspend fun setCategoryVisible(categoryId: Long, profileId: Long, visible: Boolean) {
+        if (visible) {
+            profileDao.insertAssignments(listOf(ProfileCategory(profileId = profileId, categoryId = categoryId)))
+        } else {
+            profileDao.deleteAssignment(profileId, categoryId)
+        }
+    }
 
     suspend fun setCategoryName(categoryId: Long, name: String) = profileDao.setCategoryName(categoryId, name.trim())
 
@@ -146,6 +165,7 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
             profileDao.getItemImagesOfCategory(categoryId)
         database.withTransaction {
             profileDao.deleteItemsOfCategory(categoryId)
+            profileDao.deleteAssignmentsOfCategory(categoryId)
             profileDao.deleteCategoryRow(categoryId)
         }
         images.forEach { imageStore.delete(it) }
@@ -175,7 +195,7 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     suspend fun setCategoryPlayOrder(categoryId: Long, playOrder: PlayOrder) =
         profileDao.setCategoryPlayOrder(categoryId, playOrder.name)
 
-    /** Schreibt die Reihenfolge der Kategorien eines Profils neu (nach Verschieben). */
+    /** Schreibt die Reihenfolge der Kategorien neu (nach Verschieben). */
     suspend fun reorderCategories(orderedIds: List<Long>) =
         orderedIds.forEachIndexed { index, id -> profileDao.setCategoryPosition(id, index) }
 
