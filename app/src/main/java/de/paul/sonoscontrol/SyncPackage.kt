@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -41,6 +42,11 @@ data class SyncSnapshot(
     val formatVersion: Int = SyncPackage.FORMAT_VERSION,
     val createdAtMillis: Long,
     val deviceName: String,
+    /**
+     * Sonos-Haushalt, aus dem der Stand stammt (null = sendendes Tablet war nicht angemeldet).
+     * Stände aus einem anderen Haushalt werden nicht übernommen: Speaker und Musik gäbe es dort nicht.
+     */
+    val householdId: String? = null,
     val profiles: List<SyncProfile>? = null,
     val speakers: List<SyncSpeaker>? = null,
     val password: SyncPassword? = null
@@ -103,13 +109,39 @@ data class SyncPassword(
     val required: Boolean
 )
 
-/** Ein Stand samt Bildern, wie er als ZIP-Datei oder übers WLAN reist. */
+/** Namen aller Bilder aus dem Paket, auf die der Stand verweist. */
+val SyncSnapshot.imageNames: Set<String>
+    get() = buildSet {
+        fun addKey(key: String?) {
+            val image = CustomImage.fromKey(key) as? CustomImage.File ?: return
+            if (image.path.startsWith(SyncPackage.IMAGE_PREFIX)) add(image.path.removePrefix(SyncPackage.IMAGE_PREFIX))
+        }
+        profiles.orEmpty().flatMap { it.categories }.forEach { category ->
+            addKey(category.imageKey)
+            category.items.forEach { item ->
+                addKey(item.customImageKey)
+                imageUrlCandidates(item.imageUrl).filter { it.startsWith(SyncPackage.IMAGE_PREFIX) }
+                    .forEach { add(it.removePrefix(SyncPackage.IMAGE_PREFIX)) }
+            }
+        }
+    }
+
+fun sha256Hex(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+/** JSON-Einstellungen für alles, was zwischen Tablets reist — Felder neuerer Versionen werden ignoriert. */
+internal val syncJson = Json { ignoreUnknownKeys = true }
+
+/**
+ * Ein Stand samt Bildern, wie er als ZIP-Datei oder übers WLAN reist. Bilder heißen
+ * nach dem SHA-256 ihres Inhalts (`<hash>.jpg`), so lassen sie sich wiedererkennen.
+ */
 class SyncPackage(val snapshot: SyncSnapshot, val images: Map<String, ByteArray>) {
 
     fun writeTo(output: OutputStream) {
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry(SNAPSHOT_ENTRY))
-            zip.write(json.encodeToString(SyncSnapshot.serializer(), snapshot).toByteArray())
+            zip.write(syncJson.encodeToString(SyncSnapshot.serializer(), snapshot).toByteArray())
             zip.closeEntry()
             images.forEach { (name, bytes) ->
                 zip.putNextEntry(ZipEntry(IMAGE_DIRECTORY + name))
@@ -131,7 +163,6 @@ class SyncPackage(val snapshot: SyncSnapshot, val images: Map<String, ByteArray>
         private const val MAX_ENTRY_BYTES = 20L * 1024 * 1024
         private const val MAX_TOTAL_BYTES = 300L * 1024 * 1024
 
-        private val json = Json { ignoreUnknownKeys = true }
 
         /** Liest ein Paket. Wirft [IOException] mit einer verständlichen Meldung, wenn es keins ist. */
         fun read(input: InputStream): SyncPackage {
@@ -149,7 +180,7 @@ class SyncPackage(val snapshot: SyncSnapshot, val images: Map<String, ByteArray>
                     if (total > MAX_TOTAL_BYTES) throw IOException("Die Datei ist zu groß.")
                     when {
                         entry.name == SNAPSHOT_ENTRY -> snapshot = try {
-                            json.decodeFromString(SyncSnapshot.serializer(), bytes.decodeToString())
+                            syncJson.decodeFromString(SyncSnapshot.serializer(), bytes.decodeToString())
                         } catch (e: Exception) {
                             throw IOException("Die Daten in der Datei sind beschädigt.", e)
                         }
@@ -159,13 +190,17 @@ class SyncPackage(val snapshot: SyncSnapshot, val images: Map<String, ByteArray>
                 }
             }
             val result = snapshot ?: throw IOException("Das ist keine SoundBuddy-Datei.")
-            if (result.formatVersion > FORMAT_VERSION) {
-                throw IOException("Die Daten stammen von einer neueren SoundBuddy-Version. Bitte zuerst die App aktualisieren.")
-            }
+            checkFormat(result)
             return SyncPackage(result, images)
         }
 
         fun fromByteArray(bytes: ByteArray): SyncPackage = read(bytes.inputStream())
+
+        fun checkFormat(snapshot: SyncSnapshot) {
+            if (snapshot.formatVersion > FORMAT_VERSION) {
+                throw IOException("Die Daten stammen von einer neueren SoundBuddy-Version. Bitte zuerst die App aktualisieren.")
+            }
+        }
 
         private fun readLimited(input: InputStream): ByteArray {
             val out = ByteArrayOutputStream()

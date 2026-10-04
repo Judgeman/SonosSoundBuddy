@@ -6,6 +6,16 @@ Tablet, das von Kindern bedient wird: große Knöpfe, bunte Icons, eine
 Lautstärke-Leiste mit Obergrenze und passwortgeschützte Einstellungen für
 die Eltern.
 
+> **Datenschutz-Hinweis zum Abgleich über die Cloud:** Wird der automatische
+> Abgleich zwischen Tablets genutzt, liegen die Einstellungen der App —
+> Namen der Kinder, eigene Fotos, Musikauswahl, Speaker-Einstellungen und der
+> Passwort-Hash — im Cloudflare-KV-Speicher des Relay-Workers, also **beim
+> Besitzer des Cloudflare-Accounts, in dem der Worker läuft**. Wer dieses
+> Repo kopiert, sollte einen eigenen Worker deployen (`SonosConfig.kt`) und
+> nicht den eines anderen verwenden. Ohne KV-Speicher im Worker bleibt der
+> Abgleich über die Cloud aus; Export/Import und WLAN-Übertragung brauchen
+> keine Cloud.
+
 ## Zugehöriges Projekt: Relay
 
 Die App braucht den Cloudflare-Worker
@@ -16,6 +26,8 @@ alle Token-Anfragen bei Sonos:
 - `GET /callback` — tauscht beim Login den Authorization-Code gegen Tokens
   und leitet zurück in die App (`sonoscontrol://callback?…`)
 - `POST /refresh` — erneuert abgelaufene Access-Tokens
+- `/sync/…` — optionaler Speicher für den Abgleich zwischen Tablets
+  (braucht ein KV-Binding `SYNC_KV`, siehe README des Relay-Projekts)
 
 Setup, Deploy (auch ohne Wrangler über das Cloudflare-Dashboard) und Tests
 sind im README des Relay-Projekts beschrieben. Die Worker-URL wird in der
@@ -263,8 +275,9 @@ wird ohne diese Schritte direkt gestartet.
 ## Mehrere Tablets abgleichen
 
 Ein Tablet wird fertig eingestellt, die anderen übernehmen seinen Stand
-(Einstellungen → „Tablets abgleichen“). Das empfangende Tablet sucht sich
-aus, was es übernimmt:
+(Einstellungen → „Tablets abgleichen“) — automatisch über die Cloud, im
+WLAN oder als Datei. Das empfangende Tablet sucht sich aus, was es
+übernimmt:
 
 | Bereich | Inhalt | Vorauswahl |
 |---|---|---|
@@ -285,6 +298,35 @@ Tablets gleich ist. Beim allerersten Abgleich, wenn auf beiden Tablets
 schon von Hand Profile angelegt wurden, werden sie über den Namen
 zugeordnet. Speaker und Musik passen ohne Umrechnung zusammen, weil die
 Ids von Sonos im ganzen Haushalt gleich sind.
+
+**Automatisch über die Cloud:** Pro Tablet wird eine Rolle gewählt:
+
+- **Haupt-Tablet** — lädt seinen Stand beim App-Start und beim Schließen
+  der Einstellungen in den KV-Speicher des Relay-Workers, aber nur, wenn
+  sich etwas geändert hat (Prüfsumme). Das kann auch ein Handy mit der App
+  sein. Es sollte nur ein Haupt-Tablet geben, sonst gewinnt der letzte Upload.
+- **Stand übernehmen** — sieht beim Start und alle 5 Minuten nach (solange
+  die App im Vordergrund ist), ob es eine neue Version gibt. Mit
+  „Automatisch übernehmen“ werden die gewählten Bereiche ohne Nachfrage
+  übernommen — nicht, solange die Einstellungen offen sind, dann beim
+  Schließen. Ohne wird der neue Stand auf der Einstellungs-Seite und unter
+  „Tablets abgleichen“ angezeigt und erst auf „Ansehen“ → „Übernehmen“
+  übernommen; „Ignorieren“ wartet auf den nächsten Stand. Die Kinder sehen
+  auf dem Homescreen nichts davon.
+- **Aus** — Standard.
+
+Bilder werden nach ihrem SHA-256 benannt und nur hochgeladen bzw.
+heruntergeladen, wenn sie fehlen. „Daten aus der Cloud löschen“ entfernt den
+Stand des Haushalts aus dem Speicher.
+
+**Getrennte Haushalte:** Alles läuft je Sonos-Haushalt. Der Worker prüft
+bei jeder Anfrage bei Sonos, ob der Access-Token der App zu dem Haushalt
+gehört, und legt die Daten unter dem Haushalt ab — andere Konten oder
+Haushalte kommen nicht heran. Die App merkt sich gesehene Versionen und den
+letzten Upload ebenfalls je Haushalt; wird ein Tablet bei einem anderen
+Sonos-Konto angemeldet, beginnt der Abgleich dort neu. Jeder Stand trägt
+die Haushalts-Id: Stände aus einem anderen Haushalt werden auch beim Import
+einer Datei oder im WLAN abgelehnt.
 
 **Im WLAN:** Auf dem einen Tablet „Dieses Tablet freigeben“ tippen. Es
 meldet sich per mDNS (`_soundbuddy._tcp`) im Heimnetz an und zeigt einen
@@ -347,6 +389,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `SyncScreen.kt`, `SyncViewModel.kt` | Seite „Tablets abgleichen“ |
 | `SyncPackage.kt`, `SyncRepository.kt` | Datenformat (ZIP) für den Abgleich, Einpacken und Übernehmen |
 | `LocalTransfer.kt` | Übertragung zwischen Tablets im WLAN (mDNS + TCP) |
+| `CloudSync.kt`, `CloudSyncClient.kt` | Abgleich über den Relay-Worker: hochladen, nachsehen, abholen |
 
 Wichtige Bibliotheken: Compose Material 3 und `material-icons-extended`,
 Room 2.6 (über KSP), Coil 2 für Cover, `androidx.palette`, OkHttp,

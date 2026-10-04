@@ -14,15 +14,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 class MainActivity : ComponentActivity() {
 
+    private val apiClient by lazy { SonosApiClient.shared(applicationContext) }
+
     private val viewModel: MainViewModel by viewModels {
         MainViewModelFactory(
-            TokenStore(applicationContext),
+            apiClient.tokenStore,
+            apiClient,
             SettingsRepository(
                 AppDatabase.getInstance(applicationContext),
                 CustomImageStore(applicationContext)
@@ -32,13 +36,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private val syncViewModel: SyncViewModel by viewModels {
+        val syncRepository = SyncRepository(
+            applicationContext,
+            AppDatabase.getInstance(applicationContext),
+            CustomImageStore(applicationContext)
+        )
         SyncViewModelFactory(
-            SyncRepository(
-                applicationContext,
-                AppDatabase.getInstance(applicationContext),
-                CustomImageStore(applicationContext)
-            ),
-            LocalTransfer(applicationContext)
+            syncRepository,
+            LocalTransfer(applicationContext),
+            CloudSync(syncRepository, CloudSyncClient(apiClient), apiClient)
         )
     }
 
@@ -65,12 +71,14 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         viewModel.onForegroundChanged(true)
+        syncViewModel.onForegroundChanged(true)
     }
 
     override fun onStop() {
         viewModel.onForegroundChanged(false)
-        // Im Hintergrund nicht weiter im WLAN freigeben oder suchen
+        // Im Hintergrund nicht weiter im WLAN freigeben oder suchen, nicht in der Cloud nachsehen
         syncViewModel.stopNetwork()
+        syncViewModel.onForegroundChanged(false)
         super.onStop()
     }
 
@@ -91,6 +99,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLoginClick: () -> Unit) {
+    val settingsOpen = viewModel.screen != Screen.Home
+    LaunchedEffect(settingsOpen) { syncViewModel.onSettingsOpenChanged(settingsOpen) }
+
     when (viewModel.screen) {
         Screen.Home -> HomeScreen(
             state = viewModel.uiState,
@@ -144,6 +155,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                 onRemovePassword = viewModel::removePassword,
                 onPasswordRequiredChange = viewModel::setPasswordRequired,
                 onOpenSync = viewModel::openSync,
+                syncNotice = syncViewModel.cloudNotice,
                 onLogout = viewModel::logout
             )
         }

@@ -11,20 +11,25 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.random.Random
 
-/** Ein Stand, der zum Übernehmen bereitliegt — aus einer Datei oder von einem anderen Tablet. */
+/** Ein Stand, der zum Übernehmen bereitliegt — aus einer Datei, von einem anderen Tablet oder aus der Cloud. */
 data class PendingImport(
     val syncPackage: SyncPackage,
     /** Woher er kommt, z. B. der Name des anderen Tablets. */
     val origin: String,
-    val preselected: Set<SyncScope>
+    val preselected: Set<SyncScope>,
+    /** Stand aus der Cloud: wird nach dem Übernehmen als gesehen gemerkt. */
+    val cloud: CloudDownload? = null
 )
 
 /** Dieses Tablet gibt seine Daten im WLAN frei. */
@@ -38,7 +43,8 @@ data class ShareState(
 
 class SyncViewModel(
     private val repository: SyncRepository,
-    private val transfer: LocalTransfer
+    private val transfer: LocalTransfer,
+    private val cloudSync: CloudSync
 ) : ViewModel() {
 
     val deviceName: String get() = repository.deviceName
@@ -69,9 +75,32 @@ class SyncViewModel(
     var codeWrong: Boolean by mutableStateOf(false)
         private set
 
+    var cloudSettings: CloudSettings by mutableStateOf(CloudSettings())
+        private set
+
+    /** Letztes Ergebnis des Abgleichs über die Cloud, z. B. „Hochgeladen um 18:20“. */
+    var cloudStatus: String? by mutableStateOf(null)
+        private set
+
+    /** Gerade wird hochgeladen, nachgesehen oder übernommen. */
+    var cloudBusy: Boolean by mutableStateOf(false)
+        private set
+
+    /** Neuer Stand in der Cloud, der noch übernommen werden kann (beim Nachfragen oder während die Einstellungen offen sind). */
+    var cloudUpdate: CloudUpdate? by mutableStateOf(null)
+        private set
+
     private var shareJob: Job? = null
     private var searchJob: Job? = null
     private var receiveJob: Job? = null
+    private var cloudLoopJob: Job? = null
+    private val cloudMutex = Mutex()
+    private var settingsOpen = false
+    private var isForeground = false
+
+    init {
+        viewModelScope.launch { cloudSettings = repository.cloudSettings() }
+    }
 
     fun consumeMessage() {
         message = null
@@ -87,8 +116,8 @@ class SyncViewModel(
     }
 
     fun exportToFile(uri: Uri, includePassword: Boolean) = runBusy("Daten werden exportiert …") {
-        repository.writePackage(uri, repository.createPackage(includePassword))
-        message = "Export gespeichert. Auf dem anderen Tablet „Datei importieren“ wählen."
+        repository.writePackage(uri, repository.createPackage(includePassword, householdOrNull()))
+        message = "Export gespeichert. Auf dem anderen Tablet unter „Als Datei“ auf „Importieren“ tippen."
     }
 
     fun importFromFile(uri: Uri) = runBusy("Datei wird gelesen …") {
@@ -99,15 +128,41 @@ class SyncViewModel(
     // --- Übernehmen --------------------------------------------------------
 
     private suspend fun offerImport(syncPackage: SyncPackage, origin: String) {
+        // Speaker und Musik eines anderen Haushalts gibt es hier nicht — solche Stände nie übernehmen
+        val source = syncPackage.snapshot.householdId
+        val own = householdOrNull()
+        if (source != null && own != null && source != own) {
+            message = "Die Daten von „$origin“ gehören zu einem anderen Sonos-Haushalt und werden nicht übernommen."
+            return
+        }
         val available = syncPackage.snapshot.availableScopes
         pendingImport = PendingImport(syncPackage, origin, repository.lastScopes() intersect available)
+    }
+
+    /** Haushalt, an dem dieses Tablet angemeldet ist — null ohne Anmeldung oder Netz. */
+    private suspend fun householdOrNull(): String? = try {
+        cloudSync.household()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
     }
 
     fun applyImport(scopes: Set<SyncScope>) {
         val pending = pendingImport ?: return
         pendingImport = null
         runBusy("Daten werden übernommen …") {
-            repository.apply(pending.syncPackage, scopes)
+            val cloud = pending.cloud
+            if (cloud != null) {
+                cloudMutex.withLock {
+                    repository.apply(pending.syncPackage, scopes)
+                    cloudSync.markSeen(cloud.household, cloud.version)
+                }
+                cloudUpdate = null
+                cloudStatus = "Stand vom ${formatTime(pending.syncPackage.snapshot.createdAtMillis)} übernommen"
+            } else {
+                repository.apply(pending.syncPackage, scopes)
+            }
             message = "Übernommen: " + SyncScope.entries.filter { it in scopes }.joinToString { it.label }
         }
     }
@@ -127,7 +182,7 @@ class SyncViewModel(
             val job = coroutineContext.job
             try {
                 // Das Passwort geht nur an Tablets mit dem richtigen Code; dort wählt man, ob es übernommen wird
-                val payload = repository.createPackage(includePassword = true).let { syncPackage ->
+                val payload = repository.createPackage(includePassword = true, householdOrNull()).let { syncPackage ->
                     withContext(Dispatchers.Default) { syncPackage.toByteArray() }
                 }
                 share = share?.copy(ready = true)
@@ -223,6 +278,150 @@ class SyncViewModel(
         }
     }
 
+    // --- Cloud --------------------------------------------------------------
+
+    fun updateCloudSettings(settings: CloudSettings) {
+        val previous = cloudSettings
+        cloudSettings = settings
+        viewModelScope.launch {
+            repository.saveCloudSettings(settings)
+            if (settings.role != previous.role) {
+                cloudUpdate = null
+                cloudStatus = null
+                if (isForeground) startCloudLoop(firstIsUserAction = true)
+            }
+        }
+    }
+
+    /** „Jetzt hochladen“ bzw. „Jetzt nachsehen“. */
+    fun syncNow() {
+        viewModelScope.launch { runCloudCycle(userAction = true) }
+    }
+
+    /** Neuen Stand aus der Cloud ansehen und auswählen, was übernommen wird. */
+    fun reviewCloudUpdate() {
+        val update = cloudUpdate ?: return
+        runBusy("Stand wird aus der Cloud geholt …") {
+            val download = cloudMutex.withLock { cloudSync.download(update.household) }
+            val snapshot = download.syncPackage.snapshot
+            pendingImport = PendingImport(
+                syncPackage = download.syncPackage,
+                origin = snapshot.deviceName,
+                preselected = cloudSettings.scopes intersect snapshot.availableScopes,
+                cloud = download
+            )
+        }
+    }
+
+    /** Neuen Stand nicht übernehmen; erst ein neuerer meldet sich wieder. */
+    fun ignoreCloudUpdate() {
+        val update = cloudUpdate ?: return
+        cloudUpdate = null
+        viewModelScope.launch { cloudSync.markSeen(update.household, update.state.version) }
+    }
+
+    fun deleteFromCloud() = runBusy("Daten werden aus der Cloud gelöscht …") {
+        cloudMutex.withLock { cloudSync.deleteFromCloud() }
+        cloudStatus = "Die Daten dieses Sonos-Haushalts wurden aus der Cloud gelöscht."
+        message = cloudStatus
+    }
+
+    /** Solange die App sichtbar ist, regelmäßig abgleichen. */
+    fun onForegroundChanged(foreground: Boolean) {
+        isForeground = foreground
+        if (foreground) {
+            viewModelScope.launch {
+                // Erst die gespeicherte Rolle laden, sonst läuft der erste Abgleich mit der Vorgabe „Aus“
+                cloudSettings = repository.cloudSettings()
+                startCloudLoop(firstIsUserAction = false)
+            }
+        } else {
+            cloudLoopJob?.cancel()
+            cloudLoopJob = null
+        }
+    }
+
+    private fun startCloudLoop(firstIsUserAction: Boolean) {
+        cloudLoopJob?.cancel()
+        cloudLoopJob = viewModelScope.launch {
+            var userAction = firstIsUserAction
+            while (true) {
+                runCloudCycle(userAction)
+                userAction = false
+                // Das Haupt-Tablet lädt nur nach Änderungen hoch, also beim Schließen der Einstellungen
+                if (cloudSettings.role != CloudRole.FOLLOWER) break
+                delay(CLOUD_CHECK_INTERVAL_MS)
+            }
+        }
+    }
+
+    /**
+     * Die Einstellungen wurden geöffnet oder geschlossen. Solange sie offen sind,
+     * wird nichts automatisch übernommen; beim Schließen lädt das Haupt-Tablet hoch.
+     */
+    fun onSettingsOpenChanged(open: Boolean) {
+        if (open == settingsOpen) return
+        settingsOpen = open
+        if (!open && cloudSettings.role != CloudRole.OFF) {
+            viewModelScope.launch { runCloudCycle(userAction = false) }
+        }
+    }
+
+    /** Hinweis für die Settings-Hauptseite, wenn ein neuer Stand wartet. */
+    val cloudNotice: String?
+        get() = cloudUpdate?.let { "Neuer Stand von „${it.state.deviceName}“ vom ${formatTime(it.state.updatedAt)}" }
+
+    private suspend fun runCloudCycle(userAction: Boolean) {
+        val role = cloudSettings.role
+        if (role == CloudRole.OFF) return
+        if (!cloudMutex.tryLock()) return
+        cloudBusy = true
+        try {
+            when (role) {
+                CloudRole.SOURCE -> {
+                    val state = cloudSync.upload()
+                    cloudStatus = when {
+                        state != null -> "Hochgeladen am ${formatTime(state.updatedAt)}"
+                        userAction -> "Keine Änderungen seit dem letzten Hochladen"
+                        else -> cloudStatus
+                    }
+                }
+                CloudRole.FOLLOWER -> {
+                    val update = cloudSync.check()
+                    cloudUpdate = update
+                    when {
+                        update == null -> if (userAction) cloudStatus = "Kein neuer Stand in der Cloud"
+                        cloudSettings.autoApply && !settingsOpen -> applyAutomatically(update)
+                        else -> Unit
+                    }
+                }
+                CloudRole.OFF -> Unit
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SessionExpiredException) {
+            cloudStatus = "Für den Abgleich bei Sonos anmelden."
+        } catch (e: Exception) {
+            Log.w(TAG, "Abgleich über die Cloud fehlgeschlagen", e)
+            cloudStatus = e.message ?: "Der Abgleich über die Cloud ist fehlgeschlagen."
+            if (userAction) message = cloudStatus
+        } finally {
+            cloudBusy = false
+            cloudMutex.unlock()
+        }
+    }
+
+    private suspend fun applyAutomatically(update: CloudUpdate) {
+        val download = cloudSync.download(update.household)
+        repository.apply(download.syncPackage, cloudSettings.scopes, rememberScopes = false)
+        cloudSync.markSeen(download.household, download.version)
+        cloudUpdate = null
+        cloudStatus = "Stand von „${update.state.deviceName}“ vom ${formatTime(update.state.updatedAt)} übernommen"
+    }
+
+    private fun formatTime(millis: Long): String =
+        SimpleDateFormat("dd.MM.yyyy, HH:mm", Locale.GERMANY).format(Date(millis))
+
     /** Freigabe und Suche beenden, z. B. beim Verlassen der Seite. */
     fun stopNetwork() {
         stopSharing()
@@ -247,13 +446,15 @@ class SyncViewModel(
 
     companion object {
         private const val TAG = "SoundBuddySync"
+        private const val CLOUD_CHECK_INTERVAL_MS = 5 * 60 * 1000L
     }
 }
 
 class SyncViewModelFactory(
     private val repository: SyncRepository,
-    private val transfer: LocalTransfer
+    private val transfer: LocalTransfer,
+    private val cloudSync: CloudSync
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T = SyncViewModel(repository, transfer) as T
+    override fun <T : ViewModel> create(modelClass: Class<T>): T = SyncViewModel(repository, transfer, cloudSync) as T
 }

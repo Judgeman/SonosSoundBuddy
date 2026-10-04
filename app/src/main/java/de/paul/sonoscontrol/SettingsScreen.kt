@@ -93,6 +93,8 @@ fun SettingsScreen(
     onRemovePassword: () -> Unit,
     onPasswordRequiredChange: (Boolean) -> Unit,
     onOpenSync: () -> Unit,
+    /** Hinweis auf einen neuen Stand aus der Cloud, der auf Übernahme wartet. */
+    syncNotice: String?,
     onLogout: () -> Unit
 ) {
     var iconPickerFor by remember { mutableStateOf<SpeakerConfig?>(null) }
@@ -222,9 +224,18 @@ fun SettingsScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 SectionHeader(
                     title = "Mehrere Tablets",
-                    description = "Profile und Speaker-Einstellungen von diesem Tablet auf ein anderes übertragen " +
-                        "— im WLAN oder als Datei."
+                    description = "Profile und Speaker-Einstellungen zwischen Tablets abgleichen — automatisch " +
+                        "über die Cloud, im WLAN oder als Datei."
                 )
+                if (syncNotice != null) {
+                    Text(
+                        syncNotice,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
                 OutlinedButton(
                     onClick = onOpenSync,
                     modifier = Modifier.padding(horizontal = 16.dp)

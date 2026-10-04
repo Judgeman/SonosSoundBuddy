@@ -16,14 +16,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FileOpen
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.TabletAndroid
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.AlertDialog
@@ -39,6 +42,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -55,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -77,6 +82,7 @@ private val IMPORT_MIME_TYPES = arrayOf("application/zip", "application/x-zip-co
 @Composable
 fun SyncScreen(viewModel: SyncViewModel, onBack: () -> Unit) {
     var showExport by remember { mutableStateOf(false) }
+    var showCloudDelete by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     var includePassword by remember { mutableStateOf(false) }
 
@@ -125,6 +131,21 @@ fun SyncScreen(viewModel: SyncViewModel, onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
+            }
+
+            item {
+                CloudSection(
+                    settings = viewModel.cloudSettings,
+                    status = viewModel.cloudStatus,
+                    busy = viewModel.cloudBusy,
+                    notice = viewModel.cloudNotice,
+                    onSettingsChange = viewModel::updateCloudSettings,
+                    onSyncNow = viewModel::syncNow,
+                    onReview = viewModel::reviewCloudUpdate,
+                    onIgnore = viewModel::ignoreCloudUpdate,
+                    onDelete = { showCloudDelete = true }
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             }
 
             item {
@@ -210,6 +231,30 @@ fun SyncScreen(viewModel: SyncViewModel, onBack: () -> Unit) {
         }
     }
 
+    if (showCloudDelete) {
+        AlertDialog(
+            onDismissRequest = { showCloudDelete = false },
+            icon = { Icon(Icons.Rounded.CloudOff, contentDescription = null) },
+            title = { Text("Daten aus der Cloud löschen?") },
+            text = {
+                Text(
+                    "Der Stand dieses Sonos-Haushalts wird samt Bildern aus dem Speicher des Workers gelöscht. " +
+                        "Die Daten auf den Tablets bleiben. Ist ein Haupt-Tablet eingerichtet, lädt es beim " +
+                        "nächsten Schließen seiner Einstellungen wieder hoch."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCloudDelete = false
+                    viewModel.deleteFromCloud()
+                }) { Text("Löschen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloudDelete = false }) { Text("Abbrechen") }
+            }
+        )
+    }
+
     if (showExport) {
         ExportDialog(
             includePassword = includePassword,
@@ -236,6 +281,141 @@ fun SyncScreen(viewModel: SyncViewModel, onBack: () -> Unit) {
     }
 
     viewModel.busy?.let { BusyDialog(it) }
+}
+
+@Composable
+private fun CloudSection(
+    settings: CloudSettings,
+    status: String?,
+    busy: Boolean,
+    notice: String?,
+    onSettingsChange: (CloudSettings) -> Unit,
+    onSyncNow: () -> Unit,
+    onReview: () -> Unit,
+    onIgnore: () -> Unit,
+    onDelete: () -> Unit
+) {
+    SectionHeader(
+        title = "Automatisch über die Cloud",
+        description = "Ein Haupt-Tablet lädt seinen Stand in den Speicher des Cloudflare-Workers, die anderen " +
+            "holen ihn ab — auch wenn sie woanders stehen. Alle Tablets müssen beim selben Sonos-Haushalt " +
+            "angemeldet sein; andere Haushalte sehen die Daten nicht. Die Daten liegen beim Betreiber des Workers."
+    )
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        CloudRole.entries.forEach { role ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectable(selected = settings.role == role, role = Role.RadioButton) {
+                        onSettingsChange(settings.copy(role = role))
+                    }
+                    .padding(vertical = 4.dp)
+            ) {
+                RadioButton(selected = settings.role == role, onClick = null)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(role.label, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        role.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        if (settings.role == CloudRole.FOLLOWER) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Automatisch übernehmen", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (settings.autoApply) {
+                            "Neue Stände werden ohne Nachfrage übernommen — nicht, solange die Einstellungen offen sind."
+                        } else {
+                            "Neue Stände werden hier und auf der Einstellungs-Seite angezeigt und erst auf Tipp übernommen."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = settings.autoApply,
+                    onCheckedChange = { onSettingsChange(settings.copy(autoApply = it)) }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                if (settings.autoApply) "Das wird übernommen:" else "Vorauswahl beim Übernehmen:",
+                style = MaterialTheme.typography.titleSmall
+            )
+            SyncScope.entries.forEach { scope ->
+                val checked = scope in settings.scopes
+                // Mindestens ein Bereich bleibt gewählt, sonst gäbe es nichts zu übernehmen
+                val canToggle = !checked || settings.scopes.size > 1
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = canToggle) {
+                            onSettingsChange(settings.copy(scopes = if (checked) settings.scopes - scope else settings.scopes + scope))
+                        }
+                ) {
+                    Checkbox(checked = checked, onCheckedChange = null, enabled = canToggle)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(scope.label, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            scope.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        if (notice != null && settings.role == CloudRole.FOLLOWER) {
+            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(notice, style = MaterialTheme.typography.titleSmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onReview) { Text("Ansehen") }
+                        TextButton(onClick = onIgnore) { Text("Ignorieren") }
+                    }
+                }
+            }
+        }
+
+        if (settings.role != CloudRole.OFF) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = onSyncNow, enabled = !busy) {
+                    if (busy) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                    } else {
+                        Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (settings.role == CloudRole.SOURCE) "Jetzt hochladen" else "Jetzt nachsehen")
+                }
+            }
+            status?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+        TextButton(onClick = onDelete) {
+            Icon(Icons.Rounded.CloudOff, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Daten aus der Cloud löschen")
+        }
+    }
 }
 
 @Composable

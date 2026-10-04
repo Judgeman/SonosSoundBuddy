@@ -71,12 +71,13 @@ data class NowPlaying(
 
 class MainViewModel(
     private val tokenStore: TokenStore,
+    /** Gemeinsam mit dem Abgleich, damit Tokens nur an einer Stelle erneuert werden. */
+    private val apiClient: SonosApiClient,
     private val repository: SettingsRepository,
     private val localClient: LocalSonosClient
 ) : ViewModel() {
 
     val authManager = SonosAuthManager()
-    private val apiClient = SonosApiClient(tokenStore)
 
     var uiState: UiState by mutableStateOf(
         if (tokenStore.accessToken != null) UiState.LoadingSpeakers else UiState.LoggedOut()
@@ -987,11 +988,12 @@ class MainViewModel(
 
 class MainViewModelFactory(
     private val tokenStore: TokenStore,
+    private val apiClient: SonosApiClient,
     private val repository: SettingsRepository,
     private val localClient: LocalSonosClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return MainViewModel(tokenStore, repository, localClient) as T
+        return MainViewModel(tokenStore, apiClient, repository, localClient) as T
     }
 }

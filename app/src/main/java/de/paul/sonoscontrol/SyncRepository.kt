@@ -34,8 +34,11 @@ class SyncRepository(
 
     // --- Einpacken ---------------------------------------------------------
 
-    /** Der komplette Stand dieses Tablets; das Passwort nur mit [includePassword]. */
-    suspend fun createPackage(includePassword: Boolean): SyncPackage {
+    /**
+     * Der komplette Stand dieses Tablets; das Passwort nur mit [includePassword].
+     * [householdId]: der Sonos-Haushalt, an dem das Tablet angemeldet ist.
+     */
+    suspend fun createPackage(includePassword: Boolean, householdId: String?): SyncPackage {
         val images = ImageCollector()
         val categoriesByProfile = profileDao.getCategories().groupBy { it.profileId }
         val itemsByCategory = profileDao.getItems().groupBy { it.categoryId }
@@ -72,6 +75,7 @@ class SyncRepository(
         val snapshot = SyncSnapshot(
             createdAtMillis = System.currentTimeMillis(),
             deviceName = deviceName,
+            householdId = householdId,
             profiles = profiles,
             speakers = speakers,
             password = password
@@ -94,7 +98,7 @@ class SyncRepository(
         suspend fun ref(path: String): String? {
             refs[path]?.let { return it }
             val bytes = imageStore.read(path) ?: return null
-            val name = "${images.size}.jpg"
+            val name = sha256Hex(bytes) + ".jpg"
             images[name] = bytes
             return (SyncPackage.IMAGE_PREFIX + name).also { refs[path] = it }
         }
@@ -128,11 +132,14 @@ class SyncRepository(
     suspend fun lastScopes(): Set<SyncScope> =
         SyncScope.fromKeys(settingDao.get(KEY_LAST_SCOPES)) ?: SyncScope.defaults
 
-    /** Übernimmt die gewählten [scopes] aus [syncPackage]. */
-    suspend fun apply(syncPackage: SyncPackage, scopes: Set<SyncScope>) {
+    /**
+     * Übernimmt die gewählten [scopes] aus [syncPackage]. Mit [rememberScopes] werden
+     * sie die Vorauswahl fürs nächste Mal (nicht beim automatischen Übernehmen).
+     */
+    suspend fun apply(syncPackage: SyncPackage, scopes: Set<SyncScope>, rememberScopes: Boolean = true) {
         val snapshot = syncPackage.snapshot
         val applied = scopes intersect snapshot.availableScopes
-        settingDao.put(AppSetting(KEY_LAST_SCOPES, SyncScope.toKeys(scopes)))
+        if (rememberScopes) settingDao.put(AppSetting(KEY_LAST_SCOPES, SyncScope.toKeys(scopes)))
         if (applied.isEmpty()) return
 
         // Bilder vor der Transaktion ablegen, damit die Datenbank nicht auf Dateien wartet
@@ -249,8 +256,11 @@ class SyncRepository(
 
         private suspend fun path(ref: String): String? {
             if (ref in paths) return paths[ref]
-            val bytes = images[ref.removePrefix(SyncPackage.IMAGE_PREFIX)]
-            val path = bytes?.let { imageStore.storeReceived(it, "synced-${UUID.randomUUID().toString().take(8)}") }
+            val name = ref.removePrefix(SyncPackage.IMAGE_PREFIX)
+            // Schon einmal übernommen (Abgleich über die Cloud) → die Datei weiterverwenden
+            val hash = imageHash(name)
+            val path = hash?.let { imageStore.findReceived(it) }
+                ?: images[name]?.let { imageStore.storeReceived(it, hash ?: UUID.randomUUID().toString().take(8)) }
             paths[ref] = path
             return path
         }
@@ -285,7 +295,57 @@ class SyncRepository(
         )
     }
 
+    /** Liegt das Bild [name] aus einem Paket schon auf diesem Tablet? Dann muss es nicht geladen werden. */
+    suspend fun hasImage(name: String): Boolean = imageHash(name)?.let { imageStore.findReceived(it) } != null
+
+    /** Prüfsumme des Stands ohne Zeitpunkt — gleich, solange sich nichts geändert hat. */
+    fun fingerprint(syncPackage: SyncPackage): String {
+        val json = syncJson.encodeToString(SyncSnapshot.serializer(), syncPackage.snapshot.copy(createdAtMillis = 0))
+        return sha256Hex(json.toByteArray())
+    }
+
+    // --- Einstellungen für den Abgleich über die Cloud ---------------------
+
+    suspend fun cloudSettings(): CloudSettings = CloudSettings(
+        role = CloudRole.fromKey(settingDao.get(KEY_CLOUD_ROLE)),
+        autoApply = settingDao.get(KEY_CLOUD_AUTO_APPLY) != false.toString(),
+        scopes = SyncScope.fromKeys(settingDao.get(KEY_CLOUD_SCOPES)) ?: SyncScope.defaults
+    )
+
+    suspend fun saveCloudSettings(settings: CloudSettings) {
+        settingDao.put(AppSetting(KEY_CLOUD_ROLE, settings.role.name))
+        settingDao.put(AppSetting(KEY_CLOUD_AUTO_APPLY, settings.autoApply.toString()))
+        settingDao.put(AppSetting(KEY_CLOUD_SCOPES, SyncScope.toKeys(settings.scopes)))
+    }
+
+    /** Version aus der Cloud, die dieses Tablet schon übernommen oder abgelehnt hat — je Haushalt. */
+    suspend fun seenCloudVersion(household: String): String? = settingDao.get(KEY_CLOUD_SEEN_PREFIX + household)
+
+    suspend fun setSeenCloudVersion(household: String, version: String) =
+        settingDao.put(AppSetting(KEY_CLOUD_SEEN_PREFIX + household, version))
+
+    /** Prüfsumme des zuletzt hochgeladenen Stands — je Haushalt. */
+    suspend fun uploadedFingerprint(household: String): String? = settingDao.get(KEY_CLOUD_UPLOADED_PREFIX + household)
+
+    suspend fun setUploadedFingerprint(household: String, fingerprint: String?) {
+        if (fingerprint == null) {
+            settingDao.delete(listOf(KEY_CLOUD_UPLOADED_PREFIX + household))
+        } else {
+            settingDao.put(AppSetting(KEY_CLOUD_UPLOADED_PREFIX + household, fingerprint))
+        }
+    }
+
     companion object {
         private const val KEY_LAST_SCOPES = "sync_last_scopes"
+        private const val KEY_CLOUD_ROLE = "cloud_sync_role"
+        private const val KEY_CLOUD_AUTO_APPLY = "cloud_sync_auto_apply"
+        private const val KEY_CLOUD_SCOPES = "cloud_sync_scopes"
+        private const val KEY_CLOUD_SEEN_PREFIX = "cloud_sync_seen:"
+        private const val KEY_CLOUD_UPLOADED_PREFIX = "cloud_sync_uploaded:"
+
+        private val HASH_NAME = Regex("^([0-9a-f]{64})\\.jpg$")
+
+        /** SHA-256 aus einem Bildnamen wie `<hash>.jpg`, sonst null. */
+        fun imageHash(name: String): String? = HASH_NAME.find(name)?.groupValues?.get(1)
     }
 }

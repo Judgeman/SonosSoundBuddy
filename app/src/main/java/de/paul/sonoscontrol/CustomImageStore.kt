@@ -115,16 +115,22 @@ class CustomImageStore(context: Context) {
 
     /**
      * Legt ein Bild von einem anderen Tablet ab und gibt seinen Pfad zurück —
-     * oder null, wenn die Daten kein Bild sind.
+     * oder null, wenn die Daten kein Bild sind. [id]: Prüfsumme des Bilds, über die
+     * [findReceived] es später wiederfindet.
      */
-    suspend fun storeReceived(bytes: ByteArray, name: String): String? = withContext(Dispatchers.IO) {
+    suspend fun storeReceived(bytes: ByteArray, id: String): String? = withContext(Dispatchers.IO) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
         directory.mkdirs()
-        val file = File(directory, "$name-${System.currentTimeMillis()}.jpg")
+        val file = File(directory, "$RECEIVED_PREFIX$id-${System.currentTimeMillis()}.jpg")
         file.writeBytes(bytes)
         file.absolutePath
+    }
+
+    /** Pfad eines schon übernommenen Bilds mit der Prüfsumme [id], falls es noch da ist. */
+    suspend fun findReceived(id: String): String? = withContext(Dispatchers.IO) {
+        directory.listFiles()?.firstOrNull { it.name.startsWith("$RECEIVED_PREFIX$id-") }?.absolutePath
     }
 
     /** Liegt [file] in einem der eigenen Ordner? Nur solche Dateien werden gelesen oder gelöscht. */
@@ -180,6 +186,7 @@ class CustomImageStore(context: Context) {
     companion object {
         private const val TAG = "Cover"
         private const val CATALOG_PREFIX = "catalog-"
+        private const val RECEIVED_PREFIX = "synced-"
         private const val MAX_SIZE_PX = 768
     }
 }
