@@ -293,12 +293,7 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     }
 
     /** Gespeicherte Bilder löschen, auf die kein Eintrag und keine Kategorie mehr verweist. */
-    suspend fun deleteUnusedImages() {
-        val keys = profileDao.getAllCategoryImages() + profileDao.getAllItemCustomImages()
-        val referenced = keys.mapNotNull { (CustomImage.fromKey(it) as? CustomImage.File)?.path } +
-            profileDao.getAllItemImageUrls().flatMap(::imageUrlCandidates).filter { it.startsWith("/") }
-        imageStore.deleteUnreferenced(referenced.toSet())
-    }
+    suspend fun deleteUnusedImages() = imageStore.deleteUnreferenced(profileDao.referencedImagePaths())
 
     /** Speichert ein neues Passwort und aktiviert dabei direkt den Passwortschutz. */
     suspend fun setPassword(password: String) {
@@ -322,13 +317,21 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     }
 
     companion object {
-        private const val KEY_PASSWORD_HASH = "password_hash"
-        private const val KEY_PASSWORD_SALT = "password_salt"
-        private const val KEY_PASSWORD_REQUIRED = "password_required"
+        internal const val KEY_PASSWORD_HASH = "password_hash"
+        internal const val KEY_PASSWORD_SALT = "password_salt"
+        internal const val KEY_PASSWORD_REQUIRED = "password_required"
         private const val KEY_LAST_SELECTED_PLAYER = "last_selected_player"
         private const val KEY_LAST_SELECTED_PROFILE = "last_selected_profile"
         /** Im Dateinamen: das Cover stammt von der Playlist/dem Album selbst, nicht von einem Titel. */
         private const val CONTAINER_COVER_MARK = "-container"
-        private const val KEY_SPEAKERS_SYNCED = "speakers_synced"
+        internal const val KEY_SPEAKERS_SYNCED = "speakers_synced"
     }
+}
+
+/** Pfade aller gespeicherten Bilder, auf die Kategorien und Einträge verweisen. */
+internal suspend fun ProfileDao.referencedImagePaths(): Set<String> {
+    val keys = getAllCategoryImages() + getAllItemCustomImages()
+    val files = keys.mapNotNull { (CustomImage.fromKey(it) as? CustomImage.File)?.path }
+    val covers = getAllItemImageUrls().flatMap(::imageUrlCandidates).filter { it.startsWith("/") }
+    return (files + covers).toSet()
 }

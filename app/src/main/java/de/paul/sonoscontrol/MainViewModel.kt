@@ -26,10 +26,10 @@ sealed interface UiState {
 }
 
 /**
- * [ProfileEditor], [MusicLibrary] (die zentrale Musikauswahl) und [MusicCatalog]
+ * [ProfileEditor], [MusicLibrary] (die zentrale Musikauswahl), [MusicCatalog] und [Sync]
  * sind Unterseiten der Settings.
  */
-enum class Screen { Home, Settings, ProfileEditor, MusicLibrary, MusicCatalog }
+enum class Screen { Home, Settings, ProfileEditor, MusicLibrary, MusicCatalog, Sync }
 
 /** Inhalt des Sonos-Katalogs (Favoriten + Playlisten) beim Zusammenstellen der Musikauswahl. */
 sealed interface CatalogState {
@@ -74,12 +74,13 @@ data class NowPlaying(
 
 class MainViewModel(
     private val tokenStore: TokenStore,
+    /** Gemeinsam mit dem Abgleich, damit Tokens nur an einer Stelle erneuert werden. */
+    private val apiClient: SonosApiClient,
     private val repository: SettingsRepository,
     private val localClient: LocalSonosClient
 ) : ViewModel() {
 
     val authManager = SonosAuthManager()
-    private val apiClient = SonosApiClient(tokenStore)
 
     var uiState: UiState by mutableStateOf(
         if (tokenStore.accessToken != null) UiState.LoadingSpeakers else UiState.LoggedOut()
@@ -723,6 +724,7 @@ class MainViewModel(
                 screen = Screen.Settings
                 editingProfileId = null
             }
+            Screen.Sync -> screen = Screen.Settings
             Screen.Settings -> closeSettings()
             Screen.Home -> Unit
         }
@@ -736,6 +738,11 @@ class MainViewModel(
         // Neue Speaker wurden in den Settings gesehen → beim nächsten Mal nicht mehr „Neu"
         viewModelScope.launch { repository.clearNewFlags() }
         restartPolling()
+    }
+
+    /** Öffnet „Tablets abgleichen“. */
+    fun openSync() {
+        screen = Screen.Sync
     }
 
     fun setSpeakerEnabled(playerId: String, enabled: Boolean) {
@@ -1006,11 +1013,12 @@ class MainViewModel(
 
 class MainViewModelFactory(
     private val tokenStore: TokenStore,
+    private val apiClient: SonosApiClient,
     private val repository: SettingsRepository,
     private val localClient: LocalSonosClient
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return MainViewModel(tokenStore, repository, localClient) as T
+        return MainViewModel(tokenStore, apiClient, repository, localClient) as T
     }
 }

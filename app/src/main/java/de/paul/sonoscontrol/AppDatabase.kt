@@ -15,6 +15,7 @@ import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import java.util.UUID
 
 /** Pro Sonos-Player: darf er auf dem Homescreen gewählt werden und welches Icon bekommt er. */
 @Entity(tableName = "speaker_config")
@@ -47,7 +48,12 @@ data class ChildProfile(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val iconKey: String,
-    val enabled: Boolean
+    val enabled: Boolean,
+    /**
+     * Auf allen Tablets gleiche Kennung — [id] zählt jedes Tablet selbst hoch.
+     * Beim Abgleich findet ein Tablet darüber sein Profil wieder.
+     */
+    val syncId: String = UUID.randomUUID().toString()
 )
 
 val ChildProfile.icon: ProfileIcon get() = ProfileIcon.fromKey(iconKey)
@@ -113,6 +119,12 @@ interface SpeakerConfigDao {
     @Upsert
     suspend fun upsertAll(configs: List<SpeakerConfig>)
 
+    @Insert
+    suspend fun insert(config: SpeakerConfig)
+
+    @Query("UPDATE speaker_config SET iconKey = :iconKey, maxVolume = :maxVolume WHERE playerId = :playerId")
+    suspend fun setIconAndMaxVolume(playerId: String, iconKey: String, maxVolume: Int)
+
     // Wer einen Speaker bearbeitet, hat ihn gesehen → „Neu"-Markierung fällt weg
     @Query("UPDATE speaker_config SET enabled = :enabled, isNew = 0 WHERE playerId = :playerId")
     suspend fun setEnabled(playerId: String, enabled: Boolean)
@@ -159,6 +171,19 @@ interface ProfileDao {
     @Query("SELECT * FROM profile_category")
     fun observeAssignments(): Flow<List<ProfileCategory>>
 
+    @Query("SELECT * FROM profile_category")
+    suspend fun getAssignments(): List<ProfileCategory>
+
+    // Für das Übernehmen eines Stands von einem anderen Tablet: die Musikauswahl wird ersetzt
+    @Query("DELETE FROM profile_category")
+    suspend fun deleteAllAssignments()
+
+    @Query("DELETE FROM music_item")
+    suspend fun deleteAllItems()
+
+    @Query("DELETE FROM music_category")
+    suspend fun deleteAllCategories()
+
     @Query("SELECT id FROM child_profile")
     suspend fun getProfileIds(): List<Long>
 
@@ -176,6 +201,19 @@ interface ProfileDao {
 
     @Insert
     suspend fun insertProfile(profile: ChildProfile): Long
+
+    // Für Export und Import auf einen Schlag, ohne Flow
+    @Query("SELECT * FROM child_profile ORDER BY name COLLATE NOCASE, id")
+    suspend fun getProfiles(): List<ChildProfile>
+
+    @Query("SELECT * FROM music_category ORDER BY position, id")
+    suspend fun getCategories(): List<MusicCategory>
+
+    @Query("SELECT * FROM music_item ORDER BY position, id")
+    suspend fun getItems(): List<MusicItem>
+
+    @Query("UPDATE child_profile SET name = :name, iconKey = :iconKey, syncId = :syncId WHERE id = :id")
+    suspend fun updateSyncedProfile(id: Long, name: String, iconKey: String, syncId: String)
 
     @Query("UPDATE child_profile SET name = :name WHERE id = :id")
     suspend fun setProfileName(id: Long, name: String)
@@ -278,7 +316,7 @@ interface ProfileDao {
         SpeakerConfig::class, AppSetting::class, ChildProfile::class,
         MusicCategory::class, ProfileCategory::class, MusicItem::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -381,6 +419,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Kennung für den Abgleich zwischen Tablets: jedes vorhandene Profil bekommt eine eigene. */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE child_profile ADD COLUMN syncId TEXT NOT NULL DEFAULT ''")
+                // randomblob() wird pro Zeile neu ausgewertet → jedes Profil eine eigene Kennung
+                db.execSQL("UPDATE child_profile SET syncId = lower(hex(randomblob(16)))")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -393,7 +440,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
-                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
+                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
                     )
                     .build()
                     .also { instance = it }
