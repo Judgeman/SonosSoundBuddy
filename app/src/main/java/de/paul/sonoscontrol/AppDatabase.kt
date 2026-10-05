@@ -6,6 +6,7 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
@@ -14,6 +15,7 @@ import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import java.util.UUID
 
 /** Pro Sonos-Player: darf er auf dem Homescreen gewählt werden und welches Icon bekommt er. */
 @Entity(tableName = "speaker_config")
@@ -37,28 +39,50 @@ data class AppSetting(
     val value: String
 )
 
-/** Kinder-Profil: eigenes Icon und eigene Musikauswahl. [enabled] = auf diesem Tablet auswählbar. */
+/**
+ * Kinder-Profil mit eigenem Icon. Welche Kategorien der zentralen Musikauswahl es
+ * sieht, steht in [ProfileCategory]. [enabled] = auf diesem Tablet auswählbar.
+ */
 @Entity(tableName = "child_profile")
 data class ChildProfile(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val iconKey: String,
-    val enabled: Boolean
+    val enabled: Boolean,
+    /**
+     * Auf allen Tablets gleiche Kennung — [id] zählt jedes Tablet selbst hoch.
+     * Beim Abgleich findet ein Tablet darüber sein Profil wieder.
+     */
+    val syncId: String = UUID.randomUUID().toString()
 )
 
 val ChildProfile.icon: ProfileIcon get() = ProfileIcon.fromKey(iconKey)
 
-/** Kategorie in der Musikauswahl eines Profils (z. B. „Hörspiele", „Zum Einschlafen"). */
+/**
+ * Kategorie der zentralen Musikauswahl (z. B. „Hörspiele", „Zum Einschlafen").
+ * Sie gehört keinem Profil — über [ProfileCategory] wird festgelegt, wer sie sieht.
+ */
 @Entity(tableName = "music_category")
 data class MusicCategory(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val profileId: Long,
     val name: String,
+    /** Reihenfolge in der Musikauswahl, gilt für alle Profile. */
     val position: Int,
     /** [CustomImage]-Schlüssel, null = Standard-Bild. */
     val imageKey: String? = null,
     /** [PlayOrder]-Name. */
-    val playOrder: String = PlayOrder.ORDERED.name
+    val playOrder: String = PlayOrder.ORDERED.name,
+    /** [ItemSort]-Name: wie die Musik innerhalb der Kategorie sortiert ist. */
+    val itemSort: String = ItemSort.MANUAL.name,
+    /** Alphabetisch bzw. nach Datum absteigend (Z–A, Neueste zuerst). Bei manueller Sortierung ohne Bedeutung. */
+    val itemSortDescending: Boolean = false
+)
+
+/** Zuordnung: das Profil [profileId] sieht die Kategorie [categoryId]. */
+@Entity(tableName = "profile_category", primaryKeys = ["profileId", "categoryId"])
+data class ProfileCategory(
+    val profileId: Long,
+    val categoryId: Long
 )
 
 /**
@@ -82,7 +106,9 @@ data class MusicItem(
     /** Selbst gewähltes Bild ([CustomImage]-Schlüssel) statt des Covers von Sonos. */
     val customImageKey: String? = null,
     /** Anzahl der Titel laut Sonos, null = unbekannt (nur Sonos-Playlisten liefern sie). */
-    val trackCount: Int? = null
+    val trackCount: Int? = null,
+    /** Zeitpunkt des Hinzufügens (Millisekunden), 0 = vor Einführung des Feldes hinzugefügt. */
+    val addedAt: Long = System.currentTimeMillis()
 )
 
 val MusicItem.musicSource: MusicSource get() = MusicSource.fromKey(source)
@@ -98,6 +124,12 @@ interface SpeakerConfigDao {
 
     @Upsert
     suspend fun upsertAll(configs: List<SpeakerConfig>)
+
+    @Insert
+    suspend fun insert(config: SpeakerConfig)
+
+    @Query("UPDATE speaker_config SET iconKey = :iconKey, maxVolume = :maxVolume WHERE playerId = :playerId")
+    suspend fun setIconAndMaxVolume(playerId: String, iconKey: String, maxVolume: Int)
 
     // Wer einen Speaker bearbeitet, hat ihn gesehen → „Neu"-Markierung fällt weg
     @Query("UPDATE speaker_config SET enabled = :enabled, isNew = 0 WHERE playerId = :playerId")
@@ -142,8 +174,52 @@ interface ProfileDao {
     @Query("SELECT * FROM music_item ORDER BY position, id")
     fun observeItems(): Flow<List<MusicItem>>
 
+    @Query("SELECT * FROM profile_category")
+    fun observeAssignments(): Flow<List<ProfileCategory>>
+
+    @Query("SELECT * FROM profile_category")
+    suspend fun getAssignments(): List<ProfileCategory>
+
+    // Für das Übernehmen eines Stands von einem anderen Tablet: die Musikauswahl wird ersetzt
+    @Query("DELETE FROM profile_category")
+    suspend fun deleteAllAssignments()
+
+    @Query("DELETE FROM music_item")
+    suspend fun deleteAllItems()
+
+    @Query("DELETE FROM music_category")
+    suspend fun deleteAllCategories()
+
+    @Query("SELECT id FROM child_profile")
+    suspend fun getProfileIds(): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAssignments(assignments: List<ProfileCategory>)
+
+    @Query("DELETE FROM profile_category WHERE profileId = :profileId AND categoryId = :categoryId")
+    suspend fun deleteAssignment(profileId: Long, categoryId: Long)
+
+    @Query("DELETE FROM profile_category WHERE profileId = :profileId")
+    suspend fun deleteAssignmentsOfProfile(profileId: Long)
+
+    @Query("DELETE FROM profile_category WHERE categoryId = :categoryId")
+    suspend fun deleteAssignmentsOfCategory(categoryId: Long)
+
     @Insert
     suspend fun insertProfile(profile: ChildProfile): Long
+
+    // Für Export und Import auf einen Schlag, ohne Flow
+    @Query("SELECT * FROM child_profile ORDER BY name COLLATE NOCASE, id")
+    suspend fun getProfiles(): List<ChildProfile>
+
+    @Query("SELECT * FROM music_category ORDER BY position, id")
+    suspend fun getCategories(): List<MusicCategory>
+
+    @Query("SELECT * FROM music_item ORDER BY position, id")
+    suspend fun getItems(): List<MusicItem>
+
+    @Query("UPDATE child_profile SET name = :name, iconKey = :iconKey, syncId = :syncId WHERE id = :id")
+    suspend fun updateSyncedProfile(id: Long, name: String, iconKey: String, syncId: String)
 
     @Query("UPDATE child_profile SET name = :name WHERE id = :id")
     suspend fun setProfileName(id: Long, name: String)
@@ -154,8 +230,8 @@ interface ProfileDao {
     @Query("UPDATE child_profile SET enabled = :enabled WHERE id = :id")
     suspend fun setProfileEnabled(id: Long, enabled: Boolean)
 
-    @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM music_category WHERE profileId = :profileId")
-    suspend fun nextCategoryPosition(profileId: Long): Int
+    @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM music_category")
+    suspend fun nextCategoryPosition(): Int
 
     @Insert
     suspend fun insertCategory(category: MusicCategory): Long
@@ -169,11 +245,11 @@ interface ProfileDao {
     @Query("UPDATE music_category SET playOrder = :playOrder WHERE id = :id")
     suspend fun setCategoryPlayOrder(id: Long, playOrder: String)
 
+    @Query("UPDATE music_category SET itemSort = :itemSort, itemSortDescending = :descending WHERE id = :id")
+    suspend fun setCategoryItemSort(id: Long, itemSort: String, descending: Boolean)
+
     @Query("SELECT imageKey FROM music_category WHERE id = :id")
     suspend fun getCategoryImage(id: Long): String?
-
-    @Query("SELECT imageKey FROM music_category WHERE profileId = :profileId AND imageKey IS NOT NULL")
-    suspend fun getCategoryImagesOfProfile(profileId: Long): List<String>
 
     @Query("UPDATE music_item SET customImageKey = :imageKey WHERE id = :id")
     suspend fun setItemCustomImage(id: Long, imageKey: String?)
@@ -185,12 +261,6 @@ interface ProfileDao {
     suspend fun getItemImagesOfCategory(categoryId: Long): List<String>
 
     @Query(
-        "SELECT customImageKey FROM music_item WHERE customImageKey IS NOT NULL AND categoryId IN " +
-            "(SELECT id FROM music_category WHERE profileId = :profileId)"
-    )
-    suspend fun getItemImagesOfProfile(profileId: Long): List<String>
-
-    @Query(
         "SELECT customImageKey FROM music_item WHERE categoryId = :categoryId AND source = :source " +
             "AND sonosId = :sonosId AND customImageKey IS NOT NULL"
     )
@@ -198,6 +268,9 @@ interface ProfileDao {
 
     @Query("UPDATE music_category SET position = :position WHERE id = :id")
     suspend fun setCategoryPosition(id: Long, position: Int)
+
+    @Query("UPDATE music_item SET position = :position WHERE id = :id")
+    suspend fun setItemPosition(id: Long, position: Int)
 
     @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM music_item WHERE categoryId = :categoryId")
     suspend fun nextItemPosition(categoryId: Long): Int
@@ -239,26 +312,23 @@ interface ProfileDao {
     @Query("DELETE FROM music_item WHERE categoryId = :categoryId AND source = :source AND sonosId = :sonosId")
     suspend fun deleteItemFromCategory(categoryId: Long, source: String, sonosId: String)
 
-    // Löschen von Kategorien und Profilen: im Repository in einer Transaktion zusammengefasst
+    // Löschen von Kategorien: im Repository in einer Transaktion zusammengefasst
     @Query("DELETE FROM music_item WHERE categoryId = :categoryId")
     suspend fun deleteItemsOfCategory(categoryId: Long)
 
     @Query("DELETE FROM music_category WHERE id = :id")
     suspend fun deleteCategoryRow(id: Long)
 
-    @Query("DELETE FROM music_item WHERE categoryId IN (SELECT id FROM music_category WHERE profileId = :profileId)")
-    suspend fun deleteItemsOfProfile(profileId: Long)
-
-    @Query("DELETE FROM music_category WHERE profileId = :profileId")
-    suspend fun deleteCategoriesOfProfile(profileId: Long)
-
     @Query("DELETE FROM child_profile WHERE id = :id")
     suspend fun deleteProfileRow(id: Long)
 }
 
 @Database(
-    entities = [SpeakerConfig::class, AppSetting::class, ChildProfile::class, MusicCategory::class, MusicItem::class],
-    version = 7,
+    entities = [
+        SpeakerConfig::class, AppSetting::class, ChildProfile::class,
+        MusicCategory::class, ProfileCategory::class, MusicItem::class
+    ],
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -325,6 +395,60 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Kategorien gehören keinem Profil mehr, sondern der zentralen Musikauswahl.
+         * Jede bisherige Kategorie bleibt für ihr Profil sichtbar; die Reihenfolge
+         * wird profilweise hintereinander durchnummeriert.
+         */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `profile_category` (`profileId` INTEGER NOT NULL, " +
+                        "`categoryId` INTEGER NOT NULL, PRIMARY KEY(`profileId`, `categoryId`))"
+                )
+                db.execSQL(
+                    "INSERT INTO profile_category (profileId, categoryId) " +
+                        "SELECT profileId, id FROM music_category WHERE profileId IN (SELECT id FROM child_profile)"
+                )
+                db.execSQL(
+                    "CREATE TABLE `music_category_new` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, `position` INTEGER NOT NULL, `imageKey` TEXT, `playOrder` TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "INSERT INTO music_category_new (id, name, position, imageKey, playOrder) " +
+                        "SELECT id, name, position, imageKey, playOrder FROM music_category"
+                )
+                // Fensterfunktionen gibt es im SQLite älterer Android-Versionen nicht → hier durchnummerieren
+                val ids = mutableListOf<Long>()
+                db.query("SELECT id FROM music_category ORDER BY profileId, position, id").use { cursor ->
+                    while (cursor.moveToNext()) ids += cursor.getLong(0)
+                }
+                ids.forEachIndexed { index, id ->
+                    db.execSQL("UPDATE music_category_new SET position = ? WHERE id = ?", arrayOf<Any>(index, id))
+                }
+                db.execSQL("DROP TABLE music_category")
+                db.execSQL("ALTER TABLE music_category_new RENAME TO music_category")
+            }
+        }
+
+        /** Kennung für den Abgleich zwischen Tablets: jedes vorhandene Profil bekommt eine eigene. */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE child_profile ADD COLUMN syncId TEXT NOT NULL DEFAULT ''")
+                // randomblob() wird pro Zeile neu ausgewertet → jedes Profil eine eigene Kennung
+                db.execSQL("UPDATE child_profile SET syncId = lower(hex(randomblob(16)))")
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE music_category ADD COLUMN itemSort TEXT NOT NULL DEFAULT 'MANUAL'")
+                db.execSQL("ALTER TABLE music_category ADD COLUMN itemSortDescending INTEGER NOT NULL DEFAULT 0")
+                // Das Datum bisheriger Einträge ist unbekannt — bei 0 entscheidet die Id, also die Reihenfolge des Hinzufügens
+                db.execSQL("ALTER TABLE music_item ADD COLUMN addedAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -335,7 +459,10 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "sound_buddy.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(
+                        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
+                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
+                    )
                     .build()
                     .also { instance = it }
             }

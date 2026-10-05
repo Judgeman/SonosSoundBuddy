@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -84,6 +85,8 @@ fun SettingsScreen(
     onSpeakerEnabledChange: (String, Boolean) -> Unit,
     onSpeakerIconChange: (String, SpeakerIcon) -> Unit,
     onSpeakerMaxVolumeChange: (String, Int) -> Unit,
+    categories: List<CategoryWithMusic>,
+    onOpenLibrary: () -> Unit,
     profiles: List<ProfileWithMusic>,
     onCreateProfile: (String) -> Unit,
     onOpenProfile: (Long) -> Unit,
@@ -91,6 +94,9 @@ fun SettingsScreen(
     onSavePassword: (String) -> Unit,
     onRemovePassword: () -> Unit,
     onPasswordRequiredChange: (Boolean) -> Unit,
+    onOpenSync: () -> Unit,
+    /** Hinweis auf einen neuen Stand aus der Cloud, der auf Übernahme wartet. */
+    syncNotice: String?,
     onLogout: () -> Unit
 ) {
     var iconPickerFor by remember { mutableStateOf<SpeakerConfig?>(null) }
@@ -209,12 +215,40 @@ fun SettingsScreen(
                 )
             }
 
+            musicLibrarySection(categories = categories, onOpenLibrary = onOpenLibrary)
+
             profilesSection(
                 profiles = profiles,
                 onCreateProfile = { showNewProfile = true },
                 onOpenProfile = onOpenProfile,
                 onProfileEnabledChange = onProfileEnabledChange
             )
+
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(
+                    title = "Mehrere Tablets",
+                    description = "Profile und Speaker-Einstellungen zwischen Tablets abgleichen — automatisch " +
+                        "über die Cloud, im WLAN oder als Datei."
+                )
+                if (syncNotice != null) {
+                    Text(
+                        syncNotice,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+                OutlinedButton(
+                    onClick = onOpenSync,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Tablets abgleichen")
+                }
+            }
 
             item {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

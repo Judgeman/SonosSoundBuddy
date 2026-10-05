@@ -6,8 +6,11 @@ object SonosConfig {
 
     const val WORKER_CALLBACK_URL = "https://sonos-relay.82n2ck5mhv.workers.dev/callback"
 
+    /** Adresse des Workers ohne Pfad. */
+    val WORKER_BASE_URL = WORKER_CALLBACK_URL.removeSuffix("/callback")
+
     /** Endpunkt des Workers zum Erneuern abgelaufener Access-Tokens. */
-    val WORKER_REFRESH_URL = WORKER_CALLBACK_URL.removeSuffix("/callback") + "/refresh"
+    val WORKER_REFRESH_URL = "$WORKER_BASE_URL/refresh"
 
     const val OAUTH_SCOPE = "playback-control-all"
 
