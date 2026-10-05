@@ -1,5 +1,6 @@
 package de.paul.sonoscontrol
 
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -45,7 +46,7 @@ private data class RefreshResponse(
  * und sonst bei einer 401-Antwort — danach wird die Anfrage einmal wiederholt.
  */
 class SonosApiClient(
-    private val tokenStore: TokenStore,
+    val tokenStore: TokenStore,
     private val baseUrl: String = "https://api.ws.sonos.com/control/api/v1",
     private val refreshUrl: String = SonosConfig.WORKER_REFRESH_URL
 ) {
@@ -169,21 +170,31 @@ class SonosApiClient(
     private suspend fun post(url: String, body: String = "{}"): String =
         authorizedCall(url) { post(body.toRequestBody(jsonMediaType)) }
 
-    private suspend fun authorizedCall(url: String, withMethod: Request.Builder.() -> Request.Builder): String {
-        fun request(token: String) = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $token")
-            .withMethod()
-            .build()
+    private suspend fun authorizedCall(url: String, withMethod: Request.Builder.() -> Request.Builder): String =
+        withAccessToken { token ->
+            executeAsync(
+                Request.Builder()
+                    .url(url)
+                    .header("Authorization", "Bearer $token")
+                    .withMethod()
+                    .build()
+            )
+        }
 
+    /**
+     * Führt [call] mit einem gültigen Access-Token aus. Wirft [call] eine
+     * [SonosApiException] mit HTTP 401, wird der Token erneuert und [call] einmal
+     * wiederholt. Auch für Anfragen an den Worker, der den Token bei Sonos prüft.
+     */
+    suspend fun <T> withAccessToken(call: suspend (token: String) -> T): T {
         val token = validAccessToken()
         try {
-            return executeAsync(request(token))
+            return call(token)
         } catch (e: SonosApiException) {
             if (e.httpCode != 401) throw e
         }
         // Token wurde abgelehnt (z. B. Ablaufzeit unbekannt) → erneuern und einmal wiederholen
-        return executeAsync(request(refreshAccessToken(rejectedToken = token)))
+        return call(refreshAccessToken(rejectedToken = token))
     }
 
     private suspend fun validAccessToken(): String {
@@ -248,5 +259,17 @@ class SonosApiClient(
 
     companion object {
         private const val TAG = "SonosApi"
+
+        @Volatile
+        private var shared: SonosApiClient? = null
+
+        /**
+         * Ein Client für die ganze App: Alle Anfragen teilen sich die Token-Erneuerung,
+         * sonst könnten zwei Stellen gleichzeitig mit demselben Refresh-Token erneuern.
+         */
+        fun shared(context: Context): SonosApiClient =
+            shared ?: synchronized(this) {
+                shared ?: SonosApiClient(TokenStore(context.applicationContext)).also { shared = it }
+            }
     }
 }

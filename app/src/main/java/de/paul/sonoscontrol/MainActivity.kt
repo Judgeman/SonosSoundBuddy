@@ -14,20 +14,37 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 class MainActivity : ComponentActivity() {
 
+    private val apiClient by lazy { SonosApiClient.shared(applicationContext) }
+
     private val viewModel: MainViewModel by viewModels {
         MainViewModelFactory(
-            TokenStore(applicationContext),
+            apiClient.tokenStore,
+            apiClient,
             SettingsRepository(
                 AppDatabase.getInstance(applicationContext),
                 CustomImageStore(applicationContext)
             ),
             LocalSonosClient(applicationContext)
+        )
+    }
+
+    private val syncViewModel: SyncViewModel by viewModels {
+        val syncRepository = SyncRepository(
+            applicationContext,
+            AppDatabase.getInstance(applicationContext),
+            CustomImageStore(applicationContext)
+        )
+        SyncViewModelFactory(
+            syncRepository,
+            LocalTransfer(applicationContext),
+            CloudSync(syncRepository, CloudSyncClient(apiClient), apiClient)
         )
     }
 
@@ -42,6 +59,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     SoundBuddyApp(
                         viewModel = viewModel,
+                        syncViewModel = syncViewModel,
                         onLoginClick = { viewModel.authManager.startLogin(this) }
                     )
                 }
@@ -53,10 +71,14 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         viewModel.onForegroundChanged(true)
+        syncViewModel.onForegroundChanged(true)
     }
 
     override fun onStop() {
         viewModel.onForegroundChanged(false)
+        // Im Hintergrund nicht weiter im WLAN freigeben oder suchen, nicht in der Cloud nachsehen
+        syncViewModel.stopNetwork()
+        syncViewModel.onForegroundChanged(false)
         super.onStop()
     }
 
@@ -76,7 +98,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
+fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLoginClick: () -> Unit) {
+    val settingsOpen = viewModel.screen != Screen.Home
+    LaunchedEffect(settingsOpen) { syncViewModel.onSettingsOpenChanged(settingsOpen) }
+
     when (viewModel.screen) {
         Screen.Home -> HomeScreen(
             state = viewModel.uiState,
@@ -122,6 +147,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                 onSpeakerEnabledChange = viewModel::setSpeakerEnabled,
                 onSpeakerIconChange = viewModel::setSpeakerIcon,
                 onSpeakerMaxVolumeChange = viewModel::setSpeakerMaxVolume,
+                categories = viewModel.categories,
+                onOpenLibrary = viewModel::openLibrary,
                 profiles = viewModel.profiles,
                 onCreateProfile = viewModel::createProfile,
                 onOpenProfile = viewModel::openProfile,
@@ -129,6 +156,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                 onSavePassword = viewModel::savePassword,
                 onRemovePassword = viewModel::removePassword,
                 onPasswordRequiredChange = viewModel::setPasswordRequired,
+                onOpenSync = viewModel::openSync,
+                syncNotice = syncViewModel.cloudNotice,
                 onLogout = viewModel::logout
             )
         }
@@ -139,7 +168,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
             viewModel.editingProfile?.let { profile ->
                 ProfileEditorScreen(
                     profile = profile,
-                    imageError = viewModel.imageImportError,
+                    categories = viewModel.categories,
                     actions = remember(viewModel) {
                         ProfileEditorActions(
                             onBack = viewModel::navigateBack,
@@ -147,24 +176,48 @@ fun SoundBuddyApp(viewModel: MainViewModel, onLoginClick: () -> Unit) {
                             onIconChange = viewModel::setProfileIcon,
                             onEnabledChange = viewModel::setProfileEnabled,
                             onDeleteProfile = viewModel::deleteProfile,
-                            onCreateCategory = viewModel::createCategory,
-                            onRenameCategory = viewModel::renameCategory,
-                            onDeleteCategory = viewModel::deleteCategory,
-                            onMoveCategory = viewModel::moveCategory,
-                            onAddMusic = viewModel::openCatalog,
-                            onRemoveMusicItem = viewModel::removeMusicItem,
-                            onCategoryImageChange = viewModel::setCategoryImage,
-                            onImportCategoryImage = viewModel::importCategoryImage,
-                            onItemImageChange = viewModel::setMusicItemImage,
-                            onImportItemImage = viewModel::importMusicItemImage,
-                            onPlayOrderChange = viewModel::setCategoryPlayOrder,
-                            onItemSortChange = viewModel::setCategoryItemSort,
-                            onMoveMusicItem = viewModel::moveMusicItem,
-                            onDismissImageError = viewModel::dismissImageImportError
+                            onCategoryVisibleChange = viewModel::setCategoryVisible,
+                            onOpenLibrary = viewModel::openLibrary
                         )
                     }
                 )
             }
+        }
+
+        Screen.Sync -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            SyncScreen(viewModel = syncViewModel, onBack = viewModel::navigateBack)
+        }
+
+        Screen.MusicLibrary -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            MusicLibraryScreen(
+                categories = viewModel.categories,
+                profiles = viewModel.profiles.map { it.profile },
+                imageError = viewModel.imageImportError,
+                actions = remember(viewModel) {
+                    MusicLibraryActions(
+                        onBack = viewModel::navigateBack,
+                        onCreateCategory = viewModel::createCategory,
+                        onRenameCategory = viewModel::renameCategory,
+                        onDeleteCategory = viewModel::deleteCategory,
+                        onMoveCategory = viewModel::moveCategory,
+                        onCategoryVisibleChange = viewModel::setCategoryVisible,
+                        onAddMusic = viewModel::openCatalog,
+                        onRemoveMusicItem = viewModel::removeMusicItem,
+                        onCategoryImageChange = viewModel::setCategoryImage,
+                        onImportCategoryImage = viewModel::importCategoryImage,
+                        onItemImageChange = viewModel::setMusicItemImage,
+                        onImportItemImage = viewModel::importMusicItemImage,
+                        onPlayOrderChange = viewModel::setCategoryPlayOrder,
+                        onItemSortChange = viewModel::setCategoryItemSort,
+                        onMoveMusicItem = viewModel::moveMusicItem,
+                        onDismissImageError = viewModel::dismissImageImportError
+                    )
+                }
+            )
         }
 
         Screen.MusicCatalog -> {
