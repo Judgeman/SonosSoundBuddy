@@ -147,6 +147,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                 onSpeakerEnabledChange = viewModel::setSpeakerEnabled,
                 onSpeakerIconChange = viewModel::setSpeakerIcon,
                 onSpeakerMaxVolumeChange = viewModel::setSpeakerMaxVolume,
+                categories = viewModel.categories,
+                onOpenLibrary = viewModel::openLibrary,
                 profiles = viewModel.profiles,
                 onCreateProfile = viewModel::createProfile,
                 onOpenProfile = viewModel::openProfile,
@@ -166,7 +168,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             viewModel.editingProfile?.let { profile ->
                 ProfileEditorScreen(
                     profile = profile,
-                    imageError = viewModel.imageImportError,
+                    categories = viewModel.categories,
                     actions = remember(viewModel) {
                         ProfileEditorActions(
                             onBack = viewModel::navigateBack,
@@ -174,18 +176,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                             onIconChange = viewModel::setProfileIcon,
                             onEnabledChange = viewModel::setProfileEnabled,
                             onDeleteProfile = viewModel::deleteProfile,
-                            onCreateCategory = viewModel::createCategory,
-                            onRenameCategory = viewModel::renameCategory,
-                            onDeleteCategory = viewModel::deleteCategory,
-                            onMoveCategory = viewModel::moveCategory,
-                            onAddMusic = viewModel::openCatalog,
-                            onRemoveMusicItem = viewModel::removeMusicItem,
-                            onCategoryImageChange = viewModel::setCategoryImage,
-                            onImportCategoryImage = viewModel::importCategoryImage,
-                            onItemImageChange = viewModel::setMusicItemImage,
-                            onImportItemImage = viewModel::importMusicItemImage,
-                            onPlayOrderChange = viewModel::setCategoryPlayOrder,
-                            onDismissImageError = viewModel::dismissImageImportError
+                            onCategoryVisibleChange = viewModel::setCategoryVisible,
+                            onOpenLibrary = viewModel::openLibrary
                         )
                     }
                 )
@@ -196,6 +188,34 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             BackHandler(onBack = viewModel::navigateBack)
             StatusBarIcons(light = !isSystemInDarkTheme())
             SyncScreen(viewModel = syncViewModel, onBack = viewModel::navigateBack)
+        }
+
+        Screen.MusicLibrary -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            MusicLibraryScreen(
+                categories = viewModel.categories,
+                profiles = viewModel.profiles.map { it.profile },
+                imageError = viewModel.imageImportError,
+                actions = remember(viewModel) {
+                    MusicLibraryActions(
+                        onBack = viewModel::navigateBack,
+                        onCreateCategory = viewModel::createCategory,
+                        onRenameCategory = viewModel::renameCategory,
+                        onDeleteCategory = viewModel::deleteCategory,
+                        onMoveCategory = viewModel::moveCategory,
+                        onCategoryVisibleChange = viewModel::setCategoryVisible,
+                        onAddMusic = viewModel::openCatalog,
+                        onRemoveMusicItem = viewModel::removeMusicItem,
+                        onCategoryImageChange = viewModel::setCategoryImage,
+                        onImportCategoryImage = viewModel::importCategoryImage,
+                        onItemImageChange = viewModel::setMusicItemImage,
+                        onImportItemImage = viewModel::importMusicItemImage,
+                        onPlayOrderChange = viewModel::setCategoryPlayOrder,
+                        onDismissImageError = viewModel::dismissImageImportError
+                    )
+                }
+            )
         }
 
         Screen.MusicCatalog -> {

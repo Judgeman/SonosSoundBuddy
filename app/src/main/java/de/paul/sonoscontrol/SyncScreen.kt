@@ -587,7 +587,8 @@ private fun ImportDialog(pending: PendingImport, onApply: (Set<SyncScope>) -> Un
                 if (SyncScope.PROFILES in selected) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Profile, die es auf „${pending.origin}“ nicht gibt, werden auf diesem Tablet gelöscht.",
+                        "Die Musikauswahl wird ersetzt. Profile, die es auf „${pending.origin}“ nicht gibt, " +
+                            "werden auf diesem Tablet gelöscht.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
@@ -604,8 +605,15 @@ private fun ImportDialog(pending: PendingImport, onApply: (Set<SyncScope>) -> Un
 }
 
 private fun describeContent(scope: SyncScope, snapshot: SyncSnapshot): String = when (scope) {
-    SyncScope.PROFILES -> snapshot.profiles.orEmpty().let { profiles ->
-        if (profiles.isEmpty()) "Keine Profile — alle Profile hier würden gelöscht" else profiles.joinToString { it.name }
+    SyncScope.PROFILES -> {
+        val profiles = snapshot.profiles.orEmpty()
+        val count = snapshot.categories.orEmpty().size
+        val categories = if (count == 1) "1 Kategorie" else "$count Kategorien"
+        if (profiles.isEmpty()) {
+            "Keine Profile — alle Profile hier würden gelöscht · $categories"
+        } else {
+            profiles.joinToString { it.name } + " · $categories"
+        }
     }
     SyncScope.SPEAKER_SETTINGS -> "${scope.description} von ${countSpeakers(snapshot)}"
     SyncScope.SPEAKER_SELECTION -> snapshot.speakers.orEmpty().filter { it.enabled }.let { enabled ->

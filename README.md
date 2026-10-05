@@ -81,10 +81,12 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     ein Regler für die **maximale Lautstärke** (5–100 % in 5er-Schritten)
     und ein frei wählbares **Icon**. Beim ersten Abgleich sind alle Speaker
     freigegeben, später neu gefundene müssen erst freigegeben werden.
-  - **Kinder-Profile:** Profile anlegen, pro Profil ein Schalter „auf diesem
-    Tablet aktiv“. Ein Tipp öffnet die Profil-Seite mit Name, **Icon**
-    (17 gezeichnete Tiere, Einhorn, Pikachu) und der **Musikauswahl**:
-    Kategorien anlegen, umbenennen, sortieren und löschen. Pro Kategorie:
+  - **Musikauswahl:** Kategorien und Musik werden einmal zentral angelegt
+    und dann den Profilen zugewiesen — dieselbe Kategorie kann mehrere
+    Kinder-Profile bedienen, ohne doppelt gepflegt zu werden. Kategorien
+    anlegen (neue sind erst einmal für alle Profile sichtbar), umbenennen,
+    sortieren und löschen. Pro Kategorie:
+    - **Sichtbar für:** ein Chip pro Profil zum An- und Abwählen.
     - ein **Bild**: eine bunte Szene (**Tanzparty** mit tanzendem Hasen und
       Bär, **Hörbuch** mit Pop-up-Schloss, **Schlaflieder** mit schlafendem
       Mond; `CategoryIcons.kt`), eins der Speaker-Icons oder Tiere oder ein
@@ -100,8 +102,13 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Sonos-Playlisten) mit Suche und Filter nach Songs, Playlisten, Alben und
     Radio; ein Tipp nimmt einen Eintrag in die Kategorie auf oder wieder
     heraus. Bei Sonos-Playlisten lässt sich die Titelliste ansehen.
-  - **Tablets abgleichen** (siehe unten): Stand eines Tablets im WLAN oder
-    als Datei auf ein anderes übertragen.
+  - **Kinder-Profile:** Profile anlegen, pro Profil ein Schalter „auf diesem
+    Tablet aktiv“. Ein Tipp öffnet die Profil-Seite mit Name, **Icon**
+    (17 gezeichnete Tiere, Einhorn, Pikachu) und einem Schalter pro
+    Kategorie der Musikauswahl, ob das Profil sie sieht. Wird ein Profil
+    gelöscht, bleiben seine Kategorien für die anderen erhalten.
+  - **Tablets abgleichen** (siehe unten): Stand eines Tablets automatisch
+    über die Cloud, im WLAN oder als Datei auf andere übertragen.
   - **Abmelden** vom Sonos-Konto.
 - **Lautstärke-Obergrenze:** Wird ein Speaker woanders (Sonos-App, Tasten am
   Gerät) über sein Maximum gestellt, regelt die App ihn bei der nächsten
@@ -281,14 +288,15 @@ WLAN oder als Datei. Das empfangende Tablet sucht sich aus, was es
 
 | Bereich | Inhalt | Vorauswahl |
 |---|---|---|
-| Kinder-Profile | Name, Icon, Kategorien, Musik, Reihenfolge, eigene Bilder und gespeicherte Cover | an |
+| Kinder-Profile und Musikauswahl | Profile (Name, Icon), alle Kategorien mit Musik, Reihenfolge, eigenen Bildern und gespeicherten Covern sowie welches Profil welche Kategorie sieht | an |
 | Speaker-Einstellungen | Icon und maximale Lautstärke | an |
 | Speaker-Freigabe | „auf dem Homescreen auswählbar“ | aus |
 | Passwort | Hash, Salt und „nur mit Passwort öffnen“ | aus |
 
 Die zuletzt gewählten Bereiche merkt sich das Tablet als Vorauswahl.
-Übernommenes ersetzt den Stand auf dem Tablet: Profile, die es auf dem
-sendenden Tablet nicht gibt, werden gelöscht. Je Tablet erhalten bleiben,
+Übernommenes ersetzt den Stand auf dem Tablet: Die Musikauswahl wird
+komplett ersetzt, Profile, die es auf dem sendenden Tablet nicht gibt,
+werden gelöscht. Je Tablet erhalten bleiben,
 welche Profile dort aktiv sind und welcher Speaker und welches Profil
 zuletzt gewählt waren. Speaker werden nur ergänzt, nie gelöscht; noch
 unbekannte kommen ohne übernommene Freigabe gesperrt und als „Neu“ dazu.
@@ -344,7 +352,7 @@ liest die Datei auf dem anderen Tablet ein.
 
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 8):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 9):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
@@ -352,11 +360,16 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 8):
   zuletzt gewählter Speaker und zuletzt gewähltes Profil
 - `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
   (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden),
-  Kennung für den Abgleich zwischen Tablets (`syncId`, seit Version 8,
-  Migration `MIGRATION_7_8`; vergibt jedem vorhandenen Profil eine)
-- `music_category` — Profil, Name, Position, Bild (`scene:…`, `icon:…`,
+  Kennung für den Abgleich zwischen Tablets (`syncId`, seit Version 9,
+  Migration `MIGRATION_8_9`; vergibt jedem vorhandenen Profil eine)
+- `music_category` — Name, Position, Bild (`scene:…`, `icon:…`,
   `animal:…`, `file:…` oder leer = Standard-Bild), Abspielreihenfolge
-  (Bild und Reihenfolge seit Version 5, Migration `MIGRATION_4_5`)
+  (Bild und Reihenfolge seit Version 5, Migration `MIGRATION_4_5`). Bis
+  Version 7 gehörte jede Kategorie genau einem Profil.
+- `profile_category` — welches Profil welche Kategorie sieht (seit
+  Version 8, Migration `MIGRATION_7_8`: übernimmt die bisherige Zuordnung,
+  entfernt die Profil-Spalte aus `music_category` und nummeriert die
+  Reihenfolge profilweise hintereinander durch)
 - `music_item` — Kategorie, Quelle (Favorit/Playlist), Sonos-Id, Name,
   Beschreibung, Cover-URL, Art (Song, Album, …), Position, eigenes Bild
   (seit Version 6, Migration `MIGRATION_5_6`; sie setzt außerdem früher als
@@ -370,14 +383,14 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 
 | Datei | Inhalt |
 |---|---|
-| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Katalog/Abgleich, Theme |
+| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
-| `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite mit Kategorien, Katalog-Auswahl |
+| `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite, zentrale Musikauswahl mit Kategorien, Katalog-Auswahl |
 | `MusicCatalog.kt`, `MusicCover.kt` | Katalog-Einträge, Musik-Typen, Abspielreihenfolge, eigene Bilder, Cover-Kachel |
 | `CustomImageStore.kt` | Eigene Bilder für Kategorien und Einträge importieren (verkleinern, drehen) und löschen |
 | `SpeakerIcons.kt`, `CharacterIcons.kt` | Icon-Katalog, Einhorn und Pikachu |

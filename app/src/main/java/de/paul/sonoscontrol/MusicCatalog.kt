@@ -80,13 +80,14 @@ data class CatalogEntry(
 
 val MusicItem.catalogKey: String get() = "$source:$sonosId"
 
-/** Kategorie eines Profils samt ihrer Musik. */
+/** Kategorie der zentralen Musikauswahl samt ihrer Musik und der Profile, die sie sehen. */
 data class CategoryWithMusic(
     val category: MusicCategory,
-    val items: List<MusicItem>
+    val items: List<MusicItem>,
+    val profileIds: Set<Long> = emptySet()
 )
 
-/** Profil samt Kategorien, so wie Home- und Settings-Screen es brauchen. */
+/** Profil samt den Kategorien, die es sieht — so wie Home- und Settings-Screen es brauchen. */
 data class ProfileWithMusic(
     val profile: ChildProfile,
     val categories: List<CategoryWithMusic>

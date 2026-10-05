@@ -40,32 +40,29 @@ class SyncRepository(
      */
     suspend fun createPackage(includePassword: Boolean, householdId: String?): SyncPackage {
         val images = ImageCollector()
-        val categoriesByProfile = profileDao.getCategories().groupBy { it.profileId }
+        val localProfiles = profileDao.getProfiles()
+        val syncIdOf = localProfiles.associate { it.id to it.syncId }
+        val profilesByCategory = profileDao.getAssignments().groupBy({ it.categoryId }, { it.profileId })
         val itemsByCategory = profileDao.getItems().groupBy { it.categoryId }
-        val profiles = profileDao.getProfiles().map { profile ->
-            SyncProfile(
-                syncId = profile.syncId,
-                name = profile.name,
-                iconKey = profile.iconKey,
-                categories = categoriesByProfile[profile.id].orEmpty().map { category ->
-                    SyncCategory(
-                        name = category.name,
-                        imageKey = images.exportKey(category.imageKey),
-                        playOrder = category.playOrder,
-                        items = itemsByCategory[category.id].orEmpty().map { item ->
-                            SyncItem(
-                                source = item.source,
-                                sonosId = item.sonosId,
-                                name = item.name,
-                                description = item.description,
-                                imageUrl = images.exportUrls(item.imageUrl),
-                                type = item.type,
-                                customImageKey = images.exportKey(item.customImageKey),
-                                trackCount = item.trackCount
-                            )
-                        }
+        val profiles = localProfiles.map { SyncProfile(syncId = it.syncId, name = it.name, iconKey = it.iconKey) }
+        val categories = profileDao.getCategories().map { category ->
+            SyncCategory(
+                name = category.name,
+                imageKey = images.exportKey(category.imageKey),
+                playOrder = category.playOrder,
+                items = itemsByCategory[category.id].orEmpty().map { item ->
+                    SyncItem(
+                        source = item.source,
+                        sonosId = item.sonosId,
+                        name = item.name,
+                        description = item.description,
+                        imageUrl = images.exportUrls(item.imageUrl),
+                        type = item.type,
+                        customImageKey = images.exportKey(item.customImageKey),
+                        trackCount = item.trackCount
                     )
-                }
+                },
+                profileSyncIds = profilesByCategory[category.id].orEmpty().mapNotNull { syncIdOf[it] }.sorted()
             )
         }
         val speakers = speakerDao.getAll().sortedBy { it.name.lowercase() }.map {
@@ -77,6 +74,7 @@ class SyncRepository(
             deviceName = deviceName,
             householdId = householdId,
             profiles = profiles,
+            categories = categories,
             speakers = speakers,
             password = password
         )
@@ -143,69 +141,74 @@ class SyncRepository(
         if (applied.isEmpty()) return
 
         // Bilder vor der Transaktion ablegen, damit die Datenbank nicht auf Dateien wartet
-        val profiles = if (SyncScope.PROFILES in applied) {
-            ImageReceiver(syncPackage.images).let { images -> snapshot.profiles.orEmpty().map { images.localize(it) } }
+        val categories = if (SyncScope.PROFILES in applied) {
+            ImageReceiver(syncPackage.images).let { images -> snapshot.categories.orEmpty().map { images.localize(it) } }
         } else {
             null
         }
 
         try {
             database.withTransaction {
-                profiles?.let { replaceProfiles(it) }
+                categories?.let { replaceLibrary(snapshot.profiles.orEmpty(), it) }
                 snapshot.speakers?.let { applySpeakers(it, applied) }
                 if (SyncScope.PASSWORD in applied) snapshot.password?.let { applyPassword(it) }
             }
         } finally {
-            // Bilder ersetzter Profile – und bei einem Fehler die schon abgelegten neuen
+            // Bilder der ersetzten Musikauswahl – und bei einem Fehler die schon abgelegten neuen
             imageStore.deleteUnreferenced(profileDao.referencedImagePaths())
         }
     }
 
-    private suspend fun replaceProfiles(incoming: List<SyncProfile>) {
+    /**
+     * Ersetzt Profile und die zentrale Musikauswahl. Profile werden zugeordnet und behalten
+     * ihre Id (daran hängen „aktiv" und „zuletzt gewählt"); die Kategorien samt Musik und
+     * Zuordnungen werden komplett neu angelegt.
+     */
+    private suspend fun replaceLibrary(incoming: List<SyncProfile>, categories: List<SyncCategory>) {
         val match = matchProfiles(profileDao.getProfiles(), incoming)
-        match.toDelete.forEach { profile ->
-            profileDao.deleteItemsOfProfile(profile.id)
-            profileDao.deleteCategoriesOfProfile(profile.id)
-            profileDao.deleteProfileRow(profile.id)
-        }
-        match.pairs.forEach { (source, local) ->
-            // Vorhandene Profile behalten ihre Id: daran hängen „aktiv" und „zuletzt gewählt"
-            val profileId = if (local != null) {
+        match.toDelete.forEach { profileDao.deleteProfileRow(it.id) }
+        val profileIds = match.pairs.associate { (source, local) ->
+            val id = if (local != null) {
                 profileDao.updateSyncedProfile(local.id, source.name, source.iconKey, source.syncId)
-                profileDao.deleteItemsOfProfile(local.id)
-                profileDao.deleteCategoriesOfProfile(local.id)
                 local.id
             } else {
                 profileDao.insertProfile(
                     ChildProfile(name = source.name, iconKey = source.iconKey, enabled = true, syncId = source.syncId)
                 )
             }
-            source.categories.forEachIndexed { categoryIndex, category ->
-                val categoryId = profileDao.insertCategory(
-                    MusicCategory(
-                        profileId = profileId,
-                        name = category.name,
-                        position = categoryIndex,
-                        imageKey = category.imageKey,
-                        playOrder = category.playOrder
+            source.syncId to id
+        }
+
+        profileDao.deleteAllAssignments()
+        profileDao.deleteAllItems()
+        profileDao.deleteAllCategories()
+        categories.forEachIndexed { categoryIndex, category ->
+            val categoryId = profileDao.insertCategory(
+                MusicCategory(
+                    name = category.name,
+                    position = categoryIndex,
+                    imageKey = category.imageKey,
+                    playOrder = category.playOrder
+                )
+            )
+            profileDao.insertAssignments(
+                category.profileSyncIds.mapNotNull { profileIds[it] }.map { ProfileCategory(it, categoryId) }
+            )
+            category.items.forEachIndexed { itemIndex, item ->
+                profileDao.insertItem(
+                    MusicItem(
+                        categoryId = categoryId,
+                        source = item.source,
+                        sonosId = item.sonosId,
+                        name = item.name,
+                        description = item.description,
+                        imageUrl = item.imageUrl,
+                        type = item.type,
+                        position = itemIndex,
+                        customImageKey = item.customImageKey,
+                        trackCount = item.trackCount
                     )
                 )
-                category.items.forEachIndexed { itemIndex, item ->
-                    profileDao.insertItem(
-                        MusicItem(
-                            categoryId = categoryId,
-                            source = item.source,
-                            sonosId = item.sonosId,
-                            name = item.name,
-                            description = item.description,
-                            imageUrl = item.imageUrl,
-                            type = item.type,
-                            position = itemIndex,
-                            customImageKey = item.customImageKey,
-                            trackCount = item.trackCount
-                        )
-                    )
-                }
             }
         }
     }
@@ -283,14 +286,10 @@ class SyncRepository(
                 }
             )
 
-        suspend fun localize(profile: SyncProfile): SyncProfile = profile.copy(
-            categories = profile.categories.map { category ->
-                category.copy(
-                    imageKey = localKey(category.imageKey),
-                    items = category.items.map { item ->
-                        item.copy(imageUrl = localUrls(item.imageUrl), customImageKey = localKey(item.customImageKey))
-                    }
-                )
+        suspend fun localize(category: SyncCategory): SyncCategory = category.copy(
+            imageKey = localKey(category.imageKey),
+            items = category.items.map { item ->
+                item.copy(imageUrl = localUrls(item.imageUrl), customImageKey = localKey(item.customImageKey))
             }
         )
     }

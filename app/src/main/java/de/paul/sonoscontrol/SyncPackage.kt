@@ -16,7 +16,10 @@ import java.util.zip.ZipOutputStream
  * Tablet packt alles ein, das empfangende sucht sich aus, was es übernimmt.
  */
 enum class SyncScope(val label: String, val description: String) {
-    PROFILES("Kinder-Profile", "Namen, Icons, Kategorien und Musik samt eigenen Bildern"),
+    PROFILES(
+        "Kinder-Profile und Musikauswahl",
+        "Profile mit Namen und Icons, alle Kategorien mit Musik und eigenen Bildern, wer was sieht"
+    ),
     SPEAKER_SETTINGS("Speaker-Einstellungen", "Icons und maximale Lautstärke"),
     SPEAKER_SELECTION("Speaker-Freigabe", "Welche Speaker auf dem Homescreen auswählbar sind"),
     PASSWORD("Passwort", "Passwortschutz der Einstellungen");
@@ -47,14 +50,17 @@ data class SyncSnapshot(
      * Stände aus einem anderen Haushalt werden nicht übernommen: Speaker und Musik gäbe es dort nicht.
      */
     val householdId: String? = null,
+    /** Profile und [categories] reisen immer zusammen — die Kategorien verweisen auf die Profile. */
     val profiles: List<SyncProfile>? = null,
+    /** Die zentrale Musikauswahl in ihrer Reihenfolge. */
+    val categories: List<SyncCategory>? = null,
     val speakers: List<SyncSpeaker>? = null,
     val password: SyncPassword? = null
 ) {
     /** Bereiche, die in diesem Stand enthalten sind. */
     val availableScopes: Set<SyncScope>
         get() = buildSet {
-            if (profiles != null) add(SyncScope.PROFILES)
+            if (profiles != null && categories != null) add(SyncScope.PROFILES)
             if (speakers != null) {
                 add(SyncScope.SPEAKER_SETTINGS)
                 add(SyncScope.SPEAKER_SELECTION)
@@ -67,8 +73,7 @@ data class SyncSnapshot(
 data class SyncProfile(
     val syncId: String,
     val name: String,
-    val iconKey: String,
-    val categories: List<SyncCategory>
+    val iconKey: String
 )
 
 @Serializable
@@ -77,7 +82,9 @@ data class SyncCategory(
     /** [CustomImage]-Schlüssel; eigene Fotos als `file:` + Bild-Verweis. */
     val imageKey: String? = null,
     val playOrder: String,
-    val items: List<SyncItem>
+    val items: List<SyncItem>,
+    /** [SyncProfile.syncId] der Profile, die die Kategorie sehen. */
+    val profileSyncIds: List<String> = emptyList()
 )
 
 @Serializable
@@ -116,7 +123,7 @@ val SyncSnapshot.imageNames: Set<String>
             val image = CustomImage.fromKey(key) as? CustomImage.File ?: return
             if (image.path.startsWith(SyncPackage.IMAGE_PREFIX)) add(image.path.removePrefix(SyncPackage.IMAGE_PREFIX))
         }
-        profiles.orEmpty().flatMap { it.categories }.forEach { category ->
+        categories.orEmpty().forEach { category ->
             addKey(category.imageKey)
             category.items.forEach { item ->
                 addKey(item.customImageKey)
@@ -154,7 +161,8 @@ class SyncPackage(val snapshot: SyncSnapshot, val images: Map<String, ByteArray>
     fun toByteArray(): ByteArray = ByteArrayOutputStream().also(::writeTo).toByteArray()
 
     companion object {
-        const val FORMAT_VERSION = 1
+        /** 2: Kategorien zentral statt je Profil. */
+        const val FORMAT_VERSION = 2
         /** Kennzeichnet in Bild-Schlüsseln und Cover-Adressen ein Bild aus dem Paket. */
         const val IMAGE_PREFIX = "sync-image:"
         private const val SNAPSHOT_ENTRY = "soundbuddy.json"
@@ -197,6 +205,9 @@ class SyncPackage(val snapshot: SyncSnapshot, val images: Map<String, ByteArray>
         fun fromByteArray(bytes: ByteArray): SyncPackage = read(bytes.inputStream())
 
         fun checkFormat(snapshot: SyncSnapshot) {
+            if (snapshot.formatVersion < FORMAT_VERSION) {
+                throw IOException("Die Daten stammen von einer älteren SoundBuddy-Version. Bitte dort zuerst die App aktualisieren.")
+            }
             if (snapshot.formatVersion > FORMAT_VERSION) {
                 throw IOException("Die Daten stammen von einer neueren SoundBuddy-Version. Bitte zuerst die App aktualisieren.")
             }
