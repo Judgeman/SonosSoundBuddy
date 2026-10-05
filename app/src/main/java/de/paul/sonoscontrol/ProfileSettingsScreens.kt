@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -367,6 +368,8 @@ class MusicLibraryActions(
     val onItemImageChange: (Long, CustomImage) -> Unit,
     val onImportItemImage: (Long, Uri) -> Unit,
     val onPlayOrderChange: (Long, PlayOrder) -> Unit,
+    val onItemSortChange: (Long, ItemSort, Boolean) -> Unit,
+    val onMoveMusicItem: (Long, Int) -> Unit,
     val onDismissImageError: () -> Unit
 )
 
@@ -458,7 +461,9 @@ fun MusicLibraryScreen(
                     onRemoveItem = actions.onRemoveMusicItem,
                     onImageClick = { imageDialogFor = "$CATEGORY_TARGET:${category.category.id}" },
                     onItemImageClick = { imageDialogFor = "$ITEM_TARGET:$it" },
-                    onPlayOrderChange = { actions.onPlayOrderChange(category.category.id, it) }
+                    onPlayOrderChange = { actions.onPlayOrderChange(category.category.id, it) },
+                    onItemSortChange = { sort, descending -> actions.onItemSortChange(category.category.id, sort, descending) },
+                    onMoveItem = actions.onMoveMusicItem
                 )
             }
 
@@ -608,7 +613,9 @@ private fun CategoryCard(
     onRemoveItem: (Long) -> Unit,
     onImageClick: () -> Unit,
     onItemImageClick: (Long) -> Unit,
-    onPlayOrderChange: (PlayOrder) -> Unit
+    onPlayOrderChange: (PlayOrder) -> Unit,
+    onItemSortChange: (ItemSort, Boolean) -> Unit,
+    onMoveItem: (Long, Int) -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -684,7 +691,17 @@ private fun CategoryCard(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
 
-        category.items.forEach { item ->
+        val sort = category.category.itemSortMode
+        if (category.items.size > 1) {
+            ItemSortSelector(
+                selected = sort,
+                descending = category.category.itemSortDescending,
+                onSelect = onItemSortChange,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
+
+        category.items.forEachIndexed { index, item ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp)
@@ -702,6 +719,14 @@ private fun CategoryCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+                if (sort == ItemSort.MANUAL && category.items.size > 1) {
+                    IconButton(onClick = { onMoveItem(item.id, -1) }, enabled = index > 0) {
+                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "${item.name} nach oben")
+                    }
+                    IconButton(onClick = { onMoveItem(item.id, 1) }, enabled = index < category.items.lastIndex) {
+                        Icon(Icons.Rounded.ArrowDownward, contentDescription = "${item.name} nach unten")
+                    }
                 }
                 IconButton(onClick = { onRemoveItem(item.id) }) {
                     Icon(Icons.Rounded.Close, contentDescription = "${item.name} entfernen")
@@ -800,6 +825,59 @@ private fun PlayOrderSelector(selected: PlayOrder, onSelect: (PlayOrder) -> Unit
             Text(
                 "Nach dem Antippen fragt die App mit zwei großen Knöpfen: der Reihe nach oder durcheinander. " +
                     "Bei Songs und Radio wird nicht gefragt.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * Sortierung der Musik in der Kategorie — so sehen die Kinder sie auch auf dem Startbildschirm.
+ * Alphabetisch und nach Datum lassen sich auf- oder absteigend sortieren.
+ */
+@Composable
+private fun ItemSortSelector(
+    selected: ItemSort,
+    descending: Boolean,
+    onSelect: (ItemSort, Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            "Sortierung",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            ItemSort.entries.forEach { sort ->
+                FilterChip(
+                    selected = sort == selected,
+                    onClick = { onSelect(sort, descending) },
+                    label = { Text(sort.label) }
+                )
+            }
+            if (selected != ItemSort.MANUAL) {
+                AssistChip(
+                    onClick = { onSelect(selected, !descending) },
+                    label = { Text(if (descending) selected.descendingLabel else selected.ascendingLabel) },
+                    leadingIcon = {
+                        Icon(
+                            if (descending) Icons.Rounded.ArrowDownward else Icons.Rounded.ArrowUpward,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                )
+            }
+        }
+        if (selected == ItemSort.MANUAL) {
+            Text(
+                "Mit den Pfeilen neben den Einträgen verschieben.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

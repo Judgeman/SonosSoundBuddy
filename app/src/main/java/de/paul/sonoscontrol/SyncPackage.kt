@@ -82,6 +82,10 @@ data class SyncCategory(
     /** [CustomImage]-Schlüssel; eigene Fotos als `file:` + Bild-Verweis. */
     val imageKey: String? = null,
     val playOrder: String,
+    /** [ItemSort]-Name; fehlt bei Paketen älterer App-Versionen. */
+    val itemSort: String = ItemSort.MANUAL.name,
+    val itemSortDescending: Boolean = false,
+    /** In manueller Reihenfolge. */
     val items: List<SyncItem>,
     /** [SyncProfile.syncId] der Profile, die die Kategorie sehen. */
     val profileSyncIds: List<String> = emptyList()
@@ -97,7 +101,9 @@ data class SyncItem(
     val imageUrl: String? = null,
     val type: String,
     val customImageKey: String? = null,
-    val trackCount: Int? = null
+    val trackCount: Int? = null,
+    /** Zeitpunkt des Hinzufügens, 0 = unbekannt. */
+    val addedAt: Long = 0
 )
 
 @Serializable

@@ -50,6 +50,8 @@ class SyncRepository(
                 name = category.name,
                 imageKey = images.exportKey(category.imageKey),
                 playOrder = category.playOrder,
+                itemSort = category.itemSort,
+                itemSortDescending = category.itemSortDescending,
                 items = itemsByCategory[category.id].orEmpty().map { item ->
                     SyncItem(
                         source = item.source,
@@ -59,7 +61,8 @@ class SyncRepository(
                         imageUrl = images.exportUrls(item.imageUrl),
                         type = item.type,
                         customImageKey = images.exportKey(item.customImageKey),
-                        trackCount = item.trackCount
+                        trackCount = item.trackCount,
+                        addedAt = item.addedAt
                     )
                 },
                 profileSyncIds = profilesByCategory[category.id].orEmpty().mapNotNull { syncIdOf[it] }.sorted()
@@ -188,7 +191,9 @@ class SyncRepository(
                     name = category.name,
                     position = categoryIndex,
                     imageKey = category.imageKey,
-                    playOrder = category.playOrder
+                    playOrder = category.playOrder,
+                    itemSort = category.itemSort,
+                    itemSortDescending = category.itemSortDescending
                 )
             )
             profileDao.insertAssignments(
@@ -206,7 +211,8 @@ class SyncRepository(
                         type = item.type,
                         position = itemIndex,
                         customImageKey = item.customImageKey,
-                        trackCount = item.trackCount
+                        trackCount = item.trackCount,
+                        addedAt = item.addedAt
                     )
                 )
             }

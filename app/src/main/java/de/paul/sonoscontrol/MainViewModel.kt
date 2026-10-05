@@ -863,6 +863,23 @@ class MainViewModel(
         viewModelScope.launch { repository.reorderCategories(reordered) }
     }
 
+    fun setCategoryItemSort(categoryId: Long, sort: ItemSort, descending: Boolean) {
+        viewModelScope.launch { repository.setCategoryItemSort(categoryId, sort, descending) }
+    }
+
+    /** Verschiebt einen Eintrag in der manuellen Reihenfolge seiner Kategorie. */
+    fun moveMusicItem(itemId: Long, offset: Int) {
+        val category = categories
+            .firstOrNull { category -> category.items.any { it.id == itemId } } ?: return
+        if (category.category.itemSortMode != ItemSort.MANUAL) return
+        val items = category.items.map { it.id }
+        val from = items.indexOf(itemId)
+        val to = (from + offset).coerceIn(0, items.lastIndex)
+        if (from == to) return
+        val reordered = items.toMutableList().apply { add(to, removeAt(from)) }
+        viewModelScope.launch { repository.reorderItems(reordered) }
+    }
+
     fun removeMusicItem(itemId: Long) {
         viewModelScope.launch { repository.removeMusicItem(itemId) }
     }

@@ -95,6 +95,10 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     - pro Musik-Eintrag ebenfalls ein eigenes Bild (Tipp auf das Cover) —
       gedacht vor allem für Sonos-Playlisten, die von Sonos kein Cover
       bekommen. „Cover von Sonos“ stellt das Original wieder her.
+    - die **Sortierung** der Musik, so wie die Kinder sie sehen:
+      „Manuell“ (mit Pfeilen verschieben), „Alphabetisch“ (A–Z oder Z–A,
+      Zahlen nach ihrem Wert: „Folge 2“ vor „Folge 10“) oder
+      „Hinzugefügt“ (älteste oder neueste zuerst).
     - die **Abspielreihenfolge**: „Der Reihe nach“, „Zufällig“ oder „Kinder
       entscheiden“. Gilt für Playlisten und Alben; Songs, Radio und
       Sonos-Playlisten mit nur einem Titel laufen einfach los. „Musik
@@ -365,7 +369,9 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 9):
 - `music_category` — Name, Position, Bild (`scene:…`, `icon:…`,
   `animal:…`, `file:…` oder leer = Standard-Bild), Abspielreihenfolge
   (Bild und Reihenfolge seit Version 5, Migration `MIGRATION_4_5`). Bis
-  Version 7 gehörte jede Kategorie genau einem Profil.
+  Version 7 gehörte jede Kategorie genau einem Profil. Sortierung der
+  Musik (`itemSort`, `itemSortDescending`, seit Version 10, Migration
+  `MIGRATION_9_10`).
 - `profile_category` — welches Profil welche Kategorie sieht (seit
   Version 8, Migration `MIGRATION_7_8`: übernimmt die bisherige Zuordnung,
   entfernt die Profil-Spalte aus `music_category` und nummeriert die
@@ -375,7 +381,9 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 9):
   (seit Version 6, Migration `MIGRATION_5_6`; sie setzt außerdem früher als
   Kategorie-Bild gewählte Cover zurück), Anzahl der Titel (seit Version 7,
   Migration `MIGRATION_6_7`; übernimmt sie aus der Beschreibung, danach
-  aktualisiert beim Laden des Katalogs)
+  aktualisiert beim Laden des Katalogs), Zeitpunkt des Hinzufügens
+  (`addedAt`, seit Version 10; bei älteren Einträgen 0 — sie zählen als die
+  ältesten, untereinander in der Reihenfolge ihrer Id)
 
 ## Projektstruktur
 
