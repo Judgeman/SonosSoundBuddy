@@ -237,36 +237,7 @@ private fun StartingMusicOverlay(item: MusicItem?) {
                         .widthIn(max = 420.dp)
                         .animateEnterExit(enter = scaleIn(initialScale = 0.8f), exit = scaleOut(targetScale = 0.8f))
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            MusicItemImage(shown, size = 220.dp)
-                            Surface(shape = CircleShape, color = Color.Black.copy(alpha = 0.45f), modifier = Modifier.size(96.dp)) {
-                                CircularProgressIndicator(
-                                    color = Color.White,
-                                    strokeWidth = 6.dp,
-                                    modifier = Modifier.padding(16.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            shown.name,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Gleich geht's los …",
-                            style = MaterialTheme.typography.titleMedium,
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                    StartingMusicAnimation(shown, modifier = Modifier.padding(24.dp))
                 }
             }
         }
