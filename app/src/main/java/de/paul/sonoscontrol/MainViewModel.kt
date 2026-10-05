@@ -25,8 +25,11 @@ sealed interface UiState {
     data class Error(val message: String) : UiState
 }
 
-/** [ProfileEditor] und [MusicCatalog] sind Unterseiten der Settings. */
-enum class Screen { Home, Settings, ProfileEditor, MusicCatalog }
+/**
+ * [ProfileEditor], [MusicLibrary] (die zentrale Musikauswahl) und [MusicCatalog]
+ * sind Unterseiten der Settings.
+ */
+enum class Screen { Home, Settings, ProfileEditor, MusicLibrary, MusicCatalog }
 
 /** Inhalt des Sonos-Katalogs (Favoriten + Playlisten) beim Zusammenstellen der Musikauswahl. */
 sealed interface CatalogState {
@@ -122,6 +125,10 @@ class MainViewModel(
     var profiles: List<ProfileWithMusic> by mutableStateOf(emptyList())
         private set
 
+    /** Die zentrale Musikauswahl: alle Kategorien, egal welches Profil sie sieht. */
+    var categories: List<CategoryWithMusic> by mutableStateOf(emptyList())
+        private set
+
     var selectedProfileId: Long? by mutableStateOf(null)
         private set
 
@@ -194,7 +201,7 @@ class MainViewModel(
         get() = profiles.firstOrNull { it.profile.id == editingProfileId }
 
     val catalogCategory: CategoryWithMusic?
-        get() = profiles.flatMap { it.categories }.firstOrNull { it.category.id == catalogCategoryId }
+        get() = categories.firstOrNull { it.category.id == catalogCategoryId }
 
     private fun maxVolumeFor(playerId: String): Int =
         speakerConfigs.firstOrNull { it.playerId == playerId }?.maxVolume ?: 100
@@ -216,9 +223,15 @@ class MainViewModel(
                 // Profil wurde gelöscht, während seine Unterseite offen war
                 if (editingProfileId != null && editingProfile == null) {
                     editingProfileId = null
-                    catalogCategoryId = null
-                    if (screen == Screen.ProfileEditor || screen == Screen.MusicCatalog) screen = Screen.Settings
+                    if (screen == Screen.ProfileEditor) screen = Screen.Settings
                 }
+            }
+        }
+        viewModelScope.launch {
+            repository.categories.collect {
+                categories = it
+                // Kategorie wurde gelöscht, während ihr Katalog offen war
+                if (catalogCategoryId != null && catalogCategory == null) closeCatalog()
             }
         }
         viewModelScope.launch {
@@ -577,7 +590,7 @@ class MainViewModel(
     fun playMusic(item: MusicItem, shuffle: Boolean? = null) {
         val playerId = selectedPlayerId ?: return
         val household = householdId ?: return
-        val order = profiles.flatMap { it.categories }
+        val order = categories
             .firstOrNull { it.category.id == item.categoryId }?.category?.playOrderMode ?: PlayOrder.ORDERED
         val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
         startingMusic = item
@@ -704,6 +717,8 @@ class MainViewModel(
     fun navigateBack() {
         when (screen) {
             Screen.MusicCatalog -> closeCatalog()
+            // Zurück dorthin, von wo die Musikauswahl geöffnet wurde
+            Screen.MusicLibrary -> screen = if (editingProfile != null) Screen.ProfileEditor else Screen.Settings
             Screen.ProfileEditor -> {
                 screen = Screen.Settings
                 editingProfileId = null
@@ -773,9 +788,19 @@ class MainViewModel(
         viewModelScope.launch { repository.deleteProfile(profileId) }
     }
 
-    fun createCategory(profileId: Long, name: String) {
+    /** Öffnet die zentrale Musikauswahl — aus den Settings oder von einer Profil-Seite. */
+    fun openLibrary() {
+        screen = Screen.MusicLibrary
+    }
+
+    /** Neue Kategorien sind erst einmal für alle Profile sichtbar. */
+    fun createCategory(name: String) {
         if (name.isBlank()) return
-        viewModelScope.launch { repository.createCategory(profileId, name) }
+        viewModelScope.launch { repository.createCategory(name) }
+    }
+
+    fun setCategoryVisible(categoryId: Long, profileId: Long, visible: Boolean) {
+        viewModelScope.launch { repository.setCategoryVisible(categoryId, profileId, visible) }
     }
 
     fun renameCategory(categoryId: Long, name: String) {
@@ -787,7 +812,6 @@ class MainViewModel(
         viewModelScope.launch { repository.deleteCategory(categoryId) }
     }
 
-    /** Verschiebt eine Kategorie innerhalb ihres Profils um [offset] Plätze (−1 = nach oben). */
     fun setCategoryImage(categoryId: Long, image: CustomImage) {
         viewModelScope.launch { repository.setCategoryImage(categoryId, image) }
     }
@@ -821,13 +845,14 @@ class MainViewModel(
         viewModelScope.launch { repository.setCategoryPlayOrder(categoryId, playOrder) }
     }
 
+    /** Verschiebt eine Kategorie in der Musikauswahl um [offset] Plätze (−1 = nach oben). */
     fun moveCategory(categoryId: Long, offset: Int) {
-        val categories = profiles.firstOrNull { profile -> profile.categories.any { it.category.id == categoryId } }
-            ?.categories?.map { it.category.id } ?: return
-        val from = categories.indexOf(categoryId)
-        val to = (from + offset).coerceIn(0, categories.lastIndex)
+        val ids = categories.map { it.category.id }
+        val from = ids.indexOf(categoryId)
+        if (from < 0) return
+        val to = (from + offset).coerceIn(0, ids.lastIndex)
         if (from == to) return
-        val reordered = categories.toMutableList().apply { add(to, removeAt(from)) }
+        val reordered = ids.toMutableList().apply { add(to, removeAt(from)) }
         viewModelScope.launch { repository.reorderCategories(reordered) }
     }
 
@@ -845,7 +870,7 @@ class MainViewModel(
     fun closeCatalog() {
         catalogCategoryId = null
         playlistPreview = null
-        screen = Screen.ProfileEditor
+        if (screen == Screen.MusicCatalog) screen = Screen.MusicLibrary
     }
 
     /** Lädt Favoriten und Playlisten des Haushalts (auch über „Neu laden" im Katalog). */
@@ -909,7 +934,7 @@ class MainViewModel(
     /** Cover der gespeicherten Musikauswahl still im Hintergrund auffrischen. */
     private fun refreshMusicImagesQuietly() {
         val household = householdId ?: return
-        if (profiles.none { it.itemCount > 0 }) return
+        if (categories.none { it.items.isNotEmpty() }) return
         viewModelScope.launch {
             try {
                 repository.refreshMusicImages(fetchCatalog(household))
