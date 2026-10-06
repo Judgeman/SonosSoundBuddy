@@ -26,6 +26,10 @@ import kotlin.coroutines.resumeWithException
 
 class SonosApiException(message: String, val httpCode: Int? = null) : Exception(message)
 
+/** Sonos füllt die Warteschlange nach dem Laden noch — Befehle darauf gehen erst danach. */
+val SonosApiException.isQueueStillEmpty: Boolean
+    get() = message?.contains("ERROR_PLAYBACK_NO_CONTENT") == true
+
 /** Die Anmeldung lässt sich nicht mehr erneuern (Refresh-Token ungültig/widerrufen). */
 class SessionExpiredException :
     Exception("Die Anmeldung bei Sonos ist abgelaufen. Bitte einmal neu anmelden.")

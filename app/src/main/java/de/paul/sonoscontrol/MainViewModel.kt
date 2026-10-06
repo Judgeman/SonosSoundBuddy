@@ -648,25 +648,50 @@ class MainViewModel(
                 try {
                     load(false)
                 } catch (e: SonosApiException) {
-                    // Manche Quellen nehmen beim Laden keine Wiedergabemodi an:
-                    // Zufall dann vorher ausschalten und ohne Modi laden
-                    if (e.httpCode == null || e.httpCode !in 400..499) throw e
-                    runCatching { apiClient.setShuffle(group.id, false) }
-                    load(null)
+                    when {
+                        // Geladen ist schon, nur die Warteschlange noch leer — kein zweites REPLACE,
+                        // das Ausschalten des Zufalls unten wird wiederholt, bis sie gefüllt ist
+                        e.isQueueStillEmpty -> Unit
+                        // Manche Quellen nehmen beim Laden keine Wiedergabemodi an:
+                        // Zufall dann vorher ausschalten und ohne Modi laden
+                        e.httpCode in 400..498 -> {
+                            runCatching { apiClient.setShuffle(group.id, false) }
+                            load(null)
+                        }
+                        else -> throw e
+                    }
                 }
             } else {
                 load(null)
             }
             if (controlsOrder) {
+                // Nach dem Laden ohne Abspielen füllt Sonos die Warteschlange noch —
+                // bis dahin lehnt es Befehle ab, deshalb jeweils kurz wiederholen.
                 // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
                 // Klappt das nicht (manche Quellen erlauben es nicht), trotzdem abspielen.
                 val shuffled = wantsShuffle &&
-                    runCatching { apiClient.setShuffle(group.id, true) }.isSuccess
-                if (!shuffled) runCatching { apiClient.setShuffle(group.id, false) }
+                    runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, true) } }.isSuccess
+                if (!shuffled) runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, false) } }
                 // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
-                if (shuffled) runCatching { apiClient.skipToNextTrack(group.id) }
-                apiClient.play(group.id)
+                if (shuffled) runCatching { retryWhileQueueFills { apiClient.skipToNextTrack(group.id) } }
+                retryWhileQueueFills { apiClient.play(group.id) }
             }
+        }
+    }
+
+    /**
+     * Führt [command] aus und wiederholt ihn, solange Sonos meldet, dass die gerade
+     * geladene Warteschlange noch leer ist — höchstens [QUEUE_FILL_TIMEOUT_MS] lang.
+     */
+    private suspend fun <T> retryWhileQueueFills(command: suspend () -> T): T {
+        val deadline = SystemClock.elapsedRealtime() + QUEUE_FILL_TIMEOUT_MS
+        while (true) {
+            try {
+                return command()
+            } catch (e: SonosApiException) {
+                if (!e.isQueueStillEmpty || SystemClock.elapsedRealtime() >= deadline) throw e
+            }
+            delay(QUEUE_FILL_RETRY_MS)
         }
     }
 
@@ -1070,6 +1095,8 @@ class MainViewModel(
         private const val VOLUME_DEBOUNCE_MS = 150L
         /** Neue Musik zu laden dauert bei Sonos etwas länger als ein Skip. */
         private const val MUSIC_REFRESH_DELAY_MS = 1_500L
+        private const val QUEUE_FILL_RETRY_MS = 400L
+        private const val QUEUE_FILL_TIMEOUT_MS = 5_000L
     }
 }
 
