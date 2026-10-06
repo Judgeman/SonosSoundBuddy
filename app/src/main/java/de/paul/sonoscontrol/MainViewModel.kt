@@ -628,16 +628,39 @@ class MainViewModel(
             val type = item.musicType
             // Radio hat keine Warteschlange — dort gibt es keine Reihenfolge, also direkt starten
             val controlsOrder = type != MusicType.RADIO
-            when (item.musicSource) {
-                MusicSource.FAVORITE ->
-                    apiClient.loadFavorite(group.id, resolveFavoriteId(household, item), play = !controlsOrder)
-                MusicSource.PLAYLIST ->
-                    apiClient.loadPlaylist(group.id, resolvePlaylistId(household, item), play = !controlsOrder)
+            val sourceId = when (item.musicSource) {
+                MusicSource.FAVORITE -> resolveFavoriteId(household, item)
+                MusicSource.PLAYLIST -> resolvePlaylistId(household, item)
+            }
+            val load: suspend (shuffle: Boolean?) -> Unit = { loadShuffle ->
+                when (item.musicSource) {
+                    MusicSource.FAVORITE ->
+                        apiClient.loadFavorite(group.id, sourceId, play = !controlsOrder, shuffle = loadShuffle)
+                    MusicSource.PLAYLIST ->
+                        apiClient.loadPlaylist(group.id, sourceId, play = !controlsOrder, shuffle = loadShuffle)
+                }
+            }
+            val wantsShuffle = controlsOrder && useShuffle && item.hasMultipleTracks
+            if (controlsOrder && !wantsShuffle) {
+                // Ist beim Laden noch Zufall vom letzten Mal an, wählt Sonos einen zufälligen ersten
+                // Titel — beim späteren Ausschalten bleibt es bei diesem, die Reihe startet mittendrin.
+                // Deshalb Zufall schon beim Laden ausschalten, damit es beim ersten Titel losgeht.
+                try {
+                    load(false)
+                } catch (e: SonosApiException) {
+                    // Manche Quellen nehmen beim Laden keine Wiedergabemodi an:
+                    // Zufall dann vorher ausschalten und ohne Modi laden
+                    if (e.httpCode == null || e.httpCode !in 400..499) throw e
+                    runCatching { apiClient.setShuffle(group.id, false) }
+                    load(null)
+                }
+            } else {
+                load(null)
             }
             if (controlsOrder) {
                 // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
                 // Klappt das nicht (manche Quellen erlauben es nicht), trotzdem abspielen.
-                val shuffled = useShuffle && item.hasMultipleTracks &&
+                val shuffled = wantsShuffle &&
                     runCatching { apiClient.setShuffle(group.id, true) }.isSuccess
                 if (!shuffled) runCatching { apiClient.setShuffle(group.id, false) }
                 // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
