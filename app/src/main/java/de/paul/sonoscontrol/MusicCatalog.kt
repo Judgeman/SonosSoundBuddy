@@ -124,6 +124,8 @@ enum class ItemSort(val label: String, val ascendingLabel: String, val descendin
 
 val MusicCategory.itemSortMode: ItemSort get() = ItemSort.fromKey(itemSort)
 
+val MusicCategory.coverAnimationMode: CoverAnimation get() = CoverAnimation.fromKey(coverAnimation)
+
 /** Die Musik einer Kategorie in der dort eingestellten Sortierung; [items] kommt nach Position sortiert. */
 fun MusicCategory.sortItems(items: List<MusicItem>): List<MusicItem> {
     val comparator: Comparator<MusicItem> = when (itemSortMode) {

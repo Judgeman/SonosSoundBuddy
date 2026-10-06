@@ -52,6 +52,7 @@ class SyncRepository(
                 playOrder = category.playOrder,
                 itemSort = category.itemSort,
                 itemSortDescending = category.itemSortDescending,
+                coverAnimation = category.coverAnimation,
                 items = itemsByCategory[category.id].orEmpty().map { item ->
                     SyncItem(
                         source = item.source,
@@ -193,7 +194,9 @@ class SyncRepository(
                     imageKey = category.imageKey,
                     playOrder = category.playOrder,
                     itemSort = category.itemSort,
-                    itemSortDescending = category.itemSortDescending
+                    itemSortDescending = category.itemSortDescending,
+                    coverAnimation = category.coverAnimation
+                        ?: CoverAnimation.suggestedFor(category.name, category.imageKey).name
                 )
             )
             profileDao.insertAssignments(

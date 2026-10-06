@@ -45,6 +45,7 @@ import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChildCare
 import androidx.compose.material.icons.rounded.Close
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
@@ -369,6 +371,7 @@ class MusicLibraryActions(
     val onImportItemImage: (Long, Uri) -> Unit,
     val onPlayOrderChange: (Long, PlayOrder) -> Unit,
     val onItemSortChange: (Long, ItemSort, Boolean) -> Unit,
+    val onCoverAnimationChange: (Long, CoverAnimation) -> Unit,
     val onMoveMusicItem: (Long, Int) -> Unit,
     val onDismissImageError: () -> Unit
 )
@@ -463,6 +466,7 @@ fun MusicLibraryScreen(
                     onItemImageClick = { imageDialogFor = "$ITEM_TARGET:$it" },
                     onPlayOrderChange = { actions.onPlayOrderChange(category.category.id, it) },
                     onItemSortChange = { sort, descending -> actions.onItemSortChange(category.category.id, sort, descending) },
+                    onCoverAnimationChange = { actions.onCoverAnimationChange(category.category.id, it) },
                     onMoveItem = actions.onMoveMusicItem
                 )
             }
@@ -615,6 +619,7 @@ private fun CategoryCard(
     onItemImageClick: (Long) -> Unit,
     onPlayOrderChange: (PlayOrder) -> Unit,
     onItemSortChange: (ItemSort, Boolean) -> Unit,
+    onCoverAnimationChange: (CoverAnimation) -> Unit,
     onMoveItem: (Long, Int) -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -689,6 +694,12 @@ private fun CategoryCard(
             selected = category.category.playOrderMode,
             onSelect = onPlayOrderChange,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+
+        CoverAnimationSelector(
+            selected = category.category.coverAnimationMode,
+            onSelect = onCoverAnimationChange,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
         )
 
         val sort = category.category.itemSortMode
@@ -831,6 +842,34 @@ private fun PlayOrderSelector(selected: PlayOrder, onSelect: (PlayOrder) -> Unit
         }
     }
 }
+
+/** Was das Tier am Cover auf dem Startbildschirm macht, solange etwas aus der Kategorie läuft. */
+@Composable
+private fun CoverAnimationSelector(selected: CoverAnimation, onSelect: (CoverAnimation) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            "Tier am Cover",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CoverAnimation.entries.forEach { animation ->
+                FilterChip(
+                    selected = animation == selected,
+                    onClick = { onSelect(animation) },
+                    label = { Text(animation.label) },
+                    leadingIcon = { Icon(animation.icon, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                )
+            }
+        }
+    }
+}
+
+private val CoverAnimation.icon: ImageVector
+    get() = when (this) {
+        CoverAnimation.DANCE -> Icons.Rounded.MusicNote
+        CoverAnimation.READ -> Icons.Rounded.AutoStories
+    }
 
 /**
  * Sortierung der Musik in der Kategorie — so sehen die Kinder sie auch auf dem Startbildschirm.

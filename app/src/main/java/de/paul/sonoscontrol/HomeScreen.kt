@@ -11,21 +11,25 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -61,6 +65,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -73,6 +78,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -93,6 +99,10 @@ fun HomeScreen(
     maxVolume: Int,
     playbackError: String?,
     visiblePlaybackError: String?,
+    /** App ist im Vordergrund — nur dann kommen Tiere zu Besuch. */
+    isInForeground: Boolean,
+    /** Ob das Tier am Cover tanzt oder vorliest. */
+    coverAnimation: CoverAnimation,
     onDismissPlaybackError: () -> Unit,
     onSelectSpeaker: (String) -> Unit,
     profiles: List<ProfileWithMusic>,
@@ -107,6 +117,11 @@ fun HomeScreen(
     onRetryClick: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var musicPickerOpen by remember { mutableStateOf(false) }
+    val visitors = remember { AnimalVisitorState() }
+    // Tiere schauen nur vorbei, wenn die Kinder den Homescreen frei vor sich haben
+    val visitorsActive = isInForeground && state is UiState.SpeakerList &&
+        startingMusic == null && visiblePlaybackError == null && !musicPickerOpen
     val showsPlayback = state is UiState.SpeakerList && selectedSpeaker != null
     val coverColors = rememberCoverColors(if (showsPlayback) nowPlaying?.imageUrl else null)
 
@@ -118,7 +133,15 @@ fun HomeScreen(
                 topBar = {
                     TopAppBar(
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                        title = { Text("SoundBuddy") },
+                        title = {
+                            // Lange drücken schickt sofort ein Tier vorbei — zum Ausprobieren
+                            Text(
+                                "SoundBuddy",
+                                modifier = Modifier.pointerInput(visitorsActive) {
+                                    detectTapGestures(onLongPress = { if (visitorsActive) visitors.visitNow() })
+                                }
+                            )
+                        },
                         actions = {
                             Box {
                                 IconButton(onClick = { menuExpanded = true }) {
@@ -159,11 +182,19 @@ fun HomeScreen(
                             isStartingMusic = startingMusic != null,
                             onSelectProfile = onSelectProfile,
                             onPlayMusic = onPlayMusic,
+                            onMusicPickerOpenChange = { musicPickerOpen = it },
+                            coverAnimation = coverAnimation,
                             controls = controls
                         )
                     }
                 }
             }
+
+            AnimalVisitors(
+                state = visitors,
+                active = visitorsActive,
+                modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)
+            )
 
             StartingMusicOverlay(item = startingMusic.takeIf { state is UiState.SpeakerList })
 
@@ -356,6 +387,8 @@ private fun SpeakerHomeContent(
     isStartingMusic: Boolean,
     onSelectProfile: (Long) -> Unit,
     onPlayMusic: (MusicItem, Boolean?) -> Unit,
+    onMusicPickerOpenChange: (Boolean) -> Unit,
+    coverAnimation: CoverAnimation,
     controls: PlaybackControls
 ) {
     var profileMenuExpanded by remember { mutableStateOf(false) }
@@ -403,6 +436,8 @@ private fun SpeakerHomeContent(
                 nowPlaying != null -> NowPlayingContent(
                     nowPlaying = nowPlaying,
                     maxVolume = maxVolume,
+                    profileIcon = selectedProfile?.profile?.icon,
+                    coverAnimation = coverAnimation,
                     controls = controls,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -422,6 +457,13 @@ private fun SpeakerHomeContent(
                 }
             )
         }
+    }
+
+    // Solange das Popup offen ist, kommen keine Tiere zu Besuch
+    val musicPickerVisible = showMusicPicker && selectedProfile != null
+    DisposableEffect(musicPickerVisible) {
+        onMusicPickerOpenChange(musicPickerVisible)
+        onDispose { onMusicPickerOpenChange(false) }
     }
 
     if (showMusicPicker && selectedProfile != null) {
@@ -547,6 +589,9 @@ class PlaybackControls(
 private fun NowPlayingContent(
     nowPlaying: NowPlaying,
     maxVolume: Int,
+    /** Tier des gewählten Profils: tanzt oder liest am Cover und läuft auf dem Fortschrittsbalken mit. */
+    profileIcon: ProfileIcon?,
+    coverAnimation: CoverAnimation,
     controls: PlaybackControls,
     modifier: Modifier = Modifier
 ) {
@@ -582,6 +627,15 @@ private fun NowPlayingContent(
                             .align(Alignment.BottomStart)
                             .padding(16.dp)
                     )
+                    profileIcon?.let {
+                        CoverAnimal(
+                            icon = it,
+                            animation = coverAnimation,
+                            isPlaying = nowPlaying.isPlaying,
+                            isBuffering = nowPlaying.playbackState == PlaybackStatus.STATE_BUFFERING,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
                 }
             }
             nowPlaying.volume?.let { volume ->
@@ -615,18 +669,30 @@ private fun NowPlayingContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(if (profileIcon != null) 8.dp else 16.dp))
         val duration = nowPlaying.durationMillis
-        LinearProgressIndicator(
-            progress = {
-                if (duration == null) 0f else (positionMillis.toFloat() / duration).coerceIn(0f, 1f)
-            },
-            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(10.dp)
-                .clip(RoundedCornerShape(5.dp))
-        )
+        // null = Live (Radio) — auch, falls Sonos die Dauer als 0 meldet
+        val progress = duration?.takeIf { it > 0 }?.let { (positionMillis.toFloat() / it).coerceIn(0f, 1f) }
+        Box {
+            LinearProgressIndicator(
+                progress = { progress ?: 0f },
+                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                modifier = Modifier
+                    .padding(top = if (profileIcon != null) ProgressWalkerHeight else 0.dp)
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+            )
+            // Das Tier steht auf dem Balken und läuft mit
+            profileIcon?.let {
+                ProgressWalker(
+                    icon = it,
+                    progress = progress,
+                    isPlaying = nowPlaying.isPlaying,
+                    modifier = Modifier.fillMaxWidth().height(ProgressWalkerHeight)
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(6.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),

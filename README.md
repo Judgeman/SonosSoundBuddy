@@ -71,6 +71,30 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     ein dunkler Verlauf mit weißer Schrift und heller Akzentfarbe. Beim
     Track-Wechsel blenden die Farben sanft über. Die App zeichnet dafür bis
     unter die Statusleiste (Edge-to-Edge).
+  - **Tiere zur Musik** (`NowPlayingAnimals.kt`): Das Tier des gewählten
+    Profils sitzt mit kleinem gezeichneten Körper auf der unteren rechten
+    Ecke des Covers. Solange Musik läuft, tanzt es im Takt und bunte Noten
+    steigen auf — oder es liest vor: Es hält ein aufgeschlagenes Bilderbuch
+    zu den Kindern hin, blättert um (links jedes Mal ein neues Bild), und
+    Buchstaben steigen auf. Was es tut, ist pro Kategorie eingestellt
+    („Tier am Cover“); maßgeblich ist die Kategorie, aus der auf dem
+    gewählten Speaker zuletzt etwas gestartet wurde (je Speaker gemerkt).
+    Ist das unbekannt — z. B. in der Sonos-App gestartet, Kategorie
+    gelöscht oder nach einem Abgleich neu angelegt —, tanzt es. Bei Pause
+    schläft es mit geschlossenen Augen und „Zzz“ (das Buch zugeklappt),
+    beim Laden steht es wach da. Antippen lässt es hüpfen. Ein kleineres
+    steht auf dem Fortschrittsbalken an der Stelle des Fortschritts und
+    läuft mit, solange die Musik spielt (bei Radio in der Mitte auf der
+    Stelle). Ohne Profil fehlen beide.
+  - **Tierbesuch:** Alle 10–20 Minuten schaut eins der Profil-Tiere mit
+    kleinem gezeichneten Körper vorbei (`AnimalVisitor.kt`): Es läuft unten
+    über den Bildschirm und bleibt meist stehen, um zu winken, schaut
+    seitlich herein oder taucht unten auf und winkt. Antippen lässt es hüpfen,
+    und ein Herz steigt auf; alle anderen Berührungen gehen an den
+    Homescreen. Die Pause läuft nur, solange der Homescreen frei zu sehen ist
+    (App im Vordergrund, kein Musik-Popup, kein Start-Popup, keine
+    Fehlermeldung). Lange auf den Titel „SoundBuddy“ drücken schickt sofort
+    ein Tier vorbei.
 - **Einstellungen** (Drei-Punkte-Menü oben rechts)
   - **Passwortschutz:** Ist ein Passwort hinterlegt und „Einstellungen nur
     mit Passwort öffnen“ aktiv, wird beim Öffnen danach gefragt. Ohne
@@ -101,7 +125,10 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
       „Hinzugefügt“ (älteste oder neueste zuerst).
     - die **Abspielreihenfolge**: „Der Reihe nach“, „Zufällig“ oder „Kinder
       entscheiden“. Gilt für Playlisten und Alben; Songs, Radio und
-      Sonos-Playlisten mit nur einem Titel laufen einfach los. „Musik
+      Sonos-Playlisten mit nur einem Titel laufen einfach los.
+    - **Tier am Cover**: „Tanzen“ oder „Vorlesen“. Kategorien mit „Hörbuch“,
+      „Hörspiel“, „Geschichte“ oder „Märchen“ im Namen (oder dem
+      Hörbuch-Bild) lesen von Anfang an vor, alle anderen tanzen. „Musik
     hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
     Sonos-Playlisten) mit Suche und Filter nach Songs, Playlisten, Alben und
     Radio; ein Tipp nimmt einen Eintrag in die Kategorie auf oder wieder
@@ -292,7 +319,7 @@ WLAN oder als Datei. Das empfangende Tablet sucht sich aus, was es
 
 | Bereich | Inhalt | Vorauswahl |
 |---|---|---|
-| Kinder-Profile und Musikauswahl | Profile (Name, Icon), alle Kategorien mit Musik, Reihenfolge, eigenen Bildern und gespeicherten Covern sowie welches Profil welche Kategorie sieht | an |
+| Kinder-Profile und Musikauswahl | Profile (Name, Icon), alle Kategorien mit Musik, Reihenfolge, Tier am Cover, eigenen Bildern und gespeicherten Covern sowie welches Profil welche Kategorie sieht | an |
 | Speaker-Einstellungen | Icon und maximale Lautstärke | an |
 | Speaker-Freigabe | „auf dem Homescreen auswählbar“ | aus |
 | Passwort | Hash, Salt und „nur mit Passwort öffnen“ | aus |
@@ -356,12 +383,13 @@ liest die Datei auf dem anderen Tablet ein.
 
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 9):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 11):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
 - `app_setting` — Key-Value: Passwort-Hash/-Salt, Passwortschutz an/aus,
-  zuletzt gewählter Speaker und zuletzt gewähltes Profil
+  zuletzt gewählter Speaker und zuletzt gewähltes Profil, je Speaker die
+  Kategorie der zuletzt gestarteten Musik (`last_category_<playerId>`)
 - `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
   (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden),
   Kennung für den Abgleich zwischen Tablets (`syncId`, seit Version 9,
@@ -371,7 +399,8 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 9):
   (Bild und Reihenfolge seit Version 5, Migration `MIGRATION_4_5`). Bis
   Version 7 gehörte jede Kategorie genau einem Profil. Sortierung der
   Musik (`itemSort`, `itemSortDescending`, seit Version 10, Migration
-  `MIGRATION_9_10`).
+  `MIGRATION_9_10`). Tier am Cover (`coverAnimation`, seit Version 11,
+  Migration `MIGRATION_10_11`; Hörbücher & Co. lesen gleich vor).
 - `profile_category` — welches Profil welche Kategorie sieht (seit
   Version 8, Migration `MIGRATION_7_8`: übernimmt die bisherige Zuordnung,
   entfernt die Profil-Spalte aus `music_category` und nummeriert die
@@ -396,6 +425,8 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
+| `AnimalFigure.kt` | Profil-Tiere als Figur mit Körper, geschlossene Augen zum Schlafen |
+| `NowPlayingAnimals.kt`, `AnimalVisitor.kt` | Tier am Cover und auf dem Fortschrittsbalken, Tierbesuch |
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
 | `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite, zentrale Musikauswahl mit Kategorien, Katalog-Auswahl |

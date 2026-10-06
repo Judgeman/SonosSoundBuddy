@@ -163,9 +163,25 @@ class MainViewModel(
     var passwordWrong: Boolean by mutableStateOf(false)
         private set
 
+    /**
+     * Was das Tier am Cover macht: wie in der Kategorie eingestellt, aus der auf
+     * dem gewählten Speaker zuletzt etwas gestartet wurde. Ist das unbekannt
+     * (noch nichts gestartet, Kategorie gelöscht oder nach einem Abgleich neu
+     * angelegt), tanzt es.
+     */
+    val coverAnimation: CoverAnimation
+        get() {
+            val categoryId = selectedPlayerId?.let { settings.lastStartedCategories[it] } ?: return CoverAnimation.DANCE
+            return categories.firstOrNull { it.category.id == categoryId }?.category?.coverAnimationMode
+                ?: CoverAnimation.DANCE
+        }
+
+    /** Ob die App gerade zu sehen ist — nur dann wird abgefragt und kommen Tiere zu Besuch. */
+    var isInForeground: Boolean by mutableStateOf(false)
+        private set
+
     private var householdId: String? = null
     private var settingsLoaded = false
-    private var isInForeground = false
     private var pollJob: Job? = null
     private var lastCommandAtMillis = 0L
     private var volumeJob: Job? = null
@@ -602,6 +618,8 @@ class MainViewModel(
             // Adresse), das frische aus der Wiedergabe nehmen — für Playlisten das der Playlist
             onPlaying = { playing ->
                 viewModelScope.launch {
+                    // Danach richtet sich, ob das Tier am Cover tanzt oder vorliest
+                    repository.setLastStartedCategory(playerId, item.categoryId)
                     repository.storeCoverFromPlayback(item.id, playing.containerImageUrl, playing.imageUrl)
                 }
             }
@@ -865,6 +883,10 @@ class MainViewModel(
 
     fun setCategoryItemSort(categoryId: Long, sort: ItemSort, descending: Boolean) {
         viewModelScope.launch { repository.setCategoryItemSort(categoryId, sort, descending) }
+    }
+
+    fun setCategoryCoverAnimation(categoryId: Long, animation: CoverAnimation) {
+        viewModelScope.launch { repository.setCategoryCoverAnimation(categoryId, animation) }
     }
 
     /** Verschiebt einen Eintrag in der manuellen Reihenfolge seiner Kategorie. */
