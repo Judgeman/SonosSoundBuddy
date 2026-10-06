@@ -648,18 +648,12 @@ class MainViewModel(
                 try {
                     load(false)
                 } catch (e: SonosApiException) {
-                    when {
-                        // Geladen ist schon, nur die Warteschlange noch leer — kein zweites REPLACE,
-                        // das Ausschalten des Zufalls unten wird wiederholt, bis sie gefüllt ist
-                        e.isQueueStillEmpty -> Unit
-                        // Manche Quellen nehmen beim Laden keine Wiedergabemodi an:
-                        // Zufall dann vorher ausschalten und ohne Modi laden
-                        e.httpCode in 400..498 -> {
-                            runCatching { apiClient.setShuffle(group.id, false) }
-                            load(null)
-                        }
-                        else -> throw e
-                    }
+                    // Manche Quellen nehmen beim Laden keine Wiedergabemodi an — auch HTTP 499
+                    // „No tracks added to queue“ heißt: nichts geladen, die alte Warteschlange
+                    // ist noch da. Zufall dann vorher ausschalten und ohne Modi laden.
+                    if (e.httpCode == null || e.httpCode !in 400..499) throw e
+                    runCatching { apiClient.setShuffle(group.id, false) }
+                    load(null)
                 }
             } else {
                 load(null)
