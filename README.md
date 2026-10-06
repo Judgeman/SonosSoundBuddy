@@ -71,6 +71,15 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     ein dunkler Verlauf mit weißer Schrift und heller Akzentfarbe. Beim
     Track-Wechsel blenden die Farben sanft über. Die App zeichnet dafür bis
     unter die Statusleiste (Edge-to-Edge).
+  - **Tierbesuch:** Alle 10–20 Minuten schaut eins der Profil-Tiere mit
+    kleinem gezeichneten Körper vorbei (`AnimalVisitor.kt`): Es läuft unten
+    über den Bildschirm und bleibt meist stehen, um zu winken, schaut
+    seitlich herein oder taucht unten auf und winkt. Antippen lässt es hüpfen,
+    und ein Herz steigt auf; alle anderen Berührungen gehen an den
+    Homescreen. Die Pause läuft nur, solange der Homescreen frei zu sehen ist
+    (App im Vordergrund, kein Musik-Popup, kein Start-Popup, keine
+    Fehlermeldung). Lange auf den Titel „SoundBuddy“ drücken schickt sofort
+    ein Tier vorbei.
 - **Einstellungen** (Drei-Punkte-Menü oben rechts)
   - **Passwortschutz:** Ist ein Passwort hinterlegt und „Einstellungen nur
     mit Passwort öffnen“ aktiv, wird beim Öffnen danach gefragt. Ohne
@@ -396,6 +405,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
+| `AnimalVisitor.kt` | Tierbesuch auf dem Homescreen |
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
 | `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite, zentrale Musikauswahl mit Kategorien, Katalog-Auswahl |

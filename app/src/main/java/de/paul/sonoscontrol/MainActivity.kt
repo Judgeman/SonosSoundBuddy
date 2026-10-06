@@ -111,6 +111,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             maxVolume = viewModel.selectedMaxVolume,
             playbackError = viewModel.playbackError,
             visiblePlaybackError = viewModel.visiblePlaybackError,
+            isInForeground = viewModel.isInForeground,
             onDismissPlaybackError = viewModel::dismissPlaybackError,
             onSelectSpeaker = viewModel::selectSpeaker,
             profiles = viewModel.selectableProfiles,

@@ -163,9 +163,12 @@ class MainViewModel(
     var passwordWrong: Boolean by mutableStateOf(false)
         private set
 
+    /** Ob die App gerade zu sehen ist — nur dann wird abgefragt und kommen Tiere zu Besuch. */
+    var isInForeground: Boolean by mutableStateOf(false)
+        private set
+
     private var householdId: String? = null
     private var settingsLoaded = false
-    private var isInForeground = false
     private var pollJob: Job? = null
     private var lastCommandAtMillis = 0L
     private var volumeJob: Job? = null
