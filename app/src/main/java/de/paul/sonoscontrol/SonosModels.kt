@@ -48,7 +48,8 @@ data class GroupsResponse(
 data class PlaybackStatus(
     val playbackState: String? = null,
     val positionMillis: Long = 0,
-    val availablePlaybackActions: PlaybackActions? = null
+    val availablePlaybackActions: PlaybackActions? = null,
+    val playModes: PlayModes? = null
 ) {
     val isPlaying: Boolean get() = playbackState == STATE_PLAYING
     val isBuffering: Boolean get() = playbackState == STATE_BUFFERING
@@ -60,6 +61,10 @@ data class PlaybackStatus(
         const val STATE_PAUSED = "PLAYBACK_STATE_PAUSED"
     }
 }
+
+/** Wiedergabemodi der Gruppe — hier interessiert nur der Zufall. */
+@Serializable
+data class PlayModes(val shuffle: Boolean = false)
 
 /** Welche Steuerbefehle die aktuelle Quelle erlaubt (z. B. kein Skip bei Radio). */
 @Serializable

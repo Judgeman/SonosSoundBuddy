@@ -643,33 +643,63 @@ class MainViewModel(
                 return@sendPlaybackCommand
             }
             val wantsShuffle = useShuffle && item.hasMultipleTracks
-            // Ist beim Laden noch Zufall vom letzten Mal an, wählt Sonos einen zufälligen ersten
-            // Titel — beim späteren Ausschalten bleibt es bei diesem, die Reihe startet mittendrin.
-            // Deshalb Zufall schon vorher ausschalten, solange die alte Warteschlange noch da ist.
-            // Klappt das nicht (z. B. lief vorher Radio), ist dort auch kein Zufall an.
-            if (!wantsShuffle) runCatching { apiClient.setShuffle(group.id, false) }
-                .onFailure { Log.d(TAG, "Zufall vor dem Laden nicht ausgeschaltet: ${it.message}") }
-            try {
-                load(false)
-                // Nach dem Laden ohne Abspielen füllt Sonos die Warteschlange noch —
-                // bis dahin lehnt es Befehle ab, deshalb jeweils kurz wiederholen.
-                // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
-                // Klappt das nicht (manche Quellen erlauben es nicht), trotzdem abspielen.
-                val shuffled = wantsShuffle &&
-                    runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, true) } }.isSuccess
-                if (!shuffled) runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, false) } }
-                // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
-                if (shuffled) runCatching { retryWhileQueueFills { apiClient.skipToNextTrack(group.id) } }
-                retryWhileQueueFills { apiClient.play(group.id) }
-            } catch (e: SonosApiException) {
-                if (!e.isQueueStillEmpty) throw e
-                // Die Warteschlange ist leer geblieben (oder Sonos hat beim Laden nichts eingereiht):
-                // Lieber noch einmal laden und Sonos selbst
-                // starten lassen — Musik ist wichtiger als die genaue Reihenfolge
-                Log.w(TAG, "Warteschlange nach dem Laden leer, lade „${item.name}“ neu", e)
-                load(true)
-            }
+            if (!wantsShuffle) switchOffLeftoverShuffle(group.id)
+            loadRetryingWhenNothingQueued(item) { load(false) }
+            // Nach dem Laden ohne Abspielen füllt Sonos die Warteschlange noch —
+            // bis dahin lehnt es Befehle ab, deshalb jeweils kurz wiederholen.
+            // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
+            // Klappt das nicht (manche Quellen erlauben es nicht), trotzdem abspielen.
+            val shuffled = wantsShuffle &&
+                runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, true) } }.isSuccess
+            if (!shuffled) runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, false) } }
+            // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
+            if (shuffled) runCatching { retryWhileQueueFills { apiClient.skipToNextTrack(group.id) } }
+            retryWhileQueueFills { apiClient.play(group.id) }
         }
+    }
+
+    /**
+     * Ist beim Laden noch Zufall vom letzten Mal an, wählt Sonos einen zufälligen ersten Titel —
+     * beim späteren Ausschalten bleibt es bei diesem, die Reihe startet mittendrin. Deshalb den
+     * Zufall vorher ausschalten, aber nur, wenn er wirklich an ist: Direkt nach dem Ausschalten
+     * reiht Sonos beim Laden keine Titel ein (HTTP 499). Daher warten, bis Sonos den Zufall als
+     * aus meldet, und noch einen Moment länger. Ohne Antwort zum Zufall bleibt alles wie es ist.
+     */
+    private suspend fun switchOffLeftoverShuffle(groupId: String) {
+        val shuffleOn = currentShuffle(groupId) ?: return
+        if (!shuffleOn) return
+        runCatching { apiClient.setShuffle(groupId, false) }.onFailure {
+            Log.d(TAG, "Übrig gebliebener Zufall nicht ausgeschaltet: ${it.message}")
+            return
+        }
+        val deadline = SystemClock.elapsedRealtime() + SHUFFLE_OFF_TIMEOUT_MS
+        do {
+            delay(SHUFFLE_OFF_POLL_MS)
+        } while (currentShuffle(groupId) != false && SystemClock.elapsedRealtime() < deadline)
+        delay(SHUFFLE_OFF_SETTLE_MS)
+    }
+
+    private suspend fun currentShuffle(groupId: String): Boolean? =
+        runCatching { apiClient.getPlaybackStatus(groupId).playModes?.shuffle }
+            .onFailure { if (it is CancellationException) throw it }
+            .getOrNull()
+            .also { if (it == null) Log.d(TAG, "Sonos meldet keinen Zufallsmodus für Gruppe $groupId") }
+
+    /**
+     * Lädt mit [load] und versucht es nach kurzer Pause erneut, wenn Sonos dabei keine Titel
+     * eingereiht hat (HTTP 499) — höchstens [LOAD_ATTEMPTS]-mal.
+     */
+    private suspend fun loadRetryingWhenNothingQueued(item: MusicItem, load: suspend () -> Unit) {
+        repeat(LOAD_ATTEMPTS - 1) { attempt ->
+            try {
+                return load()
+            } catch (e: SonosApiException) {
+                if (!e.isNoContent) throw e
+                Log.w(TAG, "„${item.name}“: keine Titel eingereiht (Versuch ${attempt + 1}), gleich noch einmal")
+            }
+            delay(LOAD_RETRY_DELAY_MS)
+        }
+        load()
     }
 
     /**
@@ -682,7 +712,7 @@ class MainViewModel(
             try {
                 return command()
             } catch (e: SonosApiException) {
-                if (!e.isQueueStillEmpty || SystemClock.elapsedRealtime() >= deadline) throw e
+                if (!e.isNoContent || SystemClock.elapsedRealtime() >= deadline) throw e
             }
             delay(QUEUE_FILL_RETRY_MS)
         }
@@ -1090,6 +1120,11 @@ class MainViewModel(
         private const val MUSIC_REFRESH_DELAY_MS = 1_500L
         private const val QUEUE_FILL_RETRY_MS = 400L
         private const val QUEUE_FILL_TIMEOUT_MS = 3_000L
+        private const val SHUFFLE_OFF_POLL_MS = 300L
+        private const val SHUFFLE_OFF_TIMEOUT_MS = 3_000L
+        private const val SHUFFLE_OFF_SETTLE_MS = 1_000L
+        private const val LOAD_ATTEMPTS = 3
+        private const val LOAD_RETRY_DELAY_MS = 1_500L
     }
 }
 

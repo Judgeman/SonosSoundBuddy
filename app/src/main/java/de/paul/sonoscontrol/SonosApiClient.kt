@@ -26,8 +26,11 @@ import kotlin.coroutines.resumeWithException
 
 class SonosApiException(message: String, val httpCode: Int? = null) : Exception(message)
 
-/** Sonos füllt die Warteschlange nach dem Laden noch — Befehle darauf gehen erst danach. */
-val SonosApiException.isQueueStillEmpty: Boolean
+/**
+ * HTTP 499 ERROR_PLAYBACK_NO_CONTENT: Die Warteschlange ist leer — sie füllt sich nach dem
+ * Laden noch, oder Sonos hat beim Laden gar keine Titel eingereiht („No tracks added to queue“).
+ */
+val SonosApiException.isNoContent: Boolean
     get() = message?.contains("ERROR_PLAYBACK_NO_CONTENT") == true
 
 /** Die Anmeldung lässt sich nicht mehr erneuern (Refresh-Token ungültig/widerrufen). */
@@ -250,6 +253,8 @@ class SonosApiClient(
                     response.use {
                         val bodyString = it.body?.string().orEmpty()
                         if (!it.isSuccessful) {
+                            // Für die Fehlersuche: welcher Aufruf genau abgelehnt wurde
+                            Log.w(TAG, "${request.method} ${request.url.encodedPath} → HTTP ${it.code}: $bodyString")
                             continuation.resumeWithException(
                                 SonosApiException("HTTP ${it.code}: $bodyString", it.code)
                             )
