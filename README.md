@@ -101,9 +101,11 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Passwort sind die Einstellungen frei erreichbar und es kann dort eins
     gesetzt werden (aktiviert den Schutz automatisch). Gespeichert wird nur
     ein PBKDF2-Hash mit Salt.
-  - Die Einstellungs-Seite zeigt oben die **Musikauswahl**, darunter
-    Speaker, Kinder-Profile, Abgleich, Passwort und Konto. Speaker und
-    Kategorien haben eigene Unterseiten, damit die Hauptseite kurz bleibt.
+  - Die Einstellungs-Seite zeigt ganz oben die **App-Version**
+    (`versionName` aus `app/build.gradle.kts`), dann die **Musikauswahl**,
+    darunter Speaker, Kinder-Profile, Abgleich, Passwort und Konto. Speaker
+    und Kategorien haben eigene Unterseiten, damit die Hauptseite kurz
+    bleibt.
   - **Speaker** (eigene Unterseite „Speaker verwalten“; die Hauptseite
     zeigt nur, wie viele es gibt, wie viele auswählbar und ob neue dazu
     gekommen sind): pro Speaker ein Schalter „auf dem Homescreen

@@ -112,6 +112,15 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
+            item {
+                Text(
+                    "Version ${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
             // Die Musikauswahl ändert sich am häufigsten, deshalb ganz oben
             musicLibrarySection(categories = categories, onOpenLibrary = onOpenLibrary)
 
