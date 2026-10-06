@@ -138,17 +138,10 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             StatusBarIcons(light = !isSystemInDarkTheme())
             SettingsScreen(
                 speakers = viewModel.speakerConfigs,
-                availablePlayerIds = viewModel.availablePlayerIds,
                 settings = viewModel.settings,
                 isLoggedIn = viewModel.uiState !is UiState.LoggedOut,
                 onBack = viewModel::navigateBack,
-                isRefreshingSpeakers = viewModel.isRefreshingSpeakers,
-                speakerRefreshMessage = viewModel.speakerRefreshMessage,
-                onRefreshSpeakers = viewModel::refreshSpeakers,
-                onDeleteSpeaker = viewModel::deleteSpeaker,
-                onSpeakerEnabledChange = viewModel::setSpeakerEnabled,
-                onSpeakerIconChange = viewModel::setSpeakerIcon,
-                onSpeakerMaxVolumeChange = viewModel::setSpeakerMaxVolume,
+                onOpenSpeakers = viewModel::openSpeakers,
                 categories = viewModel.categories,
                 onOpenLibrary = viewModel::openLibrary,
                 profiles = viewModel.profiles,
@@ -161,6 +154,24 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                 onOpenSync = viewModel::openSync,
                 syncNotice = syncViewModel.cloudNotice,
                 onLogout = viewModel::logout
+            )
+        }
+
+        Screen.Speakers -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            SpeakerSettingsScreen(
+                speakers = viewModel.speakerConfigs,
+                availablePlayerIds = viewModel.availablePlayerIds,
+                isLoggedIn = viewModel.uiState !is UiState.LoggedOut,
+                isRefreshingSpeakers = viewModel.isRefreshingSpeakers,
+                speakerRefreshMessage = viewModel.speakerRefreshMessage,
+                onBack = viewModel::navigateBack,
+                onRefreshSpeakers = viewModel::refreshSpeakers,
+                onDeleteSpeaker = viewModel::deleteSpeaker,
+                onSpeakerEnabledChange = viewModel::setSpeakerEnabled,
+                onSpeakerIconChange = viewModel::setSpeakerIcon,
+                onSpeakerMaxVolumeChange = viewModel::setSpeakerMaxVolume
             )
         }
 
@@ -199,28 +210,23 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                 categories = viewModel.categories,
                 profiles = viewModel.profiles.map { it.profile },
                 imageError = viewModel.imageImportError,
-                actions = remember(viewModel) {
-                    MusicLibraryActions(
-                        onBack = viewModel::navigateBack,
-                        onCreateCategory = viewModel::createCategory,
-                        onRenameCategory = viewModel::renameCategory,
-                        onDeleteCategory = viewModel::deleteCategory,
-                        onMoveCategory = viewModel::moveCategory,
-                        onCategoryVisibleChange = viewModel::setCategoryVisible,
-                        onAddMusic = viewModel::openCatalog,
-                        onRemoveMusicItem = viewModel::removeMusicItem,
-                        onCategoryImageChange = viewModel::setCategoryImage,
-                        onImportCategoryImage = viewModel::importCategoryImage,
-                        onItemImageChange = viewModel::setMusicItemImage,
-                        onImportItemImage = viewModel::importMusicItemImage,
-                        onPlayOrderChange = viewModel::setCategoryPlayOrder,
-                        onItemSortChange = viewModel::setCategoryItemSort,
-                        onCoverAnimationChange = viewModel::setCategoryCoverAnimation,
-                        onMoveMusicItem = viewModel::moveMusicItem,
-                        onDismissImageError = viewModel::dismissImageImportError
-                    )
-                }
+                actions = rememberMusicLibraryActions(viewModel)
             )
+        }
+
+        Screen.CategoryEditor -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            viewModel.editingCategory?.let { category ->
+                CategoryEditorScreen(
+                    category = category,
+                    categories = viewModel.categories,
+                    profiles = viewModel.profiles.map { it.profile },
+                    addMusicAtStart = viewModel.settings.addMusicAtStart,
+                    imageError = viewModel.imageImportError,
+                    actions = rememberMusicLibraryActions(viewModel)
+                )
+            }
         }
 
         Screen.MusicCatalog -> {
@@ -231,6 +237,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                     category = category,
                     state = viewModel.catalogState,
                     playlistPreview = viewModel.playlistPreview,
+                    insertAtStart = viewModel.settings.addMusicAtStart
+                        .takeIf { category.category.itemSortMode == ItemSort.MANUAL },
                     onBack = viewModel::navigateBack,
                     onReload = viewModel::loadCatalog,
                     onToggleEntry = viewModel::toggleCatalogEntry,
@@ -248,6 +256,33 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             onDismiss = viewModel::dismissPasswordPrompt
         )
     }
+}
+
+@Composable
+private fun rememberMusicLibraryActions(viewModel: MainViewModel): MusicLibraryActions = remember(viewModel) {
+    MusicLibraryActions(
+        onBack = viewModel::navigateBack,
+        onCreateCategory = viewModel::createCategory,
+        onOpenCategory = viewModel::openCategory,
+        onRenameCategory = viewModel::renameCategory,
+        onDeleteCategory = viewModel::deleteCategory,
+        onMoveCategory = viewModel::moveCategory,
+        onReorderCategories = viewModel::reorderCategories,
+        onCategoryVisibleChange = viewModel::setCategoryVisible,
+        onAddMusic = viewModel::openCatalog,
+        onAddMusicAtStartChange = viewModel::setAddMusicAtStart,
+        onRemoveMusicItem = viewModel::removeMusicItem,
+        onCategoryImageChange = viewModel::setCategoryImage,
+        onImportCategoryImage = viewModel::importCategoryImage,
+        onItemImageChange = viewModel::setMusicItemImage,
+        onImportItemImage = viewModel::importMusicItemImage,
+        onPlayOrderChange = viewModel::setCategoryPlayOrder,
+        onItemSortChange = viewModel::setCategoryItemSort,
+        onCoverAnimationChange = viewModel::setCategoryCoverAnimation,
+        onMoveMusicItem = viewModel::moveMusicItem,
+        onReorderMusicItems = viewModel::reorderMusicItems,
+        onDismissImageError = viewModel::dismissImageImportError
+    )
 }
 
 private val LightColors = lightColorScheme(

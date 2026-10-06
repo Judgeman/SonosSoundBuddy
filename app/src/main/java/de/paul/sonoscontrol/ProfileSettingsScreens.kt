@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,11 +58,14 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.VerticalAlignBottom
+import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -111,7 +115,6 @@ import coil.compose.AsyncImage
 /** Einstieg in die zentrale Musikauswahl, aus der sich alle Profile bedienen. */
 fun LazyListScope.musicLibrarySection(categories: List<CategoryWithMusic>, onOpenLibrary: () -> Unit) {
     item {
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         SectionHeader(
             title = "Musikauswahl",
             description = "Kategorien und Musik werden hier einmal zentral angelegt. " +
@@ -354,16 +357,21 @@ fun ProfileEditorScreen(
 
 // --- Unterseite: die zentrale Musikauswahl bearbeiten ---------------------
 
-/** Callbacks der Musikauswahl-Seite, gebündelt damit die Signatur übersichtlich bleibt. */
+/** Callbacks der Musikauswahl und ihrer Kategorie-Seiten, gebündelt damit die Signatur übersichtlich bleibt. */
 class MusicLibraryActions(
     val onBack: () -> Unit,
     val onCreateCategory: (String) -> Unit,
+    val onOpenCategory: (Long) -> Unit,
     val onRenameCategory: (Long, String) -> Unit,
     val onDeleteCategory: (Long) -> Unit,
+    /** Kategorie-Id, Plätze (−1 = einen nach oben). */
     val onMoveCategory: (Long, Int) -> Unit,
+    /** Ids aller Kategorien in der neuen Reihenfolge (nach Drag & Drop). */
+    val onReorderCategories: (List<Long>) -> Unit,
     /** Kategorie-Id, Profil-Id, sichtbar. */
     val onCategoryVisibleChange: (Long, Long, Boolean) -> Unit,
     val onAddMusic: (Long) -> Unit,
+    val onAddMusicAtStartChange: (Boolean) -> Unit,
     val onRemoveMusicItem: (Long) -> Unit,
     val onCategoryImageChange: (Long, CustomImage) -> Unit,
     val onImportCategoryImage: (Long, Uri) -> Unit,
@@ -372,10 +380,17 @@ class MusicLibraryActions(
     val onPlayOrderChange: (Long, PlayOrder) -> Unit,
     val onItemSortChange: (Long, ItemSort, Boolean) -> Unit,
     val onCoverAnimationChange: (Long, CoverAnimation) -> Unit,
+    /** Eintrags-Id, Plätze (−1 = einen nach oben). */
     val onMoveMusicItem: (Long, Int) -> Unit,
+    /** Kategorie-Id, Ids ihrer Musik in der neuen Reihenfolge (nach Drag & Drop). */
+    val onReorderMusicItems: (Long, List<Long>) -> Unit,
     val onDismissImageError: () -> Unit
 )
 
+/**
+ * Übersicht der Musikauswahl: pro Kategorie nur Bild, Name und Platz in der Reihenfolge.
+ * Musik und Einstellungen einer Kategorie liegen auf ihrer eigenen Seite ([CategoryEditorScreen]).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MusicLibraryScreen(
@@ -384,7 +399,499 @@ fun MusicLibraryScreen(
     imageError: String?,
     actions: MusicLibraryActions
 ) {
-    // Wofür der Bild-Dialog bzw. die Android-Fotoauswahl gerade offen ist, z. B. "category:3" oder "item:7"
+    val openImageDialog = rememberImageChooser(categories, actions)
+    val snackbarHostState = remember { SnackbarHostState() }
+    ImageErrorSnackbar(imageError, snackbarHostState, actions.onDismissImageError)
+    var showNewCategory by remember { mutableStateOf(false) }
+    var renameCategory by remember { mutableStateOf<MusicCategory?>(null) }
+
+    val listState = rememberLazyListState()
+    val reorder = rememberReorderState(listState, categories.map { it.category.id }) { keys ->
+        actions.onReorderCategories(keys.map { it as Long })
+    }
+    val shown = reorder.arrange(categories) { it.category.id }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Musikauswahl") },
+                navigationIcon = {
+                    IconButton(onClick = actions.onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Zurück")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            item {
+                SectionHeader(
+                    title = "Kategorien",
+                    description = "Die Kategorien erscheinen auf dem Startbildschirm unter dem Play-Knopf — " +
+                        "in dieser Reihenfolge. Tippe auf eine Kategorie, um ihre Musik und Einstellungen zu " +
+                        "bearbeiten. Verschieben am Griff oder mit den Pfeilen; langes Drücken auf einen Pfeil " +
+                        "setzt die Kategorie ganz nach oben bzw. unten."
+                )
+            }
+
+            if (categories.isEmpty()) {
+                item {
+                    Text(
+                        "Noch keine Kategorien. Lege z. B. „Lieblingslieder“ oder „Hörspiele“ an.",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+
+            itemsIndexed(shown, key = { _, it -> it.category.id }) { index, category ->
+                val id = category.category.id
+                CategoryRow(
+                    category = category,
+                    profiles = profiles,
+                    reorder = reorder,
+                    canMoveUp = index > 0,
+                    canMoveDown = index < shown.lastIndex,
+                    onOpen = { actions.onOpenCategory(id) },
+                    onRename = { renameCategory = category.category },
+                    onImageClick = { openImageDialog("$CATEGORY_TARGET:$id") },
+                    onMove = { actions.onMoveCategory(id, it) },
+                    onMoveToEnd = { toTop -> actions.onMoveCategory(id, if (toTop) -shown.size else shown.size) },
+                    modifier = if (reorder.draggedKey == id) Modifier.draggedItem(reorder, id) else Modifier.animateItem()
+                )
+            }
+
+            item {
+                Button(
+                    onClick = { showNewCategory = true },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Kategorie hinzufügen")
+                }
+            }
+        }
+    }
+
+    if (showNewCategory) {
+        NameDialog(
+            title = "Neue Kategorie",
+            label = "Name der Kategorie",
+            initialValue = "",
+            confirmText = "Anlegen",
+            onConfirm = {
+                actions.onCreateCategory(it)
+                showNewCategory = false
+            },
+            onDismiss = { showNewCategory = false }
+        )
+    }
+    renameCategory?.let { category ->
+        RenameCategoryDialog(
+            category = category,
+            onConfirm = {
+                actions.onRenameCategory(category.id, it)
+                renameCategory = null
+            },
+            onDismiss = { renameCategory = null }
+        )
+    }
+}
+
+/** Eine Zeile der Übersicht: Griff, Bild, Name, Umbenennen, Pfeile — ein Tipp öffnet die Kategorie. */
+@Composable
+private fun CategoryRow(
+    category: CategoryWithMusic,
+    profiles: List<ChildProfile>,
+    reorder: ReorderState,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onOpen: () -> Unit,
+    onRename: () -> Unit,
+    onImageClick: () -> Unit,
+    onMove: (Int) -> Unit,
+    onMoveToEnd: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val name = category.category.name
+    val dragged = reorder.draggedKey == category.category.id
+    Card(
+        onClick = onOpen,
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (dragged) 8.dp else 0.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)
+        ) {
+            DragHandle(reorder, category.category.id, description = "$name verschieben")
+            EditableImage(onClick = onImageClick) { CategoryImageView(category, size = 64.dp) }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val seenBy = profiles.filter { it.id in category.profileIds }.map { it.name }
+                Text(
+                    describeItemCount(category) + " · " +
+                        if (seenBy.isEmpty()) "für niemanden sichtbar" else "für ${seenBy.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (seenBy.isEmpty() && profiles.isNotEmpty()) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = onRename) {
+                Icon(Icons.Rounded.Edit, contentDescription = "$name umbenennen")
+            }
+            MoveButtons(
+                name = name,
+                canMoveUp = canMoveUp,
+                canMoveDown = canMoveDown,
+                onMove = onMove,
+                onMoveToEnd = onMoveToEnd
+            )
+            Icon(
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp)
+            )
+        }
+    }
+}
+
+// --- Unterseite: eine Kategorie mit ihrer Musik ---------------------------
+
+/** Eine Kategorie: Bild, Name, wer sie sieht, wie sie abspielt — und ihre Musik. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CategoryEditorScreen(
+    category: CategoryWithMusic,
+    categories: List<CategoryWithMusic>,
+    profiles: List<ChildProfile>,
+    addMusicAtStart: Boolean,
+    imageError: String?,
+    actions: MusicLibraryActions
+) {
+    val id = category.category.id
+    val openImageDialog = rememberImageChooser(categories, actions)
+    val snackbarHostState = remember { SnackbarHostState() }
+    ImageErrorSnackbar(imageError, snackbarHostState, actions.onDismissImageError)
+    var showRename by remember { mutableStateOf(false) }
+    var showDelete by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    val sort = category.category.itemSortMode
+    val listState = rememberLazyListState()
+    val reorder = rememberReorderState(listState, category.items.map { it.id }) { keys ->
+        actions.onReorderMusicItems(id, keys.map { it as Long })
+    }
+    val items = reorder.arrange(category.items) { it.id }
+    val movable = sort == ItemSort.MANUAL && items.size > 1
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text(category.category.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = actions.onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Zurück")
+                    }
+                },
+                actions = {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "Weitere Aktionen")
+                        }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Kategorie löschen") },
+                                leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                                onClick = { menuExpanded = false; showDelete = true }
+                            )
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            item {
+                CategoryHeader(
+                    category = category,
+                    onImageClick = { openImageDialog("$CATEGORY_TARGET:$id") },
+                    onRenameClick = { showRename = true }
+                )
+                VisibilitySelector(
+                    profiles = profiles,
+                    visibleFor = category.profileIds,
+                    onVisibleChange = { profileId, visible -> actions.onCategoryVisibleChange(id, profileId, visible) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                PlayOrderSelector(
+                    selected = category.category.playOrderMode,
+                    onSelect = { actions.onPlayOrderChange(id, it) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                CoverAnimationSelector(
+                    selected = category.category.coverAnimationMode,
+                    onSelect = { actions.onCoverAnimationChange(id, it) },
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(title = "Musik", description = null)
+                ItemSortSelector(
+                    selected = sort,
+                    descending = category.category.itemSortDescending,
+                    onSelect = { itemSort, descending -> actions.onItemSortChange(id, itemSort, descending) },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                AddPositionSelector(
+                    atStart = addMusicAtStart,
+                    sortedManually = sort == ItemSort.MANUAL,
+                    onChange = actions.onAddMusicAtStartChange,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+                Button(
+                    onClick = { actions.onAddMusic(id) },
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp)
+                ) {
+                    Icon(Icons.Rounded.LibraryAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Musik hinzufügen")
+                }
+            }
+
+            if (items.isEmpty()) {
+                item {
+                    Text(
+                        "Noch keine Musik in dieser Kategorie. Leere Kategorien sehen die Kinder nicht.",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+
+            itemsIndexed(items, key = { _, it -> it.id }) { index, item ->
+                MusicItemRow(
+                    item = item,
+                    reorder = reorder,
+                    movable = movable,
+                    canMoveUp = index > 0,
+                    canMoveDown = index < items.lastIndex,
+                    onImageClick = { openImageDialog("$ITEM_TARGET:${item.id}") },
+                    onMove = { actions.onMoveMusicItem(item.id, it) },
+                    onMoveToEnd = { toTop -> actions.onMoveMusicItem(item.id, if (toTop) -items.size else items.size) },
+                    onRemove = { actions.onRemoveMusicItem(item.id) },
+                    modifier = if (reorder.draggedKey == item.id) {
+                        Modifier.draggedItem(reorder, item.id)
+                    } else {
+                        Modifier.animateItem()
+                    }
+                )
+            }
+        }
+    }
+
+    if (showRename) {
+        RenameCategoryDialog(
+            category = category.category,
+            onConfirm = {
+                actions.onRenameCategory(id, it)
+                showRename = false
+            },
+            onDismiss = { showRename = false }
+        )
+    }
+    if (showDelete) {
+        val seenBy = profiles.filter { it.id in category.profileIds }.map { it.name }
+        ConfirmDeleteDialog(
+            title = "„${category.category.name}“ löschen?",
+            text = "Die Kategorie und ihre ${category.items.size} Einträge werden aus der Musikauswahl entfernt" +
+                (if (seenBy.isEmpty()) "." else " — für ${seenBy.joinToString(", ")}.") +
+                " Bei Sonos selbst wird nichts gelöscht.",
+            onConfirm = {
+                showDelete = false
+                // Die Seite schließt sich von selbst, sobald die Kategorie weg ist
+                actions.onDeleteCategory(id)
+            },
+            onDismiss = { showDelete = false }
+        )
+    }
+}
+
+@Composable
+private fun CategoryHeader(category: CategoryWithMusic, onImageClick: () -> Unit, onRenameClick: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
+        EditableImage(onClick = onImageClick, badgeSize = 28.dp) { CategoryImageView(category, size = 96.dp) }
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                category.category.name,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                describeItemCount(category),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row {
+                TextButton(onClick = onRenameClick) {
+                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Umbenennen")
+                }
+                TextButton(onClick = onImageClick) { Text("Bild ändern") }
+            }
+        }
+    }
+}
+
+/** Ein Musik-Eintrag der Kategorie; bei manueller Sortierung mit Griff und Pfeilen. */
+@Composable
+private fun MusicItemRow(
+    item: MusicItem,
+    reorder: ReorderState,
+    movable: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onImageClick: () -> Unit,
+    onMove: (Int) -> Unit,
+    onMoveToEnd: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val dragged = reorder.draggedKey == item.id
+    Surface(
+        color = if (dragged) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
+        shadowElevation = if (dragged) 6.dp else 0.dp,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = if (movable) 4.dp else 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+        ) {
+            if (movable) DragHandle(reorder, item.id, description = "${item.name} verschieben")
+            EditableImage(onClick = onImageClick, badgeSize = 20.dp) {
+                MusicItemImage(item, size = 52.dp)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOfNotNull(item.musicType.label, item.description).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (movable) {
+                MoveButtons(
+                    name = item.name,
+                    canMoveUp = canMoveUp,
+                    canMoveDown = canMoveDown,
+                    onMove = onMove,
+                    onMoveToEnd = onMoveToEnd
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Rounded.Close, contentDescription = "${item.name} entfernen")
+            }
+        }
+    }
+}
+
+/** Ob „Musik hinzufügen“ neue Einträge an den Anfang oder ans Ende der Kategorie setzt. */
+@Composable
+private fun AddPositionSelector(
+    atStart: Boolean,
+    sortedManually: Boolean,
+    onChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            "Neue Musik einfügen",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = atStart,
+                onClick = { onChange(true) },
+                label = { Text("Am Anfang") },
+                leadingIcon = { Icon(Icons.Rounded.VerticalAlignTop, contentDescription = null, modifier = Modifier.size(20.dp)) }
+            )
+            FilterChip(
+                selected = !atStart,
+                onClick = { onChange(false) },
+                label = { Text("Am Ende") },
+                leadingIcon = { Icon(Icons.Rounded.VerticalAlignBottom, contentDescription = null, modifier = Modifier.size(20.dp)) }
+            )
+        }
+        if (!sortedManually) {
+            Text(
+                "Wirkt nur bei der Sortierung „${ItemSort.MANUAL.label}“ — sonst ergibt sich der Platz aus der Sortierung.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun RenameCategoryDialog(category: MusicCategory, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    NameDialog(
+        title = "Kategorie umbenennen",
+        label = "Name der Kategorie",
+        initialValue = category.name,
+        confirmText = "Speichern",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
+    )
+}
+
+@Composable
+private fun ImageErrorSnackbar(imageError: String?, snackbarHostState: SnackbarHostState, onDismiss: () -> Unit) {
+    LaunchedEffect(imageError) {
+        if (imageError != null) {
+            snackbarHostState.showSnackbar(imageError)
+            onDismiss()
+        }
+    }
+}
+
+/**
+ * Bild-Dialog samt Android-Fotoauswahl für Kategorien und Musik-Einträge.
+ * Gibt die Funktion zurück, die den Dialog öffnet, z. B. für "category:3" oder "item:7".
+ */
+@Composable
+private fun rememberImageChooser(categories: List<CategoryWithMusic>, actions: MusicLibraryActions): (String) -> Unit {
     var imageDialogFor by remember { mutableStateOf<String?>(null) }
     var importFor by rememberSaveable { mutableStateOf<String?>(null) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -402,86 +909,6 @@ fun MusicLibraryScreen(
         importFor = target
         imageDialogFor = null
         photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-    }
-    val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(imageError) {
-        if (imageError != null) {
-            snackbarHostState.showSnackbar(imageError)
-            actions.onDismissImageError()
-        }
-    }
-    var showNewCategory by remember { mutableStateOf(false) }
-    var renameCategory by remember { mutableStateOf<MusicCategory?>(null) }
-    var deleteCategory by remember { mutableStateOf<CategoryWithMusic?>(null) }
-
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("Musikauswahl") },
-                navigationIcon = {
-                    IconButton(onClick = actions.onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Zurück")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(bottom = 32.dp)
-        ) {
-            item {
-                SectionHeader(
-                    title = "Kategorien",
-                    description = "Die Kategorien erscheinen auf dem Startbildschirm unter dem Play-Knopf — " +
-                        "für jedes Profil, das unter „Sichtbar für“ ausgewählt ist. Leere Kategorien sehen die Kinder nicht."
-                )
-            }
-
-            if (categories.isEmpty()) {
-                item {
-                    Text(
-                        "Noch keine Kategorien. Lege z. B. „Lieblingslieder“ oder „Hörspiele“ an.",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-                }
-            }
-
-            itemsIndexed(categories, key = { _, it -> "category-${it.category.id}" }) { index, category ->
-                CategoryCard(
-                    category = category,
-                    profiles = profiles,
-                    canMoveUp = index > 0,
-                    canMoveDown = index < categories.lastIndex,
-                    onMove = { actions.onMoveCategory(category.category.id, it) },
-                    onRename = { renameCategory = category.category },
-                    onDelete = { deleteCategory = category },
-                    onVisibleChange = { profileId, visible ->
-                        actions.onCategoryVisibleChange(category.category.id, profileId, visible)
-                    },
-                    onAddMusic = { actions.onAddMusic(category.category.id) },
-                    onRemoveItem = actions.onRemoveMusicItem,
-                    onImageClick = { imageDialogFor = "$CATEGORY_TARGET:${category.category.id}" },
-                    onItemImageClick = { imageDialogFor = "$ITEM_TARGET:$it" },
-                    onPlayOrderChange = { actions.onPlayOrderChange(category.category.id, it) },
-                    onItemSortChange = { sort, descending -> actions.onItemSortChange(category.category.id, sort, descending) },
-                    onCoverAnimationChange = { actions.onCoverAnimationChange(category.category.id, it) },
-                    onMoveItem = actions.onMoveMusicItem
-                )
-            }
-
-            item {
-                Button(
-                    onClick = { showNewCategory = true },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Kategorie hinzufügen")
-                }
-            }
-        }
     }
 
     imageDialogFor?.let { target ->
@@ -513,46 +940,7 @@ fun MusicLibraryScreen(
         }
     }
 
-    if (showNewCategory) {
-        NameDialog(
-            title = "Neue Kategorie",
-            label = "Name der Kategorie",
-            initialValue = "",
-            confirmText = "Anlegen",
-            onConfirm = {
-                actions.onCreateCategory(it)
-                showNewCategory = false
-            },
-            onDismiss = { showNewCategory = false }
-        )
-    }
-    renameCategory?.let { category ->
-        NameDialog(
-            title = "Kategorie umbenennen",
-            label = "Name der Kategorie",
-            initialValue = category.name,
-            confirmText = "Speichern",
-            onConfirm = {
-                actions.onRenameCategory(category.id, it)
-                renameCategory = null
-            },
-            onDismiss = { renameCategory = null }
-        )
-    }
-    deleteCategory?.let { category ->
-        val seenBy = profiles.filter { it.id in category.profileIds }.map { it.name }
-        ConfirmDeleteDialog(
-            title = "„${category.category.name}“ löschen?",
-            text = "Die Kategorie und ihre ${category.items.size} Einträge werden aus der Musikauswahl entfernt" +
-                (if (seenBy.isEmpty()) "." else " — für ${seenBy.joinToString(", ")}.") +
-                " Bei Sonos selbst wird nichts gelöscht.",
-            onConfirm = {
-                actions.onDeleteCategory(category.category.id)
-                deleteCategory = null
-            },
-            onDismiss = { deleteCategory = null }
-        )
-    }
+    return remember { { target: String -> imageDialogFor = target } }
 }
 
 @Composable
@@ -599,159 +987,6 @@ private fun ProfileHeader(
                 )
             }
             Switch(checked = profile.enabled, onCheckedChange = onEnabledChange)
-        }
-    }
-}
-
-@Composable
-private fun CategoryCard(
-    category: CategoryWithMusic,
-    profiles: List<ChildProfile>,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
-    onMove: (Int) -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-    onVisibleChange: (Long, Boolean) -> Unit,
-    onAddMusic: () -> Unit,
-    onRemoveItem: (Long) -> Unit,
-    onImageClick: () -> Unit,
-    onItemImageClick: (Long) -> Unit,
-    onPlayOrderChange: (PlayOrder) -> Unit,
-    onItemSortChange: (ItemSort, Boolean) -> Unit,
-    onCoverAnimationChange: (CoverAnimation) -> Unit,
-    onMoveItem: (Long, Int) -> Unit
-) {
-    var menuExpanded by remember { mutableStateOf(false) }
-
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp)
-        ) {
-            EditableImage(onClick = onImageClick) { CategoryImageView(category, size = 72.dp) }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    category.category.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    describeItemCount(category),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Rounded.MoreVert, contentDescription = "Kategorie bearbeiten")
-                }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Umbenennen") },
-                        leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
-                        onClick = { menuExpanded = false; onRename() }
-                    )
-                    if (canMoveUp) {
-                        DropdownMenuItem(
-                            text = { Text("Nach oben") },
-                            leadingIcon = { Icon(Icons.Rounded.ArrowUpward, contentDescription = null) },
-                            onClick = { menuExpanded = false; onMove(-1) }
-                        )
-                    }
-                    if (canMoveDown) {
-                        DropdownMenuItem(
-                            text = { Text("Nach unten") },
-                            leadingIcon = { Icon(Icons.Rounded.ArrowDownward, contentDescription = null) },
-                            onClick = { menuExpanded = false; onMove(1) }
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Löschen") },
-                        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-                        onClick = { menuExpanded = false; onDelete() }
-                    )
-                }
-            }
-        }
-
-        VisibilitySelector(
-            profiles = profiles,
-            visibleFor = category.profileIds,
-            onVisibleChange = onVisibleChange,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
-        )
-
-        PlayOrderSelector(
-            selected = category.category.playOrderMode,
-            onSelect = onPlayOrderChange,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
-
-        CoverAnimationSelector(
-            selected = category.category.coverAnimationMode,
-            onSelect = onCoverAnimationChange,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
-        )
-
-        val sort = category.category.itemSortMode
-        if (category.items.size > 1) {
-            ItemSortSelector(
-                selected = sort,
-                descending = category.category.itemSortDescending,
-                onSelect = onItemSortChange,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-        }
-
-        category.items.forEachIndexed { index, item ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 6.dp)
-            ) {
-                EditableImage(onClick = { onItemImageClick(item.id) }, badgeSize = 20.dp) {
-                    MusicItemImage(item, size = 52.dp)
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        listOfNotNull(item.musicType.label, item.description).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (sort == ItemSort.MANUAL && category.items.size > 1) {
-                    IconButton(onClick = { onMoveItem(item.id, -1) }, enabled = index > 0) {
-                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "${item.name} nach oben")
-                    }
-                    IconButton(onClick = { onMoveItem(item.id, 1) }, enabled = index < category.items.lastIndex) {
-                        Icon(Icons.Rounded.ArrowDownward, contentDescription = "${item.name} nach unten")
-                    }
-                }
-                IconButton(onClick = { onRemoveItem(item.id) }) {
-                    Icon(Icons.Rounded.Close, contentDescription = "${item.name} entfernen")
-                }
-            }
-        }
-
-        TextButton(
-            onClick = onAddMusic,
-            modifier = Modifier.padding(start = 8.dp, bottom = 4.dp, top = 4.dp)
-        ) {
-            Icon(Icons.Rounded.LibraryAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Musik hinzufügen")
         }
     }
 }
@@ -916,7 +1151,8 @@ private fun ItemSortSelector(
         }
         if (selected == ItemSort.MANUAL) {
             Text(
-                "Mit den Pfeilen neben den Einträgen verschieben.",
+                "Am Griff ziehen oder mit den Pfeilen verschieben — langes Drücken auf einen Pfeil " +
+                    "setzt den Eintrag ganz nach oben bzw. unten.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1066,6 +1302,8 @@ fun MusicCatalogScreen(
     category: CategoryWithMusic,
     state: CatalogState,
     playlistPreview: PlaylistPreview?,
+    /** Wohin neue Einträge kommen — nur bei manueller Sortierung, sonst null. */
+    insertAtStart: Boolean?,
     onBack: () -> Unit,
     onReload: () -> Unit,
     onToggleEntry: (CatalogEntry) -> Unit,
@@ -1084,7 +1322,11 @@ fun MusicCatalogScreen(
                     Column {
                         Text("Musik hinzufügen")
                         Text(
-                            "zu „${category.category.name}“ · ${category.items.size} ausgewählt",
+                            listOfNotNull(
+                                "zu „${category.category.name}“",
+                                "${category.items.size} ausgewählt",
+                                insertAtStart?.let { if (it) "neue an den Anfang" else "neue ans Ende" }
+                            ).joinToString(" · "),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,

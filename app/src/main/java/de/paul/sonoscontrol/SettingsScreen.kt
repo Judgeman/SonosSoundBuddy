@@ -24,9 +24,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -74,17 +76,10 @@ private const val MIN_PASSWORD_LENGTH = 4
 @Composable
 fun SettingsScreen(
     speakers: List<SpeakerConfig>,
-    availablePlayerIds: Set<String>?,
     settings: AppSettings,
     isLoggedIn: Boolean,
-    isRefreshingSpeakers: Boolean,
-    speakerRefreshMessage: String?,
     onBack: () -> Unit,
-    onRefreshSpeakers: () -> Unit,
-    onDeleteSpeaker: (String) -> Unit,
-    onSpeakerEnabledChange: (String, Boolean) -> Unit,
-    onSpeakerIconChange: (String, SpeakerIcon) -> Unit,
-    onSpeakerMaxVolumeChange: (String, Int) -> Unit,
+    onOpenSpeakers: () -> Unit,
     categories: List<CategoryWithMusic>,
     onOpenLibrary: () -> Unit,
     profiles: List<ProfileWithMusic>,
@@ -99,9 +94,169 @@ fun SettingsScreen(
     syncNotice: String?,
     onLogout: () -> Unit
 ) {
+    var showNewProfile by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Einstellungen") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Zurück")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            // Die Musikauswahl ändert sich am häufigsten, deshalb ganz oben
+            musicLibrarySection(categories = categories, onOpenLibrary = onOpenLibrary)
+
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(
+                    title = "Speaker",
+                    description = "Welche Speaker auf dem Startbildschirm auswählbar sind, ihre Icons und wie " +
+                        "laut sie höchstens werden dürfen."
+                )
+                SpeakersEntry(speakers = speakers, onClick = onOpenSpeakers)
+            }
+
+            profilesSection(
+                profiles = profiles,
+                onCreateProfile = { showNewProfile = true },
+                onOpenProfile = onOpenProfile,
+                onProfileEnabledChange = onProfileEnabledChange
+            )
+
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(
+                    title = "Mehrere Tablets",
+                    description = "Profile und Speaker-Einstellungen zwischen Tablets abgleichen — automatisch " +
+                        "über die Cloud, im WLAN oder als Datei."
+                )
+                if (syncNotice != null) {
+                    Text(
+                        syncNotice,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+                OutlinedButton(
+                    onClick = onOpenSync,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Tablets abgleichen")
+                }
+            }
+
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(
+                    title = "Passwortschutz",
+                    description = if (settings.hasPassword) {
+                        "Ein Passwort ist hinterlegt."
+                    } else {
+                        "Es ist noch kein Passwort hinterlegt. Die Einstellungen sind für alle erreichbar."
+                    }
+                )
+                PasswordSection(
+                    settings = settings,
+                    onSavePassword = onSavePassword,
+                    onRemovePassword = onRemovePassword,
+                    onPasswordRequiredChange = onPasswordRequiredChange
+                )
+            }
+
+            if (isLoggedIn) {
+                item {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    SectionHeader(title = "Sonos-Konto", description = null)
+                    OutlinedButton(
+                        onClick = onLogout,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    ) {
+                        Text("Abmelden")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showNewProfile) {
+        NameDialog(
+            title = "Neues Profil",
+            label = "Name des Kindes",
+            initialValue = "",
+            confirmText = "Anlegen",
+            onConfirm = {
+                showNewProfile = false
+                onCreateProfile(it)
+            },
+            onDismiss = { showNewProfile = false }
+        )
+    }
+}
+
+/** Einstieg in die Speaker-Seite mit kurzer Zusammenfassung; neu gefundene Speaker fallen mit „Neu“ auf. */
+@Composable
+private fun SpeakersEntry(speakers: List<SpeakerConfig>, onClick: () -> Unit) {
+    val enabled = speakers.count { it.enabled }
+    val newCount = speakers.count { it.isNew }
+    ListItem(
+        leadingContent = { Icon(Icons.Rounded.Speaker, contentDescription = null) },
+        headlineContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Speaker verwalten", style = MaterialTheme.typography.titleMedium)
+                if (newCount > 0) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    NewBadge()
+                }
+            }
+        },
+        supportingContent = {
+            Text(
+                when {
+                    speakers.isEmpty() -> "Noch keine Speaker gefunden"
+                    else -> listOfNotNull(
+                        if (speakers.size == 1) "1 Speaker" else "${speakers.size} Speaker",
+                        "$enabled auswählbar",
+                        "$newCount neu".takeIf { newCount > 0 }
+                    ).joinToString(" · ")
+                }
+            )
+        },
+        trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null) },
+        modifier = Modifier.clickable(onClick = onClick)
+    )
+}
+
+/** Unterseite der Settings: alle Speaker mit Freigabe, Icon und maximaler Lautstärke. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SpeakerSettingsScreen(
+    speakers: List<SpeakerConfig>,
+    availablePlayerIds: Set<String>?,
+    isLoggedIn: Boolean,
+    isRefreshingSpeakers: Boolean,
+    speakerRefreshMessage: String?,
+    onBack: () -> Unit,
+    onRefreshSpeakers: () -> Unit,
+    onDeleteSpeaker: (String) -> Unit,
+    onSpeakerEnabledChange: (String, Boolean) -> Unit,
+    onSpeakerIconChange: (String, SpeakerIcon) -> Unit,
+    onSpeakerMaxVolumeChange: (String, Int) -> Unit
+) {
     var iconPickerFor by remember { mutableStateOf<SpeakerConfig?>(null) }
     var deleteConfirmFor by remember { mutableStateOf<SpeakerConfig?>(null) }
-    var showNewProfile by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Das ViewModel leert die Meldung vor jedem neuen Aktualisieren, gleiche Texte erscheinen also erneut
@@ -113,7 +268,7 @@ fun SettingsScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Einstellungen") },
+                title = { Text("Speaker") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Zurück")
@@ -214,72 +369,6 @@ fun SettingsScreen(
                     }
                 )
             }
-
-            musicLibrarySection(categories = categories, onOpenLibrary = onOpenLibrary)
-
-            profilesSection(
-                profiles = profiles,
-                onCreateProfile = { showNewProfile = true },
-                onOpenProfile = onOpenProfile,
-                onProfileEnabledChange = onProfileEnabledChange
-            )
-
-            item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                SectionHeader(
-                    title = "Mehrere Tablets",
-                    description = "Profile und Speaker-Einstellungen zwischen Tablets abgleichen — automatisch " +
-                        "über die Cloud, im WLAN oder als Datei."
-                )
-                if (syncNotice != null) {
-                    Text(
-                        syncNotice,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-                }
-                OutlinedButton(
-                    onClick = onOpenSync,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                ) {
-                    Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Tablets abgleichen")
-                }
-            }
-
-            item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                SectionHeader(
-                    title = "Passwortschutz",
-                    description = if (settings.hasPassword) {
-                        "Ein Passwort ist hinterlegt."
-                    } else {
-                        "Es ist noch kein Passwort hinterlegt. Die Einstellungen sind für alle erreichbar."
-                    }
-                )
-                PasswordSection(
-                    settings = settings,
-                    onSavePassword = onSavePassword,
-                    onRemovePassword = onRemovePassword,
-                    onPasswordRequiredChange = onPasswordRequiredChange
-                )
-            }
-
-            if (isLoggedIn) {
-                item {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    SectionHeader(title = "Sonos-Konto", description = null)
-                    OutlinedButton(
-                        onClick = onLogout,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    ) {
-                        Text("Abmelden")
-                    }
-                }
-            }
         }
     }
 
@@ -292,20 +381,6 @@ fun SettingsScreen(
                 iconPickerFor = null
             },
             onDismiss = { iconPickerFor = null }
-        )
-    }
-
-    if (showNewProfile) {
-        NameDialog(
-            title = "Neues Profil",
-            label = "Name des Kindes",
-            initialValue = "",
-            confirmText = "Anlegen",
-            onConfirm = {
-                showNewProfile = false
-                onCreateProfile(it)
-            },
-            onDismiss = { showNewProfile = false }
         )
     }
 

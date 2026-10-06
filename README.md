@@ -101,15 +101,27 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Passwort sind die Einstellungen frei erreichbar und es kann dort eins
     gesetzt werden (aktiviert den Schutz automatisch). Gespeichert wird nur
     ein PBKDF2-Hash mit Salt.
-  - **Speaker:** pro Speaker ein Schalter „auf dem Homescreen auswählbar“,
-    ein Regler für die **maximale Lautstärke** (5–100 % in 5er-Schritten)
-    und ein frei wählbares **Icon**. Beim ersten Abgleich sind alle Speaker
-    freigegeben, später neu gefundene müssen erst freigegeben werden.
+  - Die Einstellungs-Seite zeigt oben die **Musikauswahl**, darunter
+    Speaker, Kinder-Profile, Abgleich, Passwort und Konto. Speaker und
+    Kategorien haben eigene Unterseiten, damit die Hauptseite kurz bleibt.
+  - **Speaker** (eigene Unterseite „Speaker verwalten“; die Hauptseite
+    zeigt nur, wie viele es gibt, wie viele auswählbar und ob neue dazu
+    gekommen sind): pro Speaker ein Schalter „auf dem Homescreen
+    auswählbar“, ein Regler für die **maximale Lautstärke** (5–100 % in
+    5er-Schritten) und ein frei wählbares **Icon**. Beim ersten Abgleich
+    sind alle Speaker freigegeben, später neu gefundene müssen erst
+    freigegeben werden.
   - **Musikauswahl:** Kategorien und Musik werden einmal zentral angelegt
     und dann den Profilen zugewiesen — dieselbe Kategorie kann mehrere
-    Kinder-Profile bedienen, ohne doppelt gepflegt zu werden. Kategorien
-    anlegen (neue sind erst einmal für alle Profile sichtbar), umbenennen,
-    sortieren und löschen. Pro Kategorie:
+    Kinder-Profile bedienen, ohne doppelt gepflegt zu werden. Die
+    Übersicht zeigt pro Kategorie nur Bild, Name (mit Stift zum
+    Umbenennen), wie viele Einträge sie hat und wer sie sieht, und lässt
+    die Reihenfolge ändern: am Griff ziehen (Drag & Drop) oder mit den
+    Pfeilen — langes Drücken auf einen Pfeil setzt die Kategorie ganz nach
+    oben bzw. unten. Neue Kategorien sind erst einmal für alle Profile
+    sichtbar. Ein Tipp auf eine Kategorie öffnet ihre eigene Seite (dort
+    auch Bild und Name änderbar und „Kategorie löschen“ im Menü). Pro
+    Kategorie:
     - **Sichtbar für:** ein Chip pro Profil zum An- und Abwählen.
     - ein **Bild**: eine bunte Szene (**Tanzparty** mit tanzendem Hasen und
       Bär, **Hörbuch** mit Pop-up-Schloss, **Schlaflieder** mit schlafendem
@@ -120,7 +132,9 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
       gedacht vor allem für Sonos-Playlisten, die von Sonos kein Cover
       bekommen. „Cover von Sonos“ stellt das Original wieder her.
     - die **Sortierung** der Musik, so wie die Kinder sie sehen:
-      „Manuell“ (mit Pfeilen verschieben), „Alphabetisch“ (A–Z oder Z–A,
+      „Manuell“ (am Griff ziehen oder mit den Pfeilen verschieben; langes
+      Drücken auf einen Pfeil setzt den Eintrag ganz nach oben bzw. unten),
+      „Alphabetisch“ (A–Z oder Z–A,
       Zahlen nach ihrem Wert: „Folge 2“ vor „Folge 10“) oder
       „Hinzugefügt“ (älteste oder neueste zuerst).
     - die **Abspielreihenfolge**: „Der Reihe nach“, „Zufällig“ oder „Kinder
@@ -128,8 +142,13 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
       Sonos-Playlisten mit nur einem Titel laufen einfach los.
     - **Tier am Cover**: „Tanzen“ oder „Vorlesen“. Kategorien mit „Hörbuch“,
       „Hörspiel“, „Geschichte“ oder „Märchen“ im Namen (oder dem
-      Hörbuch-Bild) lesen von Anfang an vor, alle anderen tanzen. „Musik
-    hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
+      Hörbuch-Bild) lesen von Anfang an vor, alle anderen tanzen.
+    - **Neue Musik einfügen:** „Am Anfang“ oder „Am Ende“ der Kategorie
+      (wird gemerkt, gilt für die manuelle Sortierung). Mehrere Einträge,
+      die in einem Durchgang an den Anfang kommen, stehen dort in der
+      Reihenfolge des Antippens.
+
+    „Musik hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
     Sonos-Playlisten) mit Suche und Filter nach Songs, Playlisten, Alben und
     Radio; ein Tipp nimmt einen Eintrag in die Kategorie auf oder wieder
     heraus. Bei Sonos-Playlisten lässt sich die Titelliste ansehen.
@@ -389,7 +408,8 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 11):
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
 - `app_setting` — Key-Value: Passwort-Hash/-Salt, Passwortschutz an/aus,
   zuletzt gewählter Speaker und zuletzt gewähltes Profil, je Speaker die
-  Kategorie der zuletzt gestarteten Musik (`last_category_<playerId>`)
+  Kategorie der zuletzt gestarteten Musik (`last_category_<playerId>`),
+  ob neue Musik an den Anfang kommt (`add_music_at_start`)
 - `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
   (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden),
   Kennung für den Abgleich zwischen Tablets (`syncId`, seit Version 9,

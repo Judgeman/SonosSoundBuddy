@@ -15,7 +15,9 @@ data class AppSettings(
     val lastSelectedPlayerId: String? = null,
     val lastSelectedProfileId: Long? = null,
     /** Pro Speaker (playerId) die Kategorie, aus der dort zuletzt etwas gestartet wurde — für das Tier am Cover. */
-    val lastStartedCategories: Map<String, Long> = emptyMap()
+    val lastStartedCategories: Map<String, Long> = emptyMap(),
+    /** „Musik hinzufügen“ setzt neue Einträge an den Anfang statt ans Ende der Kategorie. */
+    val addMusicAtStart: Boolean = false
 ) {
     val hasPassword: Boolean get() = passwordHash != null && passwordSalt != null
 
@@ -42,7 +44,8 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
             lastStartedCategories = values.entries
                 .filter { it.key.startsWith(KEY_LAST_CATEGORY_PREFIX) }
                 .mapNotNull { (key, value) -> value.toLongOrNull()?.let { key.removePrefix(KEY_LAST_CATEGORY_PREFIX) to it } }
-                .toMap()
+                .toMap(),
+            addMusicAtStart = values[KEY_ADD_MUSIC_AT_START] == true.toString()
         )
     }
 
@@ -123,6 +126,9 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     suspend fun setLastStartedCategory(playerId: String, categoryId: Long) =
         settingDao.put(AppSetting(KEY_LAST_CATEGORY_PREFIX + playerId, categoryId.toString()))
+
+    suspend fun setAddMusicAtStart(atStart: Boolean) =
+        settingDao.put(AppSetting(KEY_ADD_MUSIC_AT_START, atStart.toString()))
 
     // --- Profile und Musikauswahl ---------------------------------------
 
@@ -215,27 +221,42 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         profileDao.setCategoryCoverAnimation(categoryId, animation.name)
 
     /** Schreibt die manuelle Reihenfolge der Musik einer Kategorie neu (nach Verschieben). */
-    suspend fun reorderItems(orderedIds: List<Long>) =
+    // In einer Transaktion, damit die Liste nicht mit halb geschriebener Reihenfolge neu erscheint
+    suspend fun reorderItems(orderedIds: List<Long>) = database.withTransaction {
         orderedIds.forEachIndexed { index, id -> profileDao.setItemPosition(id, index) }
+    }
 
     /** Schreibt die Reihenfolge der Kategorien neu (nach Verschieben). */
-    suspend fun reorderCategories(orderedIds: List<Long>) =
+    suspend fun reorderCategories(orderedIds: List<Long>) = database.withTransaction {
         orderedIds.forEachIndexed { index, id -> profileDao.setCategoryPosition(id, index) }
+    }
 
-    suspend fun addMusic(categoryId: Long, entry: CatalogEntry) {
-        val id = profileDao.insertItem(
-            MusicItem(
-                categoryId = categoryId,
-                source = entry.source.name,
-                sonosId = entry.sonosId,
-                name = entry.name,
-                description = entry.description,
-                imageUrl = entry.imageUrl,
-                type = entry.type.name,
-                position = profileDao.nextItemPosition(categoryId),
-                trackCount = entry.trackCount
+    /**
+     * Nimmt einen Katalog-Eintrag in die Kategorie auf — ans Ende oder, mit [insertAt],
+     * an diese Stelle der manuellen Reihenfolge (0 = ganz oben).
+     */
+    suspend fun addMusic(categoryId: Long, entry: CatalogEntry, insertAt: Int? = null) {
+        val id = database.withTransaction {
+            val newId = profileDao.insertItem(
+                MusicItem(
+                    categoryId = categoryId,
+                    source = entry.source.name,
+                    sonosId = entry.sonosId,
+                    name = entry.name,
+                    description = entry.description,
+                    imageUrl = entry.imageUrl,
+                    type = entry.type.name,
+                    position = profileDao.nextItemPosition(categoryId),
+                    trackCount = entry.trackCount
+                )
             )
-        )
+            if (insertAt != null) {
+                val others = profileDao.getItemIdsOfCategory(categoryId).filterNot { it == newId }
+                val ordered = others.toMutableList().apply { add(insertAt.coerceIn(0, others.size), newId) }
+                ordered.forEachIndexed { index, itemId -> profileDao.setItemPosition(itemId, index) }
+            }
+            newId
+        }
         // Danach, damit das Hinzufügen nicht auf den Download wartet
         storeCover(id, entry.imageUrl)
     }
@@ -347,6 +368,7 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         private const val KEY_LAST_SELECTED_PROFILE = "last_selected_profile"
         /** Plus playerId — je Tablet, wird nicht abgeglichen. */
         private const val KEY_LAST_CATEGORY_PREFIX = "last_category_"
+        private const val KEY_ADD_MUSIC_AT_START = "add_music_at_start"
         /** Im Dateinamen: das Cover stammt von der Playlist/dem Album selbst, nicht von einem Titel. */
         private const val CONTAINER_COVER_MARK = "-container"
         internal const val KEY_SPEAKERS_SYNCED = "speakers_synced"

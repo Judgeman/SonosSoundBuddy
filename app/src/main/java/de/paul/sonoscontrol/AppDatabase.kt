@@ -280,6 +280,9 @@ interface ProfileDao {
     @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM music_item WHERE categoryId = :categoryId")
     suspend fun nextItemPosition(categoryId: Long): Int
 
+    @Query("SELECT id FROM music_item WHERE categoryId = :categoryId ORDER BY position, id")
+    suspend fun getItemIdsOfCategory(categoryId: Long): List<Long>
+
     @Insert
     suspend fun insertItem(item: MusicItem): Long
 
