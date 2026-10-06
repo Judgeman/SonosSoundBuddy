@@ -432,6 +432,7 @@ private fun SpeakerHomeContent(
                 nowPlaying != null -> NowPlayingContent(
                     nowPlaying = nowPlaying,
                     maxVolume = maxVolume,
+                    profileIcon = selectedProfile?.profile?.icon,
                     controls = controls,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -583,6 +584,8 @@ class PlaybackControls(
 private fun NowPlayingContent(
     nowPlaying: NowPlaying,
     maxVolume: Int,
+    /** Tier des gewählten Profils: tanzt am Cover und läuft auf dem Fortschrittsbalken mit. */
+    profileIcon: ProfileIcon?,
     controls: PlaybackControls,
     modifier: Modifier = Modifier
 ) {
@@ -618,6 +621,14 @@ private fun NowPlayingContent(
                             .align(Alignment.BottomStart)
                             .padding(16.dp)
                     )
+                    profileIcon?.let {
+                        CoverDancer(
+                            icon = it,
+                            isPlaying = nowPlaying.isPlaying,
+                            isBuffering = nowPlaying.playbackState == PlaybackStatus.STATE_BUFFERING,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
                 }
             }
             nowPlaying.volume?.let { volume ->
@@ -651,18 +662,30 @@ private fun NowPlayingContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(if (profileIcon != null) 8.dp else 16.dp))
         val duration = nowPlaying.durationMillis
-        LinearProgressIndicator(
-            progress = {
-                if (duration == null) 0f else (positionMillis.toFloat() / duration).coerceIn(0f, 1f)
-            },
-            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(10.dp)
-                .clip(RoundedCornerShape(5.dp))
-        )
+        // null = Live (Radio) — auch, falls Sonos die Dauer als 0 meldet
+        val progress = duration?.takeIf { it > 0 }?.let { (positionMillis.toFloat() / it).coerceIn(0f, 1f) }
+        Box {
+            LinearProgressIndicator(
+                progress = { progress ?: 0f },
+                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                modifier = Modifier
+                    .padding(top = if (profileIcon != null) ProgressWalkerHeight else 0.dp)
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+            )
+            // Das Tier steht auf dem Balken und läuft mit
+            profileIcon?.let {
+                ProgressWalker(
+                    icon = it,
+                    progress = progress,
+                    isPlaying = nowPlaying.isPlaying,
+                    modifier = Modifier.fillMaxWidth().height(ProgressWalkerHeight)
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(6.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),

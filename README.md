@@ -71,6 +71,14 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     ein dunkler Verlauf mit weißer Schrift und heller Akzentfarbe. Beim
     Track-Wechsel blenden die Farben sanft über. Die App zeichnet dafür bis
     unter die Statusleiste (Edge-to-Edge).
+  - **Tiere zur Musik** (`NowPlayingAnimals.kt`): Das Tier des gewählten
+    Profils sitzt mit kleinem gezeichneten Körper auf der unteren rechten
+    Ecke des Covers. Solange Musik läuft, tanzt es im Takt und bunte Noten
+    steigen auf; bei Pause schläft es mit geschlossenen Augen und „Zzz“,
+    beim Laden steht es wach da. Antippen lässt es hüpfen. Ein kleineres
+    steht auf dem Fortschrittsbalken an der Stelle des Fortschritts und
+    läuft mit, solange die Musik spielt (bei Radio in der Mitte auf der
+    Stelle). Ohne Profil fehlen beide.
   - **Tierbesuch:** Alle 10–20 Minuten schaut eins der Profil-Tiere mit
     kleinem gezeichneten Körper vorbei (`AnimalVisitor.kt`): Es läuft unten
     über den Bildschirm und bleibt meist stehen, um zu winken, schaut
@@ -405,7 +413,8 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
-| `AnimalVisitor.kt` | Tierbesuch auf dem Homescreen |
+| `AnimalFigure.kt` | Profil-Tiere als Figur mit Körper, geschlossene Augen zum Schlafen |
+| `NowPlayingAnimals.kt`, `AnimalVisitor.kt` | Tier am Cover und auf dem Fortschrittsbalken, Tierbesuch |
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
 | `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite, zentrale Musikauswahl mit Kategorien, Katalog-Auswahl |
