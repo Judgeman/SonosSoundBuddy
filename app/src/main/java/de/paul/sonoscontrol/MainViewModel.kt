@@ -632,33 +632,25 @@ class MainViewModel(
                 MusicSource.FAVORITE -> resolveFavoriteId(household, item)
                 MusicSource.PLAYLIST -> resolvePlaylistId(household, item)
             }
-            val load: suspend (shuffle: Boolean?) -> Unit = { loadShuffle ->
+            val load: suspend (play: Boolean) -> Unit = { playNow ->
                 when (item.musicSource) {
-                    MusicSource.FAVORITE ->
-                        apiClient.loadFavorite(group.id, sourceId, play = !controlsOrder, shuffle = loadShuffle)
-                    MusicSource.PLAYLIST ->
-                        apiClient.loadPlaylist(group.id, sourceId, play = !controlsOrder, shuffle = loadShuffle)
+                    MusicSource.FAVORITE -> apiClient.loadFavorite(group.id, sourceId, play = playNow)
+                    MusicSource.PLAYLIST -> apiClient.loadPlaylist(group.id, sourceId, play = playNow)
                 }
             }
-            val wantsShuffle = controlsOrder && useShuffle && item.hasMultipleTracks
-            if (controlsOrder && !wantsShuffle) {
-                // Ist beim Laden noch Zufall vom letzten Mal an, wählt Sonos einen zufälligen ersten
-                // Titel — beim späteren Ausschalten bleibt es bei diesem, die Reihe startet mittendrin.
-                // Deshalb Zufall schon beim Laden ausschalten, damit es beim ersten Titel losgeht.
-                try {
-                    load(false)
-                } catch (e: SonosApiException) {
-                    // Manche Quellen nehmen beim Laden keine Wiedergabemodi an — auch HTTP 499
-                    // „No tracks added to queue“ heißt: nichts geladen, die alte Warteschlange
-                    // ist noch da. Zufall dann vorher ausschalten und ohne Modi laden.
-                    if (e.httpCode == null || e.httpCode !in 400..499) throw e
-                    runCatching { apiClient.setShuffle(group.id, false) }
-                    load(null)
-                }
-            } else {
-                load(null)
+            if (!controlsOrder) {
+                load(true)
+                return@sendPlaybackCommand
             }
-            if (controlsOrder) {
+            val wantsShuffle = useShuffle && item.hasMultipleTracks
+            // Ist beim Laden noch Zufall vom letzten Mal an, wählt Sonos einen zufälligen ersten
+            // Titel — beim späteren Ausschalten bleibt es bei diesem, die Reihe startet mittendrin.
+            // Deshalb Zufall schon vorher ausschalten, solange die alte Warteschlange noch da ist.
+            // Klappt das nicht (z. B. lief vorher Radio), ist dort auch kein Zufall an.
+            if (!wantsShuffle) runCatching { apiClient.setShuffle(group.id, false) }
+                .onFailure { Log.d(TAG, "Zufall vor dem Laden nicht ausgeschaltet: ${it.message}") }
+            try {
+                load(false)
                 // Nach dem Laden ohne Abspielen füllt Sonos die Warteschlange noch —
                 // bis dahin lehnt es Befehle ab, deshalb jeweils kurz wiederholen.
                 // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
@@ -669,6 +661,13 @@ class MainViewModel(
                 // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
                 if (shuffled) runCatching { retryWhileQueueFills { apiClient.skipToNextTrack(group.id) } }
                 retryWhileQueueFills { apiClient.play(group.id) }
+            } catch (e: SonosApiException) {
+                if (!e.isQueueStillEmpty) throw e
+                // Die Warteschlange ist leer geblieben (oder Sonos hat beim Laden nichts eingereiht):
+                // Lieber noch einmal laden und Sonos selbst
+                // starten lassen — Musik ist wichtiger als die genaue Reihenfolge
+                Log.w(TAG, "Warteschlange nach dem Laden leer, lade „${item.name}“ neu", e)
+                load(true)
             }
         }
     }
@@ -1090,7 +1089,7 @@ class MainViewModel(
         /** Neue Musik zu laden dauert bei Sonos etwas länger als ein Skip. */
         private const val MUSIC_REFRESH_DELAY_MS = 1_500L
         private const val QUEUE_FILL_RETRY_MS = 400L
-        private const val QUEUE_FILL_TIMEOUT_MS = 5_000L
+        private const val QUEUE_FILL_TIMEOUT_MS = 3_000L
     }
 }
 

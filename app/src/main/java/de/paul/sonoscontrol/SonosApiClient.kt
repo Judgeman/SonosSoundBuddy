@@ -136,30 +136,22 @@ class SonosApiClient(
         return json.decodeFromString(PlaylistDetails.serializer(), body)
     }
 
-    /**
-     * Ersetzt die Warteschlange der Gruppe durch den Favoriten; [play] startet ihn sofort.
-     * [shuffle] != null setzt den Zufallsmodus gleich beim Laden mit.
-     */
-    suspend fun loadFavorite(groupId: String, favoriteId: String, play: Boolean = true, shuffle: Boolean? = null) {
+    /** Ersetzt die Warteschlange der Gruppe durch den Favoriten; [play] startet ihn sofort. */
+    suspend fun loadFavorite(groupId: String, favoriteId: String, play: Boolean = true) {
         val request = buildJsonObject {
             put("favoriteId", favoriteId)
             put("playOnCompletion", play)
             put("action", "REPLACE")
-            if (shuffle != null) put("playModes", buildJsonObject { put("shuffle", shuffle) })
         }
         post("$baseUrl/groups/$groupId/favorites", request.toString())
     }
 
-    /**
-     * Ersetzt die Warteschlange der Gruppe durch die Playlist; [play] startet sie sofort.
-     * [shuffle] != null setzt den Zufallsmodus gleich beim Laden mit.
-     */
-    suspend fun loadPlaylist(groupId: String, playlistId: String, play: Boolean = true, shuffle: Boolean? = null) {
+    /** Ersetzt die Warteschlange der Gruppe durch die Playlist; [play] startet sie sofort. */
+    suspend fun loadPlaylist(groupId: String, playlistId: String, play: Boolean = true) {
         val request = buildJsonObject {
             put("playlistId", playlistId)
             put("playOnCompletion", play)
             put("action", "REPLACE")
-            if (shuffle != null) put("playModes", buildJsonObject { put("shuffle", shuffle) })
         }
         post("$baseUrl/groups/$groupId/playlists", request.toString())
     }
