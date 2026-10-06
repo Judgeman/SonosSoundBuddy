@@ -112,6 +112,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             playbackError = viewModel.playbackError,
             visiblePlaybackError = viewModel.visiblePlaybackError,
             isInForeground = viewModel.isInForeground,
+            coverAnimation = viewModel.coverAnimation,
             onDismissPlaybackError = viewModel::dismissPlaybackError,
             onSelectSpeaker = viewModel::selectSpeaker,
             profiles = viewModel.selectableProfiles,
@@ -214,6 +215,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                         onImportItemImage = viewModel::importMusicItemImage,
                         onPlayOrderChange = viewModel::setCategoryPlayOrder,
                         onItemSortChange = viewModel::setCategoryItemSort,
+                        onCoverAnimationChange = viewModel::setCategoryCoverAnimation,
                         onMoveMusicItem = viewModel::moveMusicItem,
                         onDismissImageError = viewModel::dismissImageImportError
                     )

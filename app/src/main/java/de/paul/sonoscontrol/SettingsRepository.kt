@@ -13,7 +13,9 @@ data class AppSettings(
     val passwordSalt: String? = null,
     val passwordRequired: Boolean = false,
     val lastSelectedPlayerId: String? = null,
-    val lastSelectedProfileId: Long? = null
+    val lastSelectedProfileId: Long? = null,
+    /** Pro Speaker (playerId) die Kategorie, aus der dort zuletzt etwas gestartet wurde — für das Tier am Cover. */
+    val lastStartedCategories: Map<String, Long> = emptyMap()
 ) {
     val hasPassword: Boolean get() = passwordHash != null && passwordSalt != null
 
@@ -36,7 +38,11 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
             passwordSalt = values[KEY_PASSWORD_SALT],
             passwordRequired = values[KEY_PASSWORD_REQUIRED] == true.toString(),
             lastSelectedPlayerId = values[KEY_LAST_SELECTED_PLAYER],
-            lastSelectedProfileId = values[KEY_LAST_SELECTED_PROFILE]?.toLongOrNull()
+            lastSelectedProfileId = values[KEY_LAST_SELECTED_PROFILE]?.toLongOrNull(),
+            lastStartedCategories = values.entries
+                .filter { it.key.startsWith(KEY_LAST_CATEGORY_PREFIX) }
+                .mapNotNull { (key, value) -> value.toLongOrNull()?.let { key.removePrefix(KEY_LAST_CATEGORY_PREFIX) to it } }
+                .toMap()
         )
     }
 
@@ -115,6 +121,9 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     suspend fun setLastSelectedProfile(profileId: Long) =
         settingDao.put(AppSetting(KEY_LAST_SELECTED_PROFILE, profileId.toString()))
 
+    suspend fun setLastStartedCategory(playerId: String, categoryId: Long) =
+        settingDao.put(AppSetting(KEY_LAST_CATEGORY_PREFIX + playerId, categoryId.toString()))
+
     // --- Profile und Musikauswahl ---------------------------------------
 
     /** Legt ein neues, direkt aktives Profil an und gibt seine Id zurück. */
@@ -142,7 +151,11 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     suspend fun createCategory(name: String, profileIds: Collection<Long>? = null): Long =
         database.withTransaction {
             val id = profileDao.insertCategory(
-                MusicCategory(name = name.trim(), position = profileDao.nextCategoryPosition())
+                MusicCategory(
+                    name = name.trim(),
+                    position = profileDao.nextCategoryPosition(),
+                    coverAnimation = CoverAnimation.suggestedFor(name).name
+                )
             )
             val visibleFor = profileIds ?: profileDao.getProfileIds()
             profileDao.insertAssignments(visibleFor.map { ProfileCategory(profileId = it, categoryId = id) })
@@ -197,6 +210,9 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     suspend fun setCategoryItemSort(categoryId: Long, sort: ItemSort, descending: Boolean) =
         profileDao.setCategoryItemSort(categoryId, sort.name, descending)
+
+    suspend fun setCategoryCoverAnimation(categoryId: Long, animation: CoverAnimation) =
+        profileDao.setCategoryCoverAnimation(categoryId, animation.name)
 
     /** Schreibt die manuelle Reihenfolge der Musik einer Kategorie neu (nach Verschieben). */
     suspend fun reorderItems(orderedIds: List<Long>) =
@@ -329,6 +345,8 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         internal const val KEY_PASSWORD_REQUIRED = "password_required"
         private const val KEY_LAST_SELECTED_PLAYER = "last_selected_player"
         private const val KEY_LAST_SELECTED_PROFILE = "last_selected_profile"
+        /** Plus playerId — je Tablet, wird nicht abgeglichen. */
+        private const val KEY_LAST_CATEGORY_PREFIX = "last_category_"
         /** Im Dateinamen: das Cover stammt von der Playlist/dem Album selbst, nicht von einem Titel. */
         private const val CONTAINER_COVER_MARK = "-container"
         internal const val KEY_SPEAKERS_SYNCED = "speakers_synced"

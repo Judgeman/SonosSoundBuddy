@@ -13,7 +13,9 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.VectorPainter
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sin
 
@@ -34,6 +36,8 @@ internal const val RestArmAngle = 0.5f
 internal const val ArmLength = 16f
 private const val ArmWidth = 7f
 private const val PawRadius = 4.6f
+private const val ShoulderX = 12f
+private const val ShoulderY = 61f
 
 // Antippen: Das Tier hüpft vor Freude, und ein Herz steigt auf
 private const val HopSeconds = 0.45f
@@ -132,8 +136,28 @@ internal class FigurePose(
 internal fun swingingArm(side: Int, stepPhase: Float, amount: Float = 1f) =
     RestArmAngle - side * sin(stepPhase) * 0.35f * amount
 
-/** Zeichnet die Figur auf die ganze Fläche (Seitenverhältnis FigureWidth × FigureHeight). */
-internal fun DrawScope.drawAnimalFigure(look: AnimalLook, head: VectorPainter, pose: FigurePose) {
+/**
+ * Winkel und Länge eines Arms, dessen Pfote bei ([x] | [y]) liegt — x von der
+ * Mitte der Figur aus, beides in dp der Grundgröße. Zum Festhalten von Dingen.
+ */
+internal fun armTo(side: Int, x: Float, y: Float): Pair<Float, Float> {
+    val outward = side * (x - side * ShoulderX)
+    val down = y - ShoulderY
+    return atan2(outward, down) to hypot(outward, down)
+}
+
+/**
+ * Zeichnet die Figur auf die ganze Fläche (Seitenverhältnis FigureWidth × FigureHeight).
+ * [held] zeichnet, was das Tier in den Pfoten hält (z. B. ein Buch): vor Körper und
+ * Armen, nur die Pfoten liegen darauf; der Parameter ist die Breite einer dp der
+ * Grundgröße in Pixeln.
+ */
+internal fun DrawScope.drawAnimalFigure(
+    look: AnimalLook,
+    head: VectorPainter,
+    pose: FigurePose,
+    held: (DrawScope.(u: Float) -> Unit)? = null
+) {
     val u = size.width / FigureWidth
     val cx = size.width / 2f
     val step = sin(pose.stepPhase) * pose.stepAmount
@@ -173,19 +197,29 @@ internal fun DrawScope.drawAnimalFigure(look: AnimalLook, head: VectorPainter, p
         }
 
         if (body != null) {
-            drawArm(look, -1, pose.leftArm, pose.leftArmLength, cx, u, outline)
-            drawArm(look, 1, pose.rightArm, pose.rightArmLength, cx, u, outline)
+            val leftPaw = drawArm(look, -1, pose.leftArm, pose.leftArmLength, cx, u)
+            val rightPaw = drawArm(look, 1, pose.rightArm, pose.rightArmLength, cx, u)
+            held?.invoke(this, u)
+            drawPaw(look, leftPaw, u, outline)
+            drawPaw(look, rightPaw, u, outline)
+        } else {
+            held?.invoke(this, u)
         }
     }
 }
 
-private fun DrawScope.drawArm(look: AnimalLook, side: Int, angle: Float, length: Float, cx: Float, u: Float, outline: Stroke) {
-    val shoulder = Offset(cx + side * 12f * u, 61f * u)
+/** Zeichnet den Arm ohne Pfote und gibt zurück, wo die Pfote hingehört. */
+private fun DrawScope.drawArm(look: AnimalLook, side: Int, angle: Float, length: Float, cx: Float, u: Float): Offset {
+    val shoulder = Offset(cx + side * ShoulderX * u, ShoulderY * u)
     val paw = shoulder + Offset(side * sin(angle), cos(angle)) * (length * u)
     drawLine(look.armsOutline, shoulder, paw, strokeWidth = (ArmWidth + 2.8f) * u, cap = StrokeCap.Round)
     drawLine(look.arms, shoulder, paw, strokeWidth = ArmWidth * u, cap = StrokeCap.Round)
-    drawCircle(look.arms, PawRadius * u, paw)
-    drawCircle(look.armsOutline, PawRadius * u, paw, style = outline)
+    return paw
+}
+
+private fun DrawScope.drawPaw(look: AnimalLook, at: Offset, u: Float, outline: Stroke) {
+    drawCircle(look.arms, PawRadius * u, at)
+    drawCircle(look.armsOutline, PawRadius * u, at, style = outline)
 }
 
 /** Lider über die Augen des Icons legen; [k] rechnet Icon-Koordinaten in Pixel um. */

@@ -75,7 +75,9 @@ data class MusicCategory(
     /** [ItemSort]-Name: wie die Musik innerhalb der Kategorie sortiert ist. */
     val itemSort: String = ItemSort.MANUAL.name,
     /** Alphabetisch bzw. nach Datum absteigend (Z–A, Neueste zuerst). Bei manueller Sortierung ohne Bedeutung. */
-    val itemSortDescending: Boolean = false
+    val itemSortDescending: Boolean = false,
+    /** [CoverAnimation]-Name: was das Tier am Cover macht, solange etwas aus der Kategorie läuft. */
+    val coverAnimation: String = CoverAnimation.DANCE.name
 )
 
 /** Zuordnung: das Profil [profileId] sieht die Kategorie [categoryId]. */
@@ -248,6 +250,9 @@ interface ProfileDao {
     @Query("UPDATE music_category SET itemSort = :itemSort, itemSortDescending = :descending WHERE id = :id")
     suspend fun setCategoryItemSort(id: Long, itemSort: String, descending: Boolean)
 
+    @Query("UPDATE music_category SET coverAnimation = :coverAnimation WHERE id = :id")
+    suspend fun setCategoryCoverAnimation(id: Long, coverAnimation: String)
+
     @Query("SELECT imageKey FROM music_category WHERE id = :id")
     suspend fun getCategoryImage(id: Long): String?
 
@@ -328,7 +333,7 @@ interface ProfileDao {
         SpeakerConfig::class, AppSetting::class, ChildProfile::class,
         MusicCategory::class, ProfileCategory::class, MusicItem::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -449,6 +454,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Tier am Cover pro Kategorie; Hörbücher & Co. lesen gleich vor — dieselbe Regel wie CoverAnimation.suggestedFor. */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE music_category ADD COLUMN coverAnimation TEXT NOT NULL DEFAULT 'DANCE'")
+                db.execSQL(
+                    "UPDATE music_category SET coverAnimation = 'READ' WHERE imageKey = 'scene:POP_UP_BOOK' " +
+                        "OR name LIKE '%hörb%' OR name LIKE '%hörsp%' OR name LIKE '%geschicht%' OR name LIKE '%märchen%'"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -461,7 +477,8 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
-                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
+                        MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+                        MIGRATION_10_11
                     )
                     .build()
                     .also { instance = it }

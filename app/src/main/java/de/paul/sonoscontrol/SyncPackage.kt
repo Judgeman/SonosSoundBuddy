@@ -85,6 +85,8 @@ data class SyncCategory(
     /** [ItemSort]-Name; fehlt bei Paketen älterer App-Versionen. */
     val itemSort: String = ItemSort.MANUAL.name,
     val itemSortDescending: Boolean = false,
+    /** [CoverAnimation]-Name; fehlt bei Paketen älterer App-Versionen — dann wie beim Anlegen vorgeschlagen. */
+    val coverAnimation: String? = null,
     /** In manueller Reihenfolge. */
     val items: List<SyncItem>,
     /** [SyncProfile.syncId] der Profile, die die Kategorie sehen. */

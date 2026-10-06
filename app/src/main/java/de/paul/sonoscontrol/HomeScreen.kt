@@ -101,6 +101,8 @@ fun HomeScreen(
     visiblePlaybackError: String?,
     /** App ist im Vordergrund — nur dann kommen Tiere zu Besuch. */
     isInForeground: Boolean,
+    /** Ob das Tier am Cover tanzt oder vorliest. */
+    coverAnimation: CoverAnimation,
     onDismissPlaybackError: () -> Unit,
     onSelectSpeaker: (String) -> Unit,
     profiles: List<ProfileWithMusic>,
@@ -181,6 +183,7 @@ fun HomeScreen(
                             onSelectProfile = onSelectProfile,
                             onPlayMusic = onPlayMusic,
                             onMusicPickerOpenChange = { musicPickerOpen = it },
+                            coverAnimation = coverAnimation,
                             controls = controls
                         )
                     }
@@ -385,6 +388,7 @@ private fun SpeakerHomeContent(
     onSelectProfile: (Long) -> Unit,
     onPlayMusic: (MusicItem, Boolean?) -> Unit,
     onMusicPickerOpenChange: (Boolean) -> Unit,
+    coverAnimation: CoverAnimation,
     controls: PlaybackControls
 ) {
     var profileMenuExpanded by remember { mutableStateOf(false) }
@@ -433,6 +437,7 @@ private fun SpeakerHomeContent(
                     nowPlaying = nowPlaying,
                     maxVolume = maxVolume,
                     profileIcon = selectedProfile?.profile?.icon,
+                    coverAnimation = coverAnimation,
                     controls = controls,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -584,8 +589,9 @@ class PlaybackControls(
 private fun NowPlayingContent(
     nowPlaying: NowPlaying,
     maxVolume: Int,
-    /** Tier des gewählten Profils: tanzt am Cover und läuft auf dem Fortschrittsbalken mit. */
+    /** Tier des gewählten Profils: tanzt oder liest am Cover und läuft auf dem Fortschrittsbalken mit. */
     profileIcon: ProfileIcon?,
+    coverAnimation: CoverAnimation,
     controls: PlaybackControls,
     modifier: Modifier = Modifier
 ) {
@@ -622,8 +628,9 @@ private fun NowPlayingContent(
                             .padding(16.dp)
                     )
                     profileIcon?.let {
-                        CoverDancer(
+                        CoverAnimal(
                             icon = it,
+                            animation = coverAnimation,
                             isPlaying = nowPlaying.isPlaying,
                             isBuffering = nowPlaying.playbackState == PlaybackStatus.STATE_BUFFERING,
                             modifier = Modifier.matchParentSize()
