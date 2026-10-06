@@ -26,10 +26,10 @@ sealed interface UiState {
 }
 
 /**
- * [ProfileEditor], [MusicLibrary] (die zentrale Musikauswahl), [MusicCatalog] und [Sync]
- * sind Unterseiten der Settings.
+ * [Speakers], [ProfileEditor], [MusicLibrary] (die zentrale Musikauswahl) mit
+ * [CategoryEditor] (eine Kategorie) und [MusicCatalog], sowie [Sync] sind Unterseiten der Settings.
  */
-enum class Screen { Home, Settings, ProfileEditor, MusicLibrary, MusicCatalog, Sync }
+enum class Screen { Home, Settings, Speakers, ProfileEditor, MusicLibrary, CategoryEditor, MusicCatalog, Sync }
 
 /** Inhalt des Sonos-Katalogs (Favoriten + Playlisten) beim Zusammenstellen der Musikauswahl. */
 sealed interface CatalogState {
@@ -137,9 +137,16 @@ class MainViewModel(
     var editingProfileId: Long? by mutableStateOf(null)
         private set
 
+    /** Kategorie, deren Unterseite in der Musikauswahl gerade offen ist. */
+    var editingCategoryId: Long? by mutableStateOf(null)
+        private set
+
     /** Kategorie, für die gerade Musik aus dem Katalog ausgesucht wird. */
     var catalogCategoryId: Long? by mutableStateOf(null)
         private set
+
+    /** Was im offenen Katalog an den Anfang gesetzt wurde — damit es dort in der Reihenfolge des Antippens steht. */
+    private val catalogAddedAtStart = mutableSetOf<String>()
 
     var catalogState: CatalogState by mutableStateOf(CatalogState.Loading)
         private set
@@ -217,6 +224,9 @@ class MainViewModel(
     val editingProfile: ProfileWithMusic?
         get() = profiles.firstOrNull { it.profile.id == editingProfileId }
 
+    val editingCategory: CategoryWithMusic?
+        get() = categories.firstOrNull { it.category.id == editingCategoryId }
+
     val catalogCategory: CategoryWithMusic?
         get() = categories.firstOrNull { it.category.id == catalogCategoryId }
 
@@ -249,6 +259,11 @@ class MainViewModel(
                 categories = it
                 // Kategorie wurde gelöscht, während ihr Katalog offen war
                 if (catalogCategoryId != null && catalogCategory == null) closeCatalog()
+                // … oder ihre Unterseite
+                if (editingCategoryId != null && editingCategory == null) {
+                    editingCategoryId = null
+                    if (screen == Screen.CategoryEditor) screen = Screen.MusicLibrary
+                }
             }
         }
         viewModelScope.launch {
@@ -369,6 +384,7 @@ class MainViewModel(
         clearPlaybackError()
         screen = Screen.Home
         editingProfileId = null
+        editingCategoryId = null
         catalogCategoryId = null
         uiState = UiState.LoggedOut(reason)
     }
@@ -736,8 +752,16 @@ class MainViewModel(
     fun navigateBack() {
         when (screen) {
             Screen.MusicCatalog -> closeCatalog()
+            Screen.CategoryEditor -> {
+                screen = Screen.MusicLibrary
+                editingCategoryId = null
+            }
             // Zurück dorthin, von wo die Musikauswahl geöffnet wurde
             Screen.MusicLibrary -> screen = if (editingProfile != null) Screen.ProfileEditor else Screen.Settings
+            Screen.Speakers -> {
+                screen = Screen.Settings
+                speakerRefreshMessage = null
+            }
             Screen.ProfileEditor -> {
                 screen = Screen.Settings
                 editingProfileId = null
@@ -751,11 +775,17 @@ class MainViewModel(
     fun closeSettings() {
         screen = Screen.Home
         editingProfileId = null
+        editingCategoryId = null
         catalogCategoryId = null
         speakerRefreshMessage = null
         // Neue Speaker wurden in den Settings gesehen → beim nächsten Mal nicht mehr „Neu"
         viewModelScope.launch { repository.clearNewFlags() }
         restartPolling()
+    }
+
+    /** Öffnet die Speaker-Einstellungen. */
+    fun openSpeakers() {
+        screen = Screen.Speakers
     }
 
     /** Öffnet „Tablets abgleichen“. */
@@ -816,6 +846,12 @@ class MainViewModel(
     /** Öffnet die zentrale Musikauswahl — aus den Settings oder von einer Profil-Seite. */
     fun openLibrary() {
         screen = Screen.MusicLibrary
+    }
+
+    /** Öffnet die Unterseite einer Kategorie mit ihrer Musik und ihren Einstellungen. */
+    fun openCategory(categoryId: Long) {
+        editingCategoryId = categoryId
+        screen = Screen.CategoryEditor
     }
 
     /** Neue Kategorien sind erst einmal für alle Profile sichtbar. */
@@ -881,6 +917,11 @@ class MainViewModel(
         viewModelScope.launch { repository.reorderCategories(reordered) }
     }
 
+    /** Neue Reihenfolge der Kategorien nach Drag & Drop. */
+    fun reorderCategories(orderedIds: List<Long>) {
+        viewModelScope.launch { repository.reorderCategories(orderedIds) }
+    }
+
     fun setCategoryItemSort(categoryId: Long, sort: ItemSort, descending: Boolean) {
         viewModelScope.launch { repository.setCategoryItemSort(categoryId, sort, descending) }
     }
@@ -902,6 +943,18 @@ class MainViewModel(
         viewModelScope.launch { repository.reorderItems(reordered) }
     }
 
+    /** Neue manuelle Reihenfolge der Musik einer Kategorie nach Drag & Drop. */
+    fun reorderMusicItems(categoryId: Long, orderedIds: List<Long>) {
+        val category = categories.firstOrNull { it.category.id == categoryId } ?: return
+        if (category.category.itemSortMode != ItemSort.MANUAL) return
+        viewModelScope.launch { repository.reorderItems(orderedIds) }
+    }
+
+    /** Ob „Musik hinzufügen“ neue Einträge an den Anfang statt ans Ende setzt. */
+    fun setAddMusicAtStart(atStart: Boolean) {
+        viewModelScope.launch { repository.setAddMusicAtStart(atStart) }
+    }
+
     fun removeMusicItem(itemId: Long) {
         viewModelScope.launch { repository.removeMusicItem(itemId) }
     }
@@ -909,6 +962,7 @@ class MainViewModel(
     /** Öffnet den Sonos-Katalog, um Musik zu einer Kategorie hinzuzufügen. */
     fun openCatalog(categoryId: Long) {
         catalogCategoryId = categoryId
+        catalogAddedAtStart.clear()
         screen = Screen.MusicCatalog
         if (catalogState !is CatalogState.Loaded) loadCatalog()
     }
@@ -916,7 +970,9 @@ class MainViewModel(
     fun closeCatalog() {
         catalogCategoryId = null
         playlistPreview = null
-        if (screen == Screen.MusicCatalog) screen = Screen.MusicLibrary
+        if (screen == Screen.MusicCatalog) {
+            screen = if (editingCategory != null) Screen.CategoryEditor else Screen.MusicLibrary
+        }
     }
 
     /** Lädt Favoriten und Playlisten des Haushalts (auch über „Neu laden" im Katalog). */
@@ -996,11 +1052,19 @@ class MainViewModel(
     fun toggleCatalogEntry(entry: CatalogEntry) {
         val category = catalogCategory ?: return
         val present = category.items.any { it.catalogKey == entry.key }
+        // Am Anfang: hinter das, was in diesem Katalog schon nach oben gesetzt wurde,
+        // damit mehrere neue Einträge oben in der Reihenfolge des Antippens stehen
+        val insertAt = if (settings.addMusicAtStart && !present) {
+            val presentKeys = category.items.map { it.catalogKey }.toSet()
+            catalogAddedAtStart.count { it in presentKeys }.also { catalogAddedAtStart += entry.key }
+        } else {
+            null
+        }
         viewModelScope.launch {
             if (present) {
                 repository.removeMusic(category.category.id, entry)
             } else {
-                repository.addMusic(category.category.id, entry)
+                repository.addMusic(category.category.id, entry, insertAt)
             }
         }
     }
