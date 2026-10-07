@@ -14,7 +14,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleStartEffect
 import kotlin.math.roundToInt
 
 /** Akkustand des Tablets. */
@@ -161,13 +161,15 @@ private fun BatteryGraphic(
     }
 }
 
-/** Liest den Akkustand und hält ihn aktuell, solange die Anzeige zu sehen ist. */
+/** Liest den Akkustand und hält ihn aktuell, solange die Anzeige zu sehen ist — bei ausgeschaltetem Display nicht. */
 @Composable
 private fun rememberBatteryStatus(): BatteryStatus? {
     val context = LocalContext.current
     var status by remember { mutableStateOf<BatteryStatus?>(null) }
 
-    DisposableEffect(context) {
+    // Am Lebenszyklus der App statt an der Neuzeichnung: Die ruht bei ausgeschaltetem
+    // Display, abgemeldet werden muss trotzdem sofort.
+    LifecycleStartEffect(context) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 intent.toBatteryStatus()?.let { status = it }
@@ -179,7 +181,7 @@ private fun rememberBatteryStatus(): BatteryStatus? {
         context.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             ?.toBatteryStatus()
             ?.let { status = it }
-        onDispose { context.unregisterReceiver(receiver) }
+        onStopOrDispose { context.unregisterReceiver(receiver) }
     }
     return status
 }
