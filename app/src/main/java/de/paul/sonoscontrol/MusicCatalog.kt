@@ -44,6 +44,11 @@ data class CatalogEntry(
     val description: String?,
     val imageUrl: String?,
     val type: MusicType,
+    /**
+     * Künstler, soweit Sonos sie irgendwo nennt (Cloud oder Speaker im Heimnetz), die
+     * häufigsten zuerst — bei Sonos-Playlisten alle aus ihren Titeln. Alle sind durchsuchbar.
+     */
+    val artists: List<String> = emptyList(),
     /** Anzahl der Titel, falls Sonos sie nennt (nur bei Sonos-Playlisten). */
     val trackCount: Int? = null,
     /** Woher das Cover stammt (Sonos-Cloud, Speaker im Heimnetz) — für die Detail-Ansicht. */
@@ -61,6 +66,10 @@ data class CatalogEntry(
             description = favorite.description?.takeIf { it.isNotBlank() } ?: favorite.service?.name,
             imageUrl = favorite.coverUrl,
             type = MusicType.fromFavoriteType(favorite.resource?.type),
+            // Ist der Favorit selbst ein Künstler (z. B. Künstler-Radio), ist sein Name der Künstler
+            artists = favorite.foundArtists.ifEmpty {
+                listOfNotNull(favorite.name.takeIf { it.isNotBlank() && favorite.resource?.type.equals("ARTIST", ignoreCase = true) })
+            },
             coverOrigin = favorite.coverUrl?.let { "Sonos-Cloud" },
             rawData = favorite.rawJson
         )
