@@ -1075,7 +1075,7 @@ class MainViewModel(
             val playlists = async { apiClient.getPlaylists(household) }
             favorites.await().map(CatalogEntry::from) + playlists.await().map(CatalogEntry::from)
         }
-        // Cover direkt beim Speaker im Heimnetz holen — dieselben, die die Sonos-App zeigt.
+        // Cover (und Künstler) direkt beim Speaker im Heimnetz holen — dieselben, die die Sonos-App zeigt.
         // Die Cloud liefert für Sonos-Playlisten nie eins und für manche Favoriten keins,
         // das sich laden lässt. Klappt das lokal nicht, bleibt es beim Cover aus der Cloud.
         // Abgelaufene Adressen (Apple Music: nur 24 h gültig) gar nicht erst versuchen.
@@ -1095,6 +1095,8 @@ class MainViewModel(
             val stored = repository.catalogCover(entry, freshSignedUrl = usable.firstOrNull(::isSignedUrl))
             entry.copy(
                 imageUrl = joinImageUrls(listOfNotNull(stored) + usable),
+                // Die Cloud nennt den Künstler selten, der Speaker kennt ihn oft (bei Playlisten aus den Titeln)
+                artist = entry.artist ?: local?.artistFor(entry),
                 coverOrigin = listOfNotNull(
                     "auf dem Tablet gespeichert".takeIf { stored != null },
                     origin,

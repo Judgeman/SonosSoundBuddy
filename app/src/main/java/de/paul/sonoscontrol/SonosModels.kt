@@ -3,6 +3,7 @@ package de.paul.sonoscontrol
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -157,6 +158,8 @@ data class SonosFavorite(
     val resource: FavoriteResource? = null,
     /** Cover, das [findImageUrl] irgendwo im Favoriten gefunden hat (nicht Teil des JSON). */
     @Transient val foundImageUrl: String? = null,
+    /** Künstler, den [findArtist] irgendwo im Favoriten gefunden hat (nicht Teil des JSON). */
+    @Transient val foundArtist: String? = null,
     /** Das JSON, wie Sonos es geschickt hat — für die Detail-Ansicht im Katalog. */
     @Transient val rawJson: String? = null
 ) {
@@ -205,6 +208,66 @@ private fun imageUrlIn(obj: JsonObject): String? {
 }
 
 private val IMAGE_URL_KEYS = listOf("imageUrl", "albumArtUri", "albumArtURI", "artUrl")
+
+/**
+ * Sucht in einem Objekt der Sonos-API den Künstler — je nach Musikdienst als
+ * Text oder Objekt mit `name`, direkt am Favoriten, an der `resource` oder
+ * verschachtelt. Näher liegende Felder gewinnen, der Musikdienst (`service`)
+ * wird übergangen.
+ */
+fun findArtist(element: JsonObject): String? {
+    var level = listOf(element)
+    repeat(4) {
+        level.forEach { obj -> artistIn(obj)?.let { return it } }
+        level = level.flatMap { obj ->
+            obj.filterKeys { it != "service" }.values.flatMap { value ->
+                when (value) {
+                    is JsonObject -> listOf(value)
+                    is JsonArray -> value.filterIsInstance<JsonObject>()
+                    else -> emptyList()
+                }
+            }
+        }
+        if (level.isEmpty()) return null
+    }
+    return null
+}
+
+private fun artistIn(obj: JsonObject): String? {
+    ARTIST_KEYS.forEach { key ->
+        val names = when (val value = obj[key]) {
+            is JsonArray -> value.mapNotNull(::nameOf)
+            null -> emptyList()
+            else -> listOfNotNull(nameOf(value))
+        }
+        summarizeArtists(names)?.let { return it }
+    }
+    return null
+}
+
+/** Text direkt oder das `name`-Feld eines Objekts. */
+private fun nameOf(element: JsonElement): String? = when (element) {
+    is JsonPrimitive -> element.takeIf { it.isString }?.content
+    is JsonObject -> (element["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+    else -> null
+}?.orNullIfBlank()
+
+private val ARTIST_KEYS = listOf("artist", "artists", "artistName", "albumArtist", "creator")
+
+/**
+ * Fasst Künstler zusammen, die häufigsten zuerst: „A“, „A, B, C“ oder bei
+ * vielen verschiedenen (z. B. einer gemischten Playlist) „A, B, C u. a.“.
+ */
+fun summarizeArtists(artists: List<String>): String? {
+    val ranked = artists.map { it.trim() }.filter { it.isNotEmpty() }
+        .groupingBy { it }.eachCount()
+        .entries.sortedByDescending { it.value }
+        .map { it.key }
+    if (ranked.isEmpty()) return null
+    return ranked.take(MAX_ARTISTS).joinToString(", ") + if (ranked.size > MAX_ARTISTS) " u. a." else ""
+}
+
+private const val MAX_ARTISTS = 3
 
 /**
  * Macht aus dem, was Sonos als Bild-URL liefert, eine ladbare Adresse:

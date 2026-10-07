@@ -24,31 +24,41 @@ import kotlin.coroutines.resume
  * [freshArtUrl]: Cover über den Speaker selbst (`/getaa?u=<Inhalt>`) — er holt es jedes Mal
  * frisch beim Musikdienst, auch wenn die gespeicherte [artUrl] längst abgelaufen ist.
  */
-data class LocalEntry(val id: String, val title: String, val artUrl: String?, val freshArtUrl: String? = null)
+data class LocalEntry(
+    val id: String,
+    val title: String,
+    val artUrl: String?,
+    val freshArtUrl: String? = null,
+    val artist: String? = null
+)
 
-/** Cover aus dem Heimnetz, nach Sonos-Id und nach Name. */
+/** Cover und Künstler aus dem Heimnetz, nach Sonos-Id und nach Name. */
 class LocalCovers(
     private val favorites: List<LocalEntry>,
     private val playlists: List<LocalEntry>
 ) {
-    /**
-     * Cover-Adressen für einen Katalog-Eintrag, beste zuerst. Control-API-Id "13"
-     * entspricht lokal "FV:2/13" bzw. "SQ:13" — sonst über den Namen.
-     */
+    /** Cover-Adressen für einen Katalog-Eintrag, beste zuerst. */
     fun coversFor(entry: CatalogEntry): List<String> {
+        val local = find(entry) ?: return emptyList()
+        return listOfNotNull(local.artUrl, local.freshArtUrl)
+    }
+
+    /** Künstler laut Speaker — bei Sonos-Playlisten die ihrer ersten Titel. */
+    fun artistFor(entry: CatalogEntry): String? = find(entry)?.artist
+
+    /** Control-API-Id "13" entspricht lokal "FV:2/13" bzw. "SQ:13" — sonst über den Namen. */
+    private fun find(entry: CatalogEntry): LocalEntry? {
         val (list, localId) = when (entry.source) {
             MusicSource.FAVORITE -> favorites to "FV:2/${entry.sonosId}"
             MusicSource.PLAYLIST -> playlists to "SQ:${entry.sonosId}"
         }
-        val local = list.firstOrNull { it.id == localId && it.title.equals(entry.name, ignoreCase = true) }
+        return list.firstOrNull { it.id == localId && it.title.equals(entry.name, ignoreCase = true) }
             ?: list.firstOrNull { it.title.trim().equals(entry.name.trim(), ignoreCase = true) }
-            ?: return emptyList()
-        return listOfNotNull(local.artUrl, local.freshArtUrl)
     }
 }
 
 /**
- * Fragt einen Sonos-Speaker direkt im Heimnetz (UPnP, Port 1400) nach Covern.
+ * Fragt einen Sonos-Speaker direkt im Heimnetz (UPnP, Port 1400) nach Covern und Künstlern.
  * Die Cloud-API liefert für Sonos-Playlisten nie ein Bild und für manche
  * Favoriten auch nicht — die Speaker selbst kennen sie aber, genau wie die Sonos-App.
  * Den Speaker findet die App per mDNS (`_sonos._tcp`).
@@ -66,7 +76,7 @@ class LocalSonosClient(context: Context) {
     private var speakerBaseUrl: String? = null
 
     /**
-     * Lädt Favoriten und Sonos-Playlisten samt Covern vom Speaker.
+     * Lädt Favoriten und Sonos-Playlisten samt Covern und Künstlern vom Speaker.
      * [addressHint]: eine Cover-URL der Wiedergabe (http://IP:1400/…), falls bekannt.
      */
     suspend fun loadCovers(addressHint: String?): LocalCovers? {
@@ -77,12 +87,14 @@ class LocalSonosClient(context: Context) {
         return try {
             val favorites = browse(base, "FV:2")
             val playlists = browse(base, "SQ:").map { playlist ->
-                // Hat die Playlist selbst kein Bild, die Cover der ersten Titel nehmen —
-                // die frische Adresse über den Speaker zuerst, die gespeicherte kann abgelaufen sein.
-                // (Die Abspiel-Adresse der Playlist selbst taugt nicht für /getaa.)
-                val art = playlist.artUrl ?: browse(base, playlist.id, count = 5)
-                    .firstNotNullOfOrNull { track -> track.freshArtUrl ?: track.artUrl }
-                playlist.copy(artUrl = art, freshArtUrl = null)
+                // Die ersten Titel nennen die Künstler der Playlist. Hat sie selbst kein Bild,
+                // auch deren Cover nehmen — die frische Adresse über den Speaker zuerst, die
+                // gespeicherte kann abgelaufen sein. (Die Abspiel-Adresse der Playlist selbst
+                // taugt nicht für /getaa.)
+                val tracks = browse(base, playlist.id, count = PLAYLIST_SAMPLE_SIZE)
+                val art = playlist.artUrl ?: tracks.firstNotNullOfOrNull { track -> track.freshArtUrl ?: track.artUrl }
+                val artist = playlist.artist ?: summarizeArtists(tracks.mapNotNull { it.artist })
+                playlist.copy(artUrl = art, freshArtUrl = null, artist = artist)
             }
             speakerBaseUrl = base
             Log.d(TAG, "Lokal ${favorites.size} Favoriten, ${playlists.size} Playlisten von $base")
@@ -182,6 +194,17 @@ class LocalSonosClient(context: Context) {
         return null
     }
 
+    /** Erster Künstler in einem DIDL — etwa dem eingebetteten des Favoriten (`r:resMD`). */
+    private fun artistInDidl(didl: String): String? = runCatching {
+        val parser = Xml.newPullParser().apply { setInput(StringReader(didl)) }
+        while (parser.next() != XmlPullParser.END_DOCUMENT) {
+            if (parser.eventType == XmlPullParser.START_TAG && parser.name.substringAfter(':') in ARTIST_TAGS) {
+                parser.nextText().trim().takeIf { it.isNotEmpty() }?.let { return@runCatching it }
+            }
+        }
+        null
+    }.getOrNull()
+
     private fun parseDidl(didl: String, base: String): List<LocalEntry> {
         val parser = Xml.newPullParser().apply { setInput(StringReader(didl)) }
         val entries = mutableListOf<LocalEntry>()
@@ -189,6 +212,7 @@ class LocalSonosClient(context: Context) {
         var title: String? = null
         var art: String? = null
         var res: String? = null
+        var artist: String? = null
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
             val name = parser.name?.substringAfter(':')
             when (parser.eventType) {
@@ -198,10 +222,15 @@ class LocalSonosClient(context: Context) {
                         title = null
                         art = null
                         res = null
+                        artist = null
                     }
                     // Abspiel-Adresse des Inhalts, z. B. x-rincon-cpcontainer:…?sid=204&…
                     "res" -> if (res == null) res = parser.nextText().trim().takeIf { it.isNotEmpty() }
                     "title" -> if (title == null) title = parser.nextText()
+                    // dc:creator, upnp:artist oder upnp:albumArtist — bei Titeln und manchen Alben
+                    in ARTIST_TAGS -> if (artist == null) artist = parser.nextText().trim().takeIf { it.isNotEmpty() }
+                    // Favoriten tragen die Daten des eigentlichen Inhalts als eingebettetes DIDL mit
+                    "resMD" -> if (artist == null) artist = artistInDidl(parser.nextText())
                     // Erstes Bild nehmen; relative Pfade (/getaa?…) liefert der Speaker selbst
                     "albumArtURI" -> if (art == null) {
                         art = parser.nextText().trim().let { if (it.startsWith("/")) base + it else it }
@@ -212,7 +241,7 @@ class LocalSonosClient(context: Context) {
                     val entryId = id
                     val entryTitle = title
                     val fresh = res?.let { "$base/getaa?s=1&u=" + java.net.URLEncoder.encode(it, "UTF-8") }
-                    if (entryId != null && entryTitle != null) entries += LocalEntry(entryId, entryTitle, art, fresh)
+                    if (entryId != null && entryTitle != null) entries += LocalEntry(entryId, entryTitle, art, fresh, artist)
                     id = null
                 }
             }
@@ -224,5 +253,8 @@ class LocalSonosClient(context: Context) {
         private const val TAG = "SonosLocal"
         private const val SERVICE_TYPE = "_sonos._tcp."
         private const val DISCOVERY_TIMEOUT_MS = 6_000L
+        /** So viele Titel einer Sonos-Playlist reichen für Künstler und Ersatz-Cover. */
+        private const val PLAYLIST_SAMPLE_SIZE = 30
+        private val ARTIST_TAGS = setOf("creator", "artist", "albumArtist")
     }
 }

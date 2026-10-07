@@ -149,9 +149,14 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
       Reihenfolge des Antippens.
 
     „Musik hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
-    Sonos-Playlisten) mit Suche und Filter nach Songs, Playlisten, Alben und
-    Radio; ein Tipp nimmt einen Eintrag in die Kategorie auf oder wieder
-    heraus. Bei Sonos-Playlisten lässt sich die Titelliste ansehen.
+    Sonos-Playlisten) mit Suche (auch nach Künstler) und Filter nach Songs,
+    Playlisten, Alben und Radio; ein Tipp nimmt einen Eintrag in die
+    Kategorie auf oder wieder heraus. Bei Sonos-Playlisten lässt sich die
+    Titelliste ansehen. Jeder Eintrag zeigt den **Künstler** (soweit Sonos
+    ihn nennt) und, in welchen Kategorien er schon steckt — was noch in
+    keiner steckt, trägt das Schild „Noch in keiner Kategorie“. Der Filter
+    **„Ohne Kategorie“** zeigt nur diese Einträge; was man dort antippt,
+    bleibt stehen, bis man den Filter wechselt.
   - **Kinder-Profile:** Profile anlegen, pro Profil ein Schalter „auf diesem
     Tablet aktiv“. Ein Tipp öffnet die Profil-Seite mit Name, **Icon**
     (17 gezeichnete Tiere, Einhorn, Pikachu) und einem Schalter pro
@@ -306,8 +311,17 @@ dieselbe, längst abgelaufene aus (Antwort: 400). Deshalb:
   Playlist-Cover heraus (auch nicht in der Wiedergabe).
 Nicht mehr benutzte Bilder räumt die App beim Start auf.
 
-**Fehlersuche:** Der ⓘ-Knopf an jedem Eintrag im Katalog zeigt Quelle,
-Id, woher das Cover kommt, jede bekannte Cover-URL mit Vorschau und ob sie
+**Künstler:** Die Cloud-API nennt ihn bei Favoriten selten. Die App sucht
+im Favoriten nach `artist`, `artists`, `artistName`, `albumArtist` oder
+`creator` (als Text oder Objekt mit `name`, nicht beim Musikdienst) und
+fragt sonst den Speaker im Heimnetz: `dc:creator` bzw. `upnp:artist` am
+Favoriten oder in seinem eingebetteten DIDL (`r:resMD`). Bei
+Sonos-Playlisten stammen die Künstler aus den ersten 30 Titeln — die
+häufigsten drei, bei mehr mit „u. a.“. Der Künstler wird nicht gespeichert,
+nur im Katalog angezeigt.
+
+**Fehlersuche:** Der ⓘ-Knopf an jedem Eintrag im Katalog zeigt Künstler,
+Kategorien, Quelle, Id, woher das Cover kommt, jede bekannte Cover-URL mit Vorschau und ob sie
 sich laden lässt (sonst mit Fehlermeldung) sowie die Rohdaten von Sonos.
 „Kopieren“ legt alles als Text in die Zwischenablage.
 
