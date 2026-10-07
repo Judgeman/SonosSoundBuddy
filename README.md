@@ -95,6 +95,14 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     (App im Vordergrund, kein Musik-Popup, kein Start-Popup, keine
     Fehlermeldung). Lange auf den Titel „SoundBuddy“ drücken schickt sofort
     ein Tier vorbei.
+  - **Fehlermeldung:** Geht bei der Wiedergabe etwas schief, liegt ein großer
+    Hinweis über dem Homescreen, bis jemand „Okay“ drückt. Darauf ist statt
+    eines traurigen Smileys der SoundBuddy zu sehen (`ErrorBuddy.kt`): ein
+    kleiner lila Lautsprecher, der seinen ausgesteckten Stecker in der Hand
+    hält, abwechselnd darauf schaut und sich ratlos am Kopf kratzt, über ihm
+    ein wippendes Fragezeichen. Antippen lässt ihn hüpfen und lachen, und
+    ein Herz steigt auf. Dieselbe Figur zeigt auch die Fehlerseite, wenn die
+    Speaker nicht geladen werden können.
 - **Einstellungen** (Drei-Punkte-Menü oben rechts)
   - **Passwortschutz:** Ist ein Passwort hinterlegt und „Einstellungen nur
     mit Passwort öffnen“ aktiv, wird beim Öffnen danach gefragt. Ohne
@@ -443,6 +451,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
+| `ErrorBuddy.kt` | Animierter SoundBuddy für Fehlermeldungen |
 | `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
 | `AnimalFigure.kt` | Profil-Tiere als Figur mit Körper, geschlossene Augen zum Schlafen |
