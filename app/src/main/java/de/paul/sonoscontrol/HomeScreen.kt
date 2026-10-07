@@ -143,6 +143,7 @@ fun HomeScreen(
                             )
                         },
                         actions = {
+                            BatteryIndicator(modifier = Modifier.padding(end = 4.dp))
                             Box {
                                 IconButton(onClick = { menuExpanded = true }) {
                                     Icon(Icons.Rounded.MoreVert, contentDescription = "Menü")
