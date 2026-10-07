@@ -71,6 +71,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -600,6 +601,8 @@ private fun NowPlayingContent(
         while (true) {
             value = nowPlaying.currentPositionMillis()
             delay(500)
+            // Bei ausgeschaltetem Display wird nichts gezeichnet – dann hier warten statt weiterzuzählen
+            withFrameNanos { }
         }
     }
 
