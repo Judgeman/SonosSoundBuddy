@@ -56,6 +56,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.VerticalAlignBottom
@@ -87,6 +88,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -1300,6 +1302,8 @@ private fun SelectableImage(selected: Boolean, onClick: () -> Unit, content: @Co
 @Composable
 fun MusicCatalogScreen(
     category: CategoryWithMusic,
+    /** Alle Kategorien der Musikauswahl — zeigt, wo ein Eintrag schon steckt. */
+    categories: List<CategoryWithMusic>,
     state: CatalogState,
     playlistPreview: PlaylistPreview?,
     /** Wohin neue Einträge kommen — nur bei manueller Sortierung, sonst null. */
@@ -1313,7 +1317,9 @@ fun MusicCatalogScreen(
     var detailsFor by remember { mutableStateOf<CatalogEntry?>(null) }
     var query by remember { mutableStateOf("") }
     var typeFilter by remember { mutableStateOf<MusicType?>(null) }
+    var onlyUnassigned by remember { mutableStateOf(false) }
     val selectedKeys = category.items.map { it.catalogKey }.toSet()
+    val assignments = remember(categories) { categoryNamesByKey(categories) }
 
     Scaffold(
         topBar = {
@@ -1369,6 +1375,9 @@ fun MusicCatalogScreen(
                     onQueryChange = { query = it },
                     typeFilter = typeFilter,
                     onTypeFilterChange = { typeFilter = it },
+                    onlyUnassigned = onlyUnassigned,
+                    onOnlyUnassignedChange = { onlyUnassigned = it },
+                    assignments = assignments,
                     selectedKeys = selectedKeys,
                     onToggleEntry = onToggleEntry,
                     onShowPlaylist = onShowPlaylist,
@@ -1379,8 +1388,17 @@ fun MusicCatalogScreen(
     }
 
     playlistPreview?.let { PlaylistPreviewDialog(it, onDismissPlaylist) }
-    detailsFor?.let { CatalogEntryDetailsDialog(it, onDismiss = { detailsFor = null }) }
+    detailsFor?.let {
+        CatalogEntryDetailsDialog(it, assignments[it.key].orEmpty(), onDismiss = { detailsFor = null })
+    }
 }
+
+/** Zu jedem Katalog-Eintrag die Namen der Kategorien, in denen er steckt — in deren Reihenfolge. */
+private fun categoryNamesByKey(categories: List<CategoryWithMusic>): Map<String, List<String>> =
+    categories
+        .flatMap { category -> category.items.map { it.catalogKey to category.category.name } }
+        .groupBy({ it.first }, { it.second })
+        .mapValues { it.value.distinct() }
 
 @Composable
 private fun CatalogList(
@@ -1389,16 +1407,25 @@ private fun CatalogList(
     onQueryChange: (String) -> Unit,
     typeFilter: MusicType?,
     onTypeFilterChange: (MusicType?) -> Unit,
+    onlyUnassigned: Boolean,
+    onOnlyUnassignedChange: (Boolean) -> Unit,
+    assignments: Map<String, List<String>>,
     selectedKeys: Set<String>,
     onToggleEntry: (CatalogEntry) -> Unit,
     onShowPlaylist: (CatalogEntry) -> Unit,
     onShowDetails: (CatalogEntry) -> Unit
 ) {
+    // Was bei „Ohne Kategorie" gerade angetippt wurde, bleibt stehen — sonst verschwände
+    // es sofort und ein versehentlicher Tipp ließe sich nicht mehr zurücknehmen
+    var touchedKeys by remember { mutableStateOf(emptySet<String>()) }
     val availableTypes = MusicType.entries.filter { type -> entries.any { it.type == type } }
+    val unassignedCount = entries.count { it.key !in assignments }
+    val search = query.trim()
     val visible = entries.filter { entry ->
         (typeFilter == null || entry.type == typeFilter) &&
-            (query.isBlank() || entry.name.contains(query.trim(), ignoreCase = true) ||
-                entry.description?.contains(query.trim(), ignoreCase = true) == true)
+            (!onlyUnassigned || entry.key !in assignments || entry.key in touchedKeys) &&
+            (search.isEmpty() || (listOfNotNull(entry.name, entry.description) + entry.artists)
+                .any { it.contains(search, ignoreCase = true) })
     }
 
     LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -1430,25 +1457,42 @@ private fun CatalogList(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
             )
-            if (availableTypes.size > 1) {
+            if (entries.isNotEmpty()) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     FilterChip(
-                        selected = typeFilter == null,
-                        onClick = { onTypeFilterChange(null) },
-                        label = { Text("Alle") }
+                        selected = onlyUnassigned,
+                        onClick = {
+                            touchedKeys = emptySet()
+                            onOnlyUnassignedChange(!onlyUnassigned)
+                        },
+                        label = { Text("Ohne Kategorie ($unassignedCount)") },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.NewReleases, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
                     )
-                    availableTypes.forEach { type ->
+                    if (availableTypes.size > 1) {
+                        VerticalDivider(modifier = Modifier.height(24.dp))
                         FilterChip(
-                            selected = typeFilter == type,
-                            onClick = { onTypeFilterChange(if (typeFilter == type) null else type) },
-                            label = { Text(type.pluralLabel) },
-                            leadingIcon = { Icon(type.icon, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                            selected = typeFilter == null,
+                            onClick = { onTypeFilterChange(null) },
+                            label = { Text("Alle") }
                         )
+                        availableTypes.forEach { type ->
+                            FilterChip(
+                                selected = typeFilter == type,
+                                onClick = { onTypeFilterChange(if (typeFilter == type) null else type) },
+                                label = { Text(type.pluralLabel) },
+                                leadingIcon = {
+                                    Icon(type.icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -1463,21 +1507,42 @@ private fun CatalogList(
             }
         } else if (visible.isEmpty()) {
             item {
-                Text("Nichts gefunden.", modifier = Modifier.padding(16.dp))
+                Text(
+                    if (onlyUnassigned && unassignedCount == 0) {
+                        "Alles steckt schon in einer Kategorie."
+                    } else {
+                        "Nichts gefunden."
+                    },
+                    modifier = Modifier.padding(16.dp)
+                )
             }
         }
 
         items(visible, key = { it.key }) { entry ->
             val selected = entry.key in selectedKeys
+            // Passt die Suche auf einen Künstler, steht er vorne — auch wenn er sonst unter „u. a." fiele.
+            // Nennt Sonos den Künstler schon als Name oder Beschreibung, nicht doppelt zeigen.
+            val artists = if (search.isEmpty()) {
+                entry.artists
+            } else {
+                entry.artists.sortedByDescending { it.contains(search, ignoreCase = true) }
+            }
+            val artist = summarizeArtists(artists)?.takeUnless { artist ->
+                listOfNotNull(entry.name, entry.description).any { it.trim().equals(artist, ignoreCase = true) }
+            }
             ListItem(
                 leadingContent = { MusicCover(entry.imageUrl, entry.type, size = 56.dp) },
                 headlineContent = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                 supportingContent = {
-                    Text(
-                        listOfNotNull(entry.type.label, entry.description, entry.source.label).joinToString(" · "),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Column {
+                        Text(
+                            listOfNotNull(entry.type.label, artist, entry.description, entry.source.label)
+                                .joinToString(" · "),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        CategoryAssignment(assignments[entry.key].orEmpty())
+                    }
                 },
                 trailingContent = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1498,15 +1563,50 @@ private fun CatalogList(
                         )
                     }
                 },
-                modifier = Modifier.clickable { onToggleEntry(entry) }
+                modifier = Modifier.clickable {
+                    touchedKeys = touchedKeys + entry.key
+                    onToggleEntry(entry)
+                }
             )
         }
     }
 }
 
-/** Was Sonos zu einem Katalog-Eintrag liefert — Cover-URL, ob sie lädt, Rohdaten. */
+/** In welchen Kategorien ein Katalog-Eintrag steckt — oder ein auffälliges Schild, wenn in keiner. */
 @Composable
-private fun CatalogEntryDetailsDialog(entry: CatalogEntry, onDismiss: () -> Unit) {
+private fun CategoryAssignment(categoryNames: List<String>) {
+    if (categoryNames.isEmpty()) {
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.padding(top = 4.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Icon(Icons.Rounded.NewReleases, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(NOT_ASSIGNED, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    } else {
+        Text(
+            "In: ${categoryNames.joinToString(", ")}",
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
+}
+
+private const val NOT_ASSIGNED = "Noch in keiner Kategorie"
+
+/** Was Sonos zu einem Katalog-Eintrag liefert — Künstler, Cover-URL, ob sie lädt, Rohdaten. */
+@Composable
+private fun CatalogEntryDetailsDialog(entry: CatalogEntry, categoryNames: List<String>, onDismiss: () -> Unit) {
     val candidates = imageUrlCandidates(entry.imageUrl)
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
@@ -1516,6 +1616,8 @@ private fun CatalogEntryDetailsDialog(entry: CatalogEntry, onDismiss: () -> Unit
         title = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                DetailLine("Künstler", entry.artists.joinToString(", ").ifEmpty { "— (Sonos nennt keinen)" })
+                DetailLine("Kategorien", categoryNames.joinToString(", ").ifEmpty { NOT_ASSIGNED })
                 DetailLine("Quelle", entry.source.label)
                 DetailLine("Sonos-Id", entry.sonosId)
                 DetailLine("Art", entry.type.label)
@@ -1543,6 +1645,7 @@ private fun CatalogEntryDetailsDialog(entry: CatalogEntry, onDismiss: () -> Unit
 /** Alle Angaben als Text — zum Einfügen in eine Nachricht. */
 private fun describeForSupport(entry: CatalogEntry): String = buildString {
     appendLine("Name: ${entry.name}")
+    appendLine("Künstler: ${entry.artists.joinToString(", ").ifEmpty { "—" }}")
     appendLine("Quelle: ${entry.source.label}")
     appendLine("Sonos-Id: ${entry.sonosId}")
     appendLine("Art: ${entry.type.label}")

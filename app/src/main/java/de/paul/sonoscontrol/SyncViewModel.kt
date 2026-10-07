@@ -329,29 +329,30 @@ class SyncViewModel(
     /** Solange die App sichtbar ist, regelmäßig abgleichen. */
     fun onForegroundChanged(foreground: Boolean) {
         isForeground = foreground
-        if (foreground) {
-            viewModelScope.launch {
-                // Erst die gespeicherte Rolle laden, sonst läuft der erste Abgleich mit der Vorgabe „Aus“
-                cloudSettings = repository.cloudSettings()
-                startCloudLoop(firstIsUserAction = false)
-            }
-        } else {
-            cloudLoopJob?.cancel()
-            cloudLoopJob = null
+        cloudLoopJob?.cancel()
+        cloudLoopJob = null
+        if (!foreground) return
+        // Schon das Laden gehört zum Job: Geht das Display gleich wieder aus, startet kein Abgleich mehr
+        cloudLoopJob = viewModelScope.launch {
+            // Erst die gespeicherte Rolle laden, sonst läuft der erste Abgleich mit der Vorgabe „Aus“
+            cloudSettings = repository.cloudSettings()
+            runCloudLoop(firstIsUserAction = false)
         }
     }
 
     private fun startCloudLoop(firstIsUserAction: Boolean) {
         cloudLoopJob?.cancel()
-        cloudLoopJob = viewModelScope.launch {
-            var userAction = firstIsUserAction
-            while (true) {
-                runCloudCycle(userAction)
-                userAction = false
-                // Das Haupt-Tablet lädt nur nach Änderungen hoch, also beim Schließen der Einstellungen
-                if (cloudSettings.role != CloudRole.FOLLOWER) break
-                delay(CLOUD_CHECK_INTERVAL_MS)
-            }
+        cloudLoopJob = viewModelScope.launch { runCloudLoop(firstIsUserAction) }
+    }
+
+    private suspend fun runCloudLoop(firstIsUserAction: Boolean) {
+        var userAction = firstIsUserAction
+        while (true) {
+            runCloudCycle(userAction)
+            userAction = false
+            // Das Haupt-Tablet lädt nur nach Änderungen hoch, also beim Schließen der Einstellungen
+            if (cloudSettings.role != CloudRole.FOLLOWER) break
+            delay(CLOUD_CHECK_INTERVAL_MS)
         }
     }
 

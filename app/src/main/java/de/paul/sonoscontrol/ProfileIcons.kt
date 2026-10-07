@@ -36,6 +36,7 @@ enum class ProfileIcon(val label: String, private val vectorProvider: () -> Imag
     CHICK("Küken", { ChickIcon }, Color(0xFF80CBC4)),
     LADYBUG("Marienkäfer", { LadybugIcon }, Color(0xFFDCEDC8)),
     COW("Kuh", { CowIcon }, Color(0xFFAED581)),
+    SAM("Sam", { SamIcon }, Color(0xFF9FA8DA)),
     UNICORN("Einhorn", { UnicornIcon }, Color(0xFFB39DDB)),
     PIKACHU("Pikachu", { PikachuIcon }, Color(0xFF4FC3F7));
 
