@@ -95,6 +95,14 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     (App im Vordergrund, kein Musik-Popup, kein Start-Popup, keine
     Fehlermeldung). Lange auf den Titel „SoundBuddy“ drücken schickt sofort
     ein Tier vorbei.
+  - **Fehlermeldung:** Geht bei der Wiedergabe etwas schief, liegt ein großer
+    Hinweis über dem Homescreen, bis jemand „Okay“ drückt. Darauf ist statt
+    eines traurigen Smileys der SoundBuddy zu sehen (`ErrorBuddy.kt`): ein
+    kleiner lila Lautsprecher, der seinen ausgesteckten Stecker in der Hand
+    hält, abwechselnd darauf schaut und sich ratlos am Kopf kratzt, über ihm
+    ein wippendes Fragezeichen. Antippen lässt ihn hüpfen und lachen, und
+    ein Herz steigt auf. Dieselbe Figur zeigt auch die Fehlerseite, wenn die
+    Speaker nicht geladen werden können.
   - **Akku-Anzeige** klein oben rechts in der Kopfzeile, neben dem Menü
     (`BatteryIndicator.kt`): Prozentzahl und eine gezeichnete Batterie mit
     Füllstand — gedacht für die Eltern, wenn das Tablet fixiert läuft. Am
@@ -465,6 +473,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
+| `ErrorBuddy.kt` | Animierter SoundBuddy für Fehlermeldungen |
 | `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
 | `BatteryIndicator.kt` | Kleine Akku-Anzeige in der Kopfzeile |

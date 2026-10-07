@@ -41,7 +41,6 @@ import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.SentimentVeryDissatisfied
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
@@ -327,12 +326,9 @@ private fun ErrorCard(
                 .fillMaxWidth()
                 .padding(24.dp)
         ) {
-            Icon(
-                Icons.Rounded.SentimentVeryDissatisfied,
-                contentDescription = null,
-                modifier = Modifier.size(96.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+            // Ratloser Lautsprecher mit ausgestecktem Kabel statt eines traurigen Smileys
+            ErrorBuddy(modifier = Modifier.size(156.dp, 138.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "Ups! Da hat etwas nicht geklappt.",
                 style = MaterialTheme.typography.headlineSmall,
