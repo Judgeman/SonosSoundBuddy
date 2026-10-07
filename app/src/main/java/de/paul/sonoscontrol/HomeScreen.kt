@@ -57,6 +57,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -143,6 +144,13 @@ fun HomeScreen(
                             )
                         },
                         actions = {
+                            // Klein neben dem Akku, damit man auf einen Blick sieht, welche Version läuft
+                            Text(
+                                "v${BuildConfig.VERSION_NAME}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LocalContentColor.current.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(end = 10.dp)
+                            )
                             BatteryIndicator(modifier = Modifier.padding(end = 4.dp))
                             Box {
                                 IconButton(onClick = { menuExpanded = true }) {

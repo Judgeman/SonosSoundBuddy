@@ -153,7 +153,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                 onPasswordRequiredChange = viewModel::setPasswordRequired,
                 onOpenSync = viewModel::openSync,
                 syncNotice = syncViewModel.cloudNotice,
-                onLogout = viewModel::logout
+                onLogout = viewModel::logout,
+                onOpenReleaseNotes = viewModel::openReleaseNotes
             )
         }
 
@@ -201,6 +202,12 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             BackHandler(onBack = viewModel::navigateBack)
             StatusBarIcons(light = !isSystemInDarkTheme())
             SyncScreen(viewModel = syncViewModel, onBack = viewModel::navigateBack)
+        }
+
+        Screen.ReleaseNotes -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            ReleaseNotesScreen(onBack = viewModel::navigateBack)
         }
 
         Screen.MusicLibrary -> {
