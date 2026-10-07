@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Sync
@@ -92,7 +93,8 @@ fun SettingsScreen(
     onOpenSync: () -> Unit,
     /** Hinweis auf einen neuen Stand aus der Cloud, der auf Übernahme wartet. */
     syncNotice: String?,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onOpenReleaseNotes: () -> Unit
 ) {
     var showNewProfile by remember { mutableStateOf(false) }
 
@@ -196,6 +198,21 @@ fun SettingsScreen(
                         Text("Abmelden")
                     }
                 }
+            }
+
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(
+                    title = "Release Notes",
+                    description = "Was in welcher Version neu dazugekommen ist."
+                )
+                ListItem(
+                    leadingContent = { Icon(Icons.Rounded.NewReleases, contentDescription = null) },
+                    headlineContent = { Text("Alle Versionen ansehen", style = MaterialTheme.typography.titleMedium) },
+                    supportingContent = { Text("Installiert ist Version ${BuildConfig.VERSION_NAME}") },
+                    trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null) },
+                    modifier = Modifier.clickable(onClick = onOpenReleaseNotes)
+                )
             }
         }
     }

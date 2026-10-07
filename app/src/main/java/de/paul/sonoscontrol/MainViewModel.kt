@@ -27,9 +27,10 @@ sealed interface UiState {
 
 /**
  * [Speakers], [ProfileEditor], [MusicLibrary] (die zentrale Musikauswahl) mit
- * [CategoryEditor] (eine Kategorie) und [MusicCatalog], sowie [Sync] sind Unterseiten der Settings.
+ * [CategoryEditor] (eine Kategorie) und [MusicCatalog], sowie [Sync] und [ReleaseNotes] sind
+ * Unterseiten der Settings.
  */
-enum class Screen { Home, Settings, Speakers, ProfileEditor, MusicLibrary, CategoryEditor, MusicCatalog, Sync }
+enum class Screen { Home, Settings, Speakers, ProfileEditor, MusicLibrary, CategoryEditor, MusicCatalog, Sync, ReleaseNotes }
 
 /** Inhalt des Sonos-Katalogs (Favoriten + Playlisten) beim Zusammenstellen der Musikauswahl. */
 sealed interface CatalogState {
@@ -838,6 +839,7 @@ class MainViewModel(
                 editingProfileId = null
             }
             Screen.Sync -> screen = Screen.Settings
+            Screen.ReleaseNotes -> screen = Screen.Settings
             Screen.Settings -> closeSettings()
             Screen.Home -> Unit
         }
@@ -862,6 +864,11 @@ class MainViewModel(
     /** Öffnet „Tablets abgleichen“. */
     fun openSync() {
         screen = Screen.Sync
+    }
+
+    /** Öffnet die Release Notes. */
+    fun openReleaseNotes() {
+        screen = Screen.ReleaseNotes
     }
 
     fun setSpeakerEnabled(playerId: String, enabled: Boolean) {

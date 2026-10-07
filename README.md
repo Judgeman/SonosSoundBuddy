@@ -109,7 +109,9 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Strom wird die Füllung grün mit Blitz, ohne Strom bei 20 % und weniger
     rot. Der Stand kommt über das System-Ereignis `ACTION_BATTERY_CHANGED`,
     also ohne Berechtigung und ohne ständiges Nachfragen. Geräte ohne Akku
-    zeigen nichts an.
+    zeigen nichts an. Links daneben steht klein die **App-Version**
+    (z. B. „v1.0.0“), damit man auf einen Blick sieht, was auf einem Tablet
+    läuft.
 - **Einstellungen** (Drei-Punkte-Menü oben rechts)
   - **Passwortschutz:** Ist ein Passwort hinterlegt und „Einstellungen nur
     mit Passwort öffnen“ aktiv, wird beim Öffnen danach gefragt. Ohne
@@ -118,9 +120,9 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     ein PBKDF2-Hash mit Salt.
   - Die Einstellungs-Seite zeigt ganz oben die **App-Version**
     (`versionName` aus `app/build.gradle.kts`), dann die **Musikauswahl**,
-    darunter Speaker, Kinder-Profile, Abgleich, Passwort und Konto. Speaker
-    und Kategorien haben eigene Unterseiten, damit die Hauptseite kurz
-    bleibt.
+    darunter Speaker, Kinder-Profile, Abgleich, Passwort, Konto und Release
+    Notes. Speaker und Kategorien haben eigene Unterseiten, damit die
+    Hauptseite kurz bleibt.
   - **Speaker** (eigene Unterseite „Speaker verwalten“; die Hauptseite
     zeigt nur, wie viele es gibt, wie viele auswählbar und ob neue dazu
     gekommen sind): pro Speaker ein Schalter „auf dem Homescreen
@@ -182,6 +184,9 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
   - **Tablets abgleichen** (siehe unten): Stand eines Tablets automatisch
     über die Cloud, im WLAN oder als Datei auf andere übertragen.
   - **Abmelden** vom Sonos-Konto.
+  - **Release Notes** (eigene Unterseite): alle Versionen mit ihren
+    Neuerungen, die neueste oben; die installierte trägt das Schild
+    „Installiert“.
 - **Lautstärke-Obergrenze:** Wird ein Speaker woanders (Sonos-App, Tasten am
   Gerät) über sein Maximum gestellt, regelt die App ihn bei der nächsten
   Abfrage wieder herunter — solange die App im Vordergrund läuft.
@@ -467,13 +472,23 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 11):
   (`addedAt`, seit Version 10; bei älteren Einträgen 0 — sie zählen als die
   ältesten, untereinander in der Reihenfolge ihrer Id)
 
+## Neue Version veröffentlichen
+
+1. In `app/build.gradle.kts` `versionName` (z. B. `1.1.0`) und `versionCode`
+   (um 1 höher) setzen — Android installiert ein Update nur, wenn der
+   `versionCode` nicht kleiner ist als der installierte.
+2. In `ReleaseNotes.kt` oben in `ReleaseHistory` einen Eintrag mit Version,
+   Datum und den Neuerungen ergänzen.
+3. Auf GitHub ein Release mit dem Tag `v<versionName>` und denselben
+   Neuerungen anlegen.
+
 ## Projektstruktur
 
 Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 
 | Datei | Inhalt |
 |---|---|
-| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich, Theme |
+| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich/Release Notes, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `ErrorBuddy.kt` | Animierter SoundBuddy für Fehlermeldungen |
@@ -484,6 +499,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `NowPlayingAnimals.kt`, `AnimalVisitor.kt` | Tier am Cover und auf dem Fortschrittsbalken, Tierbesuch |
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
+| `ReleaseNotes.kt` | Versionsliste mit Neuerungen und die Seite „Release Notes“ |
 | `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite, zentrale Musikauswahl mit Kategorien, Katalog-Auswahl |
 | `MusicCatalog.kt`, `MusicCover.kt` | Katalog-Einträge, Musik-Typen, Abspielreihenfolge, eigene Bilder, Cover-Kachel |
 | `CustomImageStore.kt` | Eigene Bilder für Kategorien und Einträge importieren (verkleinern, drehen) und löschen |
