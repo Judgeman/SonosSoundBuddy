@@ -202,7 +202,7 @@ Verlauf mit einem weißen Symbol.
 Für die Kinder-Profile gibt es eigene Icons (`ProfileIcons.kt`): 18 selbst
 gezeichnete Tiergesichter in `AnimalIcons.kt` (Katze, Hund, Bär, Panda,
 Fuchs, Frosch, Löwe, Schwein, Maus, Hase, Eule, Pinguin, Affe, Koala,
-Küken, Marienkäfer, Kuh, Wuschelhund) sowie Einhorn und Pikachu. In der
+Küken, Marienkäfer, Kuh, Hund Sam) sowie Einhorn und Pikachu. In der
 Bildauswahl stehen Einhorn und Pikachu nur unter „Tiere“, nicht zusätzlich
 unter „Icons“.
 

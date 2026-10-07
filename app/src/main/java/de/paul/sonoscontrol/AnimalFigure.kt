@@ -115,7 +115,7 @@ private val Looks: Map<ProfileIcon, AnimalLook> = listOf(
     look(ProfileIcon.LADYBUG, body = null, feet = DARK, eyes = eyePair(10.5f, 13.5f, 5.5f, 0.6f, DARK, line = WHITE)),
     look(ProfileIcon.COW, body = WHITE, feet = 0xFF6D4C41, eyes = eyePair(9.3f, 14.7f, 11.2f, 1.15f, WHITE)),
     // Beide Augen sitzen in den hellbraunen Flecken; dunkelbrauner Fleck an der Seite wie beim Vorbild
-    look(ProfileIcon.FLUFFY_DOG, body = WHITE, feet = WHITE, spot = 0xFF6B4A36, eyes = eyePair(9.2f, 14.8f, 12.0f, 0.95f, 0xFFC98B4F)),
+    look(ProfileIcon.SAM, body = WHITE, feet = WHITE, spot = 0xFF6B4A36, eyes = eyePair(9.2f, 14.8f, 12.0f, 0.95f, 0xFFC98B4F)),
     // Das Einhorn hat lachende, schon geschlossene Augen; zum Schlafen werden sie zu Bögen nach unten
     look(ProfileIcon.UNICORN, body = WHITE, feet = 0xFFB39DDB, eyes = eyePair(9.3f, 14.7f, 12.6f, 1.2f, WHITE, line = 0xFF4A3B5C)),
     look(ProfileIcon.PIKACHU, body = 0xFFFFD93B, feet = 0xFFE6B800, eyes = eyePair(8.6f, 15.4f, 13.2f, 1.35f, 0xFFFFD93B))

@@ -415,9 +415,9 @@ val CowIcon: ImageVector by lazy {
     }
 }
 
-/** Wuscheliger weißer Hund mit hellbraunen Kippohren, Flecken um die Augen, weißer Blesse und Halsband. */
-val FluffyDogIcon: ImageVector by lazy {
-    drawnIcon("FluffyDog") {
+/** Sam: wuscheliger weißer Hund mit hellbraunen Kippohren, Flecken um die Augen, weißer Blesse und Halsband. */
+val SamIcon: ImageVector by lazy {
+    drawnIcon("Sam") {
         val tan = 0xFFC98B4F
         val earTip = 0xFF9C6236
         val outline = 0xFFD7CCC8
