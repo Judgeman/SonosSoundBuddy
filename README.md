@@ -174,7 +174,7 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     bleibt stehen, bis man den Filter wechselt.
   - **Kinder-Profile:** Profile anlegen, pro Profil ein Schalter „auf diesem
     Tablet aktiv“. Ein Tipp öffnet die Profil-Seite mit Name, **Icon**
-    (17 gezeichnete Tiere, Einhorn, Pikachu) und einem Schalter pro
+    (18 gezeichnete Tiere, Einhorn, Pikachu) und einem Schalter pro
     Kategorie der Musikauswahl, ob das Profil sie sieht. Wird ein Profil
     gelöscht, bleiben seine Kategorien für die anderen erhalten.
   - **Tablets abgleichen** (siehe unten): Stand eines Tablets automatisch
@@ -199,11 +199,12 @@ Hat ein Titel kein Cover, zeigt die App ein buntes Platzhalter-Bild
 `CharacterIcons.kt` gezeichnet. Musik-Einträge ohne Cover bekommen denselben
 Verlauf mit einem weißen Symbol.
 
-Für die Kinder-Profile gibt es eigene Icons (`ProfileIcons.kt`): 17 selbst
+Für die Kinder-Profile gibt es eigene Icons (`ProfileIcons.kt`): 18 selbst
 gezeichnete Tiergesichter in `AnimalIcons.kt` (Katze, Hund, Bär, Panda,
 Fuchs, Frosch, Löwe, Schwein, Maus, Hase, Eule, Pinguin, Affe, Koala,
-Küken, Marienkäfer, Kuh) sowie Einhorn und Pikachu. In der Bildauswahl
-stehen Einhorn und Pikachu nur unter „Tiere“, nicht zusätzlich unter „Icons“.
+Küken, Marienkäfer, Kuh, Wuschelhund) sowie Einhorn und Pikachu. In der
+Bildauswahl stehen Einhorn und Pikachu nur unter „Tiere“, nicht zusätzlich
+unter „Icons“.
 
 > Pikachu ist eine geschützte Figur von Nintendo/The Pokémon Company. Für
 > den privaten Gebrauch ok — vor einer Veröffentlichung im Play Store das

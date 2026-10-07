@@ -54,13 +54,17 @@ internal class SleepyEye(val x: Float, val y: Float, val radius: Float, lid: Lon
     val line = Color(line)
 }
 
-/** Aussehen der Figur: Farben passend zum Kopf. Ohne [body] (Marienkäfer) sitzt der Kopf direkt auf den Füßen. */
+/**
+ * Aussehen der Figur: Farben passend zum Kopf. Ohne [body] (Marienkäfer) sitzt der Kopf direkt auf den Füßen.
+ * [spot] ist ein Fleck seitlich auf dem Körper.
+ */
 internal class AnimalLook(
     val icon: ProfileIcon,
     val body: Color?,
     val arms: Color,
     val feet: Color,
     val belly: Color?,
+    val spot: Color?,
     val eyes: List<SleepyEye>
 ) {
     val bodyOutline = body?.let(::darker)
@@ -76,8 +80,9 @@ private fun look(
     feet: Long,
     belly: Long? = null,
     arms: Long = body ?: feet,
+    spot: Long? = null,
     eyes: List<SleepyEye>
-) = AnimalLook(icon, body?.let { Color(it) }, Color(arms), Color(feet), belly?.let { Color(it) }, eyes)
+) = AnimalLook(icon, body?.let { Color(it) }, Color(arms), Color(feet), belly?.let { Color(it) }, spot?.let { Color(it) }, eyes)
 
 /** Zwei gleich große Augen auf gleicher Höhe mit derselben Lidfarbe. */
 private fun eyePair(leftX: Float, rightX: Float, y: Float, radius: Float, lid: Long, line: Long = DARK) =
@@ -109,6 +114,8 @@ private val Looks: Map<ProfileIcon, AnimalLook> = listOf(
     look(ProfileIcon.CHICK, body = 0xFFFFE082, feet = 0xFFFF8F00, arms = 0xFFFFCA28, eyes = eyePair(9.4f, 14.6f, 11.6f, 1.0f, 0xFFFFE082)),
     look(ProfileIcon.LADYBUG, body = null, feet = DARK, eyes = eyePair(10.5f, 13.5f, 5.5f, 0.6f, DARK, line = WHITE)),
     look(ProfileIcon.COW, body = WHITE, feet = 0xFF6D4C41, eyes = eyePair(9.3f, 14.7f, 11.2f, 1.15f, WHITE)),
+    // Beide Augen sitzen in den hellbraunen Flecken; dunkelbrauner Fleck an der Seite wie beim Vorbild
+    look(ProfileIcon.FLUFFY_DOG, body = WHITE, feet = WHITE, spot = 0xFF6B4A36, eyes = eyePair(9.2f, 14.8f, 12.0f, 0.95f, 0xFFC98B4F)),
     // Das Einhorn hat lachende, schon geschlossene Augen; zum Schlafen werden sie zu Bögen nach unten
     look(ProfileIcon.UNICORN, body = WHITE, feet = 0xFFB39DDB, eyes = eyePair(9.3f, 14.7f, 12.6f, 1.2f, WHITE, line = 0xFF4A3B5C)),
     look(ProfileIcon.PIKACHU, body = 0xFFFFD93B, feet = 0xFFE6B800, eyes = eyePair(8.6f, 15.4f, 13.2f, 1.35f, 0xFFFFD93B))
@@ -185,6 +192,7 @@ internal fun DrawScope.drawAnimalFigure(
             drawOval(body, bodyTopLeft, bodySize)
             drawOval(look.bodyOutline ?: body, bodyTopLeft, bodySize, style = outline)
             look.belly?.let { drawOval(it, Offset(cx - 9f * u, 60f * u), Size(18f * u, 17f * u)) }
+            look.spot?.let { drawOval(it, Offset(cx + 2.5f * u, 61f * u), Size(9f * u, 11f * u)) }
         }
 
         // Ohne Körper sitzt der Kopf direkt auf den Füßen

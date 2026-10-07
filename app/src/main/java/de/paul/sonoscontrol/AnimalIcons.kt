@@ -414,3 +414,75 @@ val CowIcon: ImageVector by lazy {
         line(0xFFAD1457, 0.5f) { moveTo(10.4f, 18.8f); quadTo(12.0f, 20.0f, 13.6f, 18.8f) }
     }
 }
+
+/** Wuscheliger weißer Hund mit hellbraunen Kippohren, Flecken um die Augen, weißer Blesse und Halsband. */
+val FluffyDogIcon: ImageVector by lazy {
+    drawnIcon("FluffyDog") {
+        val tan = 0xFFC98B4F
+        val earTip = 0xFF9C6236
+        val outline = 0xFFD7CCC8
+
+        // Kippohren: hochgestellt, die Spitzen nach vorn umgeklappt
+        fill(tan) { moveTo(5.8f, 10.8f); lineTo(4.1f, 5.9f); quadTo(5.4f, 3.0f, 8.4f, 4.0f); lineTo(10.2f, 7.2f); close() }
+        fill(tan) { moveTo(18.2f, 10.8f); lineTo(19.9f, 5.9f); quadTo(18.6f, 3.0f, 15.6f, 4.0f); lineTo(13.8f, 7.2f); close() }
+        fill(earTip) { moveTo(4.1f, 5.9f); quadTo(5.4f, 3.0f, 8.4f, 4.0f); quadTo(7.6f, 6.6f, 5.6f, 8.6f); quadTo(4.6f, 7.4f, 4.1f, 5.9f); close() }
+        fill(earTip) { moveTo(19.9f, 5.9f); quadTo(18.6f, 3.0f, 15.6f, 4.0f); quadTo(16.4f, 6.6f, 18.4f, 8.6f); quadTo(19.4f, 7.4f, 19.9f, 5.9f); close() }
+
+        // Kopf mit wuscheligem Fell an Wangen und Kinn: erst die Kontur um alles, dann Weiß darüber
+        fill(outline) {
+            ellipse(12f, 13.4f, 7.3f, 7.1f)
+            circle(5.5f, 15.0f, 1.8f)
+            circle(6.3f, 17.4f, 1.9f)
+            circle(8.3f, 19.3f, 1.9f)
+            circle(12f, 20.3f, 1.9f)
+            circle(15.7f, 19.3f, 1.9f)
+            circle(17.7f, 17.4f, 1.9f)
+            circle(18.5f, 15.0f, 1.8f)
+        }
+        fill(WHITE) { ellipse(12f, 13.4f, 6.9f, 6.7f) }
+
+        // Hellbraune Flecken um die Augen — rechts größer und bis in die Wange —, dazwischen die weiße Blesse
+        fill(tan) {
+            moveTo(5.6f, 10.6f)
+            arcTo(6.9f, 6.7f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 10.7f, y1 = 6.82f)
+            quadTo(10.5f, 9.4f, 10.8f, 11.4f)
+            quadTo(10.9f, 13.6f, 9.0f, 13.6f)
+            quadTo(6.8f, 13.6f, 5.6f, 10.6f)
+            close()
+        }
+        fill(tan) {
+            moveTo(13.3f, 6.82f)
+            arcTo(6.9f, 6.7f, 0f, isMoreThanHalf = false, isPositiveArc = true, x1 = 18.6f, y1 = 15.4f)
+            quadTo(16.4f, 15.6f, 14.9f, 14.3f)
+            quadTo(13.1f, 13.2f, 13.2f, 11.2f)
+            quadTo(13.5f, 9.4f, 13.3f, 6.82f)
+            close()
+        }
+
+        // Wangenfell liegt über den Flecken
+        fill(WHITE) {
+            circle(5.5f, 15.0f, 1.4f)
+            circle(6.3f, 17.4f, 1.5f)
+            circle(8.3f, 19.3f, 1.5f)
+            circle(12f, 20.3f, 1.5f)
+            circle(15.7f, 19.3f, 1.5f)
+            circle(17.7f, 17.4f, 1.5f)
+            circle(18.5f, 15.0f, 1.4f)
+        }
+
+        // Schnauze
+        fill(0xFFF4EEE8) { ellipse(12f, 16.6f, 3.3f, 2.5f) }
+        eyes(9.2f, 14.8f, 12.0f, 0.95f)
+        fill(DARK) { ellipse(12f, 15.2f, 1.5f, 1.05f) }
+        fill(WHITE) { ellipse(11.5f, 14.85f, 0.45f, 0.28f) }
+        line(DARK, 0.45f) {
+            moveTo(12f, 16.1f); lineTo(12f, 16.9f)
+            moveTo(10.5f, 16.7f); quadTo(12f, 18.2f, 13.5f, 16.7f)
+        }
+        cheeks(7.4f, 16.6f, 15.8f, 0.85f)
+
+        // Graues Halsband mit Ring
+        line(0xFF55606B, 1.0f) { moveTo(8.4f, 19.6f); quadTo(12f, 21.8f, 15.6f, 19.6f) }
+        line(0xFFA7B4BE, 0.4f) { circle(12f, 21.8f, 0.7f) }
+    }
+}
