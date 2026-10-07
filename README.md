@@ -95,6 +95,13 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     (App im Vordergrund, kein Musik-Popup, kein Start-Popup, keine
     Fehlermeldung). Lange auf den Titel „SoundBuddy“ drücken schickt sofort
     ein Tier vorbei.
+  - **Akku-Anzeige** klein oben rechts in der Kopfzeile, neben dem Menü
+    (`BatteryIndicator.kt`): Prozentzahl und eine gezeichnete Batterie mit
+    Füllstand — gedacht für die Eltern, wenn das Tablet fixiert läuft. Am
+    Strom wird die Füllung grün mit Blitz, ohne Strom bei 20 % und weniger
+    rot. Der Stand kommt über das System-Ereignis `ACTION_BATTERY_CHANGED`,
+    also ohne Berechtigung und ohne ständiges Nachfragen. Geräte ohne Akku
+    zeigen nichts an.
 - **Einstellungen** (Drei-Punkte-Menü oben rechts)
   - **Passwortschutz:** Ist ein Passwort hinterlegt und „Einstellungen nur
     mit Passwort öffnen“ aktiv, wird beim Öffnen danach gefragt. Ohne
@@ -459,6 +466,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
+| `BatteryIndicator.kt` | Kleine Akku-Anzeige in der Kopfzeile |
 | `AnimalFigure.kt` | Profil-Tiere als Figur mit Körper, geschlossene Augen zum Schlafen |
 | `NowPlayingAnimals.kt`, `AnimalVisitor.kt` | Tier am Cover und auf dem Fortschrittsbalken, Tierbesuch |
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
