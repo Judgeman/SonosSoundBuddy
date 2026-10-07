@@ -29,7 +29,7 @@ data class LocalEntry(
     val title: String,
     val artUrl: String?,
     val freshArtUrl: String? = null,
-    val artist: String? = null
+    val artists: List<String> = emptyList()
 )
 
 /** Cover und Künstler aus dem Heimnetz, nach Sonos-Id und nach Name. */
@@ -43,8 +43,8 @@ class LocalCovers(
         return listOfNotNull(local.artUrl, local.freshArtUrl)
     }
 
-    /** Künstler laut Speaker — bei Sonos-Playlisten die ihrer ersten Titel. */
-    fun artistFor(entry: CatalogEntry): String? = find(entry)?.artist
+    /** Künstler laut Speaker — bei Sonos-Playlisten die ihrer Titel, die häufigsten zuerst. */
+    fun artistsFor(entry: CatalogEntry): List<String> = find(entry)?.artists.orEmpty()
 
     /** Control-API-Id "13" entspricht lokal "FV:2/13" bzw. "SQ:13" — sonst über den Namen. */
     private fun find(entry: CatalogEntry): LocalEntry? {
@@ -87,14 +87,14 @@ class LocalSonosClient(context: Context) {
         return try {
             val favorites = browse(base, "FV:2")
             val playlists = browse(base, "SQ:").map { playlist ->
-                // Die ersten Titel nennen die Künstler der Playlist. Hat sie selbst kein Bild,
-                // auch deren Cover nehmen — die frische Adresse über den Speaker zuerst, die
-                // gespeicherte kann abgelaufen sein. (Die Abspiel-Adresse der Playlist selbst
-                // taugt nicht für /getaa.)
-                val tracks = browse(base, playlist.id, count = PLAYLIST_SAMPLE_SIZE)
+                // Die Titel nennen die Künstler der Playlist (alle, damit die Suche sie findet).
+                // Hat sie selbst kein Bild, das Cover der ersten Titel nehmen — die frische
+                // Adresse über den Speaker zuerst, die gespeicherte kann abgelaufen sein.
+                // (Die Abspiel-Adresse der Playlist selbst taugt nicht für /getaa.)
+                val tracks = browse(base, playlist.id)
                 val art = playlist.artUrl ?: tracks.firstNotNullOfOrNull { track -> track.freshArtUrl ?: track.artUrl }
-                val artist = playlist.artist ?: summarizeArtists(tracks.mapNotNull { it.artist })
-                playlist.copy(artUrl = art, freshArtUrl = null, artist = artist)
+                val artists = playlist.artists.ifEmpty { rankArtists(tracks.flatMap { it.artists }) }
+                playlist.copy(artUrl = art, freshArtUrl = null, artists = artists)
             }
             speakerBaseUrl = base
             Log.d(TAG, "Lokal ${favorites.size} Favoriten, ${playlists.size} Playlisten von $base")
@@ -241,7 +241,7 @@ class LocalSonosClient(context: Context) {
                     val entryId = id
                     val entryTitle = title
                     val fresh = res?.let { "$base/getaa?s=1&u=" + java.net.URLEncoder.encode(it, "UTF-8") }
-                    if (entryId != null && entryTitle != null) entries += LocalEntry(entryId, entryTitle, art, fresh, artist)
+                    if (entryId != null && entryTitle != null) entries += LocalEntry(entryId, entryTitle, art, fresh, listOfNotNull(artist))
                     id = null
                 }
             }
@@ -253,8 +253,6 @@ class LocalSonosClient(context: Context) {
         private const val TAG = "SonosLocal"
         private const val SERVICE_TYPE = "_sonos._tcp."
         private const val DISCOVERY_TIMEOUT_MS = 6_000L
-        /** So viele Titel einer Sonos-Playlist reichen für Künstler und Ersatz-Cover. */
-        private const val PLAYLIST_SAMPLE_SIZE = 30
         private val ARTIST_TAGS = setOf("creator", "artist", "albumArtist")
     }
 }

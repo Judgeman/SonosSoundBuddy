@@ -1420,11 +1420,12 @@ private fun CatalogList(
     var touchedKeys by remember { mutableStateOf(emptySet<String>()) }
     val availableTypes = MusicType.entries.filter { type -> entries.any { it.type == type } }
     val unassignedCount = entries.count { it.key !in assignments }
+    val search = query.trim()
     val visible = entries.filter { entry ->
         (typeFilter == null || entry.type == typeFilter) &&
             (!onlyUnassigned || entry.key !in assignments || entry.key in touchedKeys) &&
-            (query.isBlank() || listOfNotNull(entry.name, entry.artist, entry.description)
-                .any { it.contains(query.trim(), ignoreCase = true) })
+            (search.isEmpty() || (listOfNotNull(entry.name, entry.description) + entry.artists)
+                .any { it.contains(search, ignoreCase = true) })
     }
 
     LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -1519,8 +1520,14 @@ private fun CatalogList(
 
         items(visible, key = { it.key }) { entry ->
             val selected = entry.key in selectedKeys
-            // Nennt Sonos den Künstler schon als Name oder Beschreibung, nicht doppelt zeigen
-            val artist = entry.artist?.takeUnless { artist ->
+            // Passt die Suche auf einen Künstler, steht er vorne — auch wenn er sonst unter „u. a." fiele.
+            // Nennt Sonos den Künstler schon als Name oder Beschreibung, nicht doppelt zeigen.
+            val artists = if (search.isEmpty()) {
+                entry.artists
+            } else {
+                entry.artists.sortedByDescending { it.contains(search, ignoreCase = true) }
+            }
+            val artist = summarizeArtists(artists)?.takeUnless { artist ->
                 listOfNotNull(entry.name, entry.description).any { it.trim().equals(artist, ignoreCase = true) }
             }
             ListItem(
@@ -1609,7 +1616,7 @@ private fun CatalogEntryDetailsDialog(entry: CatalogEntry, categoryNames: List<S
         title = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                DetailLine("Künstler", entry.artist ?: "— (Sonos nennt keinen)")
+                DetailLine("Künstler", entry.artists.joinToString(", ").ifEmpty { "— (Sonos nennt keinen)" })
                 DetailLine("Kategorien", categoryNames.joinToString(", ").ifEmpty { NOT_ASSIGNED })
                 DetailLine("Quelle", entry.source.label)
                 DetailLine("Sonos-Id", entry.sonosId)
@@ -1638,7 +1645,7 @@ private fun CatalogEntryDetailsDialog(entry: CatalogEntry, categoryNames: List<S
 /** Alle Angaben als Text — zum Einfügen in eine Nachricht. */
 private fun describeForSupport(entry: CatalogEntry): String = buildString {
     appendLine("Name: ${entry.name}")
-    appendLine("Künstler: ${entry.artist ?: "—"}")
+    appendLine("Künstler: ${entry.artists.joinToString(", ").ifEmpty { "—" }}")
     appendLine("Quelle: ${entry.source.label}")
     appendLine("Sonos-Id: ${entry.sonosId}")
     appendLine("Art: ${entry.type.label}")

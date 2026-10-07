@@ -158,8 +158,8 @@ data class SonosFavorite(
     val resource: FavoriteResource? = null,
     /** Cover, das [findImageUrl] irgendwo im Favoriten gefunden hat (nicht Teil des JSON). */
     @Transient val foundImageUrl: String? = null,
-    /** Künstler, den [findArtist] irgendwo im Favoriten gefunden hat (nicht Teil des JSON). */
-    @Transient val foundArtist: String? = null,
+    /** Künstler, die [findArtists] irgendwo im Favoriten gefunden hat (nicht Teil des JSON). */
+    @Transient val foundArtists: List<String> = emptyList(),
     /** Das JSON, wie Sonos es geschickt hat — für die Detail-Ansicht im Katalog. */
     @Transient val rawJson: String? = null
 ) {
@@ -215,10 +215,10 @@ private val IMAGE_URL_KEYS = listOf("imageUrl", "albumArtUri", "albumArtURI", "a
  * verschachtelt. Näher liegende Felder gewinnen, der Musikdienst (`service`)
  * wird übergangen.
  */
-fun findArtist(element: JsonObject): String? {
+fun findArtists(element: JsonObject): List<String> {
     var level = listOf(element)
     repeat(4) {
-        level.forEach { obj -> artistIn(obj)?.let { return it } }
+        level.forEach { obj -> artistsIn(obj).takeIf { it.isNotEmpty() }?.let { return it } }
         level = level.flatMap { obj ->
             obj.filterKeys { it != "service" }.values.flatMap { value ->
                 when (value) {
@@ -228,21 +228,21 @@ fun findArtist(element: JsonObject): String? {
                 }
             }
         }
-        if (level.isEmpty()) return null
+        if (level.isEmpty()) return emptyList()
     }
-    return null
+    return emptyList()
 }
 
-private fun artistIn(obj: JsonObject): String? {
+private fun artistsIn(obj: JsonObject): List<String> {
     ARTIST_KEYS.forEach { key ->
         val names = when (val value = obj[key]) {
             is JsonArray -> value.mapNotNull(::nameOf)
             null -> emptyList()
             else -> listOfNotNull(nameOf(value))
         }
-        summarizeArtists(names)?.let { return it }
+        rankArtists(names).takeIf { it.isNotEmpty() }?.let { return it }
     }
-    return null
+    return emptyList()
 }
 
 /** Text direkt oder das `name`-Feld eines Objekts. */
@@ -254,20 +254,24 @@ private fun nameOf(element: JsonElement): String? = when (element) {
 
 private val ARTIST_KEYS = listOf("artist", "artists", "artistName", "albumArtist", "creator")
 
-/**
- * Fasst Künstler zusammen, die häufigsten zuerst: „A“, „A, B, C“ oder bei
- * vielen verschiedenen (z. B. einer gemischten Playlist) „A, B, C u. a.“.
- */
-fun summarizeArtists(artists: List<String>): String? {
-    val ranked = artists.map { it.trim() }.filter { it.isNotEmpty() }
+/** Künstler ohne Doppelte, die häufigsten zuerst (bei Gleichstand in der Reihenfolge des Auftretens). */
+fun rankArtists(artists: List<String>): List<String> =
+    artists.map { it.trim() }.filter { it.isNotEmpty() }
         .groupingBy { it }.eachCount()
         .entries.sortedByDescending { it.value }
         .map { it.key }
+
+/**
+ * Fasst Künstler für die Anzeige zusammen, in ihrer Reihenfolge: „A“, „A, B, C“
+ * oder bei vielen verschiedenen (z. B. einer gemischten Playlist) „A, B, C u. a.“.
+ */
+fun summarizeArtists(artists: List<String>): String? {
+    val ranked = rankArtists(artists)
     if (ranked.isEmpty()) return null
-    return ranked.take(MAX_ARTISTS).joinToString(", ") + if (ranked.size > MAX_ARTISTS) " u. a." else ""
+    return ranked.take(MAX_SHOWN_ARTISTS).joinToString(", ") + if (ranked.size > MAX_SHOWN_ARTISTS) " u. a." else ""
 }
 
-private const val MAX_ARTISTS = 3
+private const val MAX_SHOWN_ARTISTS = 3
 
 /**
  * Macht aus dem, was Sonos als Bild-URL liefert, eine ladbare Adresse:

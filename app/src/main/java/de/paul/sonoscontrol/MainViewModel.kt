@@ -1096,7 +1096,7 @@ class MainViewModel(
             entry.copy(
                 imageUrl = joinImageUrls(listOfNotNull(stored) + usable),
                 // Die Cloud nennt den Künstler selten, der Speaker kennt ihn oft (bei Playlisten aus den Titeln)
-                artist = entry.artist ?: local?.artistFor(entry),
+                artists = entry.artists.ifEmpty { local?.artistsFor(entry).orEmpty() },
                 coverOrigin = listOfNotNull(
                     "auf dem Tablet gespeichert".takeIf { stored != null },
                     origin,

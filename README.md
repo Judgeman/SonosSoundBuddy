@@ -323,9 +323,10 @@ im Favoriten nach `artist`, `artists`, `artistName`, `albumArtist` oder
 `creator` (als Text oder Objekt mit `name`, nicht beim Musikdienst) und
 fragt sonst den Speaker im Heimnetz: `dc:creator` bzw. `upnp:artist` am
 Favoriten oder in seinem eingebetteten DIDL (`r:resMD`). Bei
-Sonos-Playlisten stammen die Künstler aus den ersten 30 Titeln — die
-häufigsten drei, bei mehr mit „u. a.“. Der Künstler wird nicht gespeichert,
-nur im Katalog angezeigt.
+Sonos-Playlisten stammen die Künstler aus allen Titeln. Die Liste zeigt die
+häufigsten drei (bei mehr mit „u. a.“), die Suche findet alle — ein
+gesuchter Künstler rückt dabei nach vorne. Die Details zeigen alle.
+Künstler werden nicht gespeichert, nur im Katalog angezeigt.
 
 **Fehlersuche:** Der ⓘ-Knopf an jedem Eintrag im Katalog zeigt Künstler,
 Kategorien, Quelle, Id, woher das Cover kommt, jede bekannte Cover-URL mit Vorschau und ob sie
