@@ -235,6 +235,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             viewModel.catalogCategory?.let { category ->
                 MusicCatalogScreen(
                     category = category,
+                    categories = viewModel.categories,
                     state = viewModel.catalogState,
                     playlistPreview = viewModel.playlistPreview,
                     insertAtStart = viewModel.settings.addMusicAtStart
