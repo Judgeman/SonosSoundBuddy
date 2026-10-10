@@ -111,7 +111,7 @@ fun HomeScreen(
     selectedProfile: ProfileWithMusic?,
     /** Musik, die gerade gestartet wird — solange sperrt ein Popup den Bildschirm. */
     startingMusic: MusicItem?,
-    /** Was schon gespielt wurde; alles andere zeigt die Musikauswahl als neu. */
+    /** Was das gewählte Profil schon gespielt hat; alles andere zeigt seine Musikauswahl als neu. */
     playedMusic: Set<String>?,
     onSelectProfile: (Long) -> Unit,
     onPlayMusic: (MusicItem, Boolean?) -> Unit,

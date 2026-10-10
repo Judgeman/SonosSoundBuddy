@@ -8,8 +8,8 @@ die Eltern.
 
 > **Datenschutz-Hinweis zum Abgleich über die Cloud:** Wird der automatische
 > Abgleich zwischen Tablets genutzt, liegen die Einstellungen der App —
-> Namen der Kinder, eigene Fotos, Musikauswahl, welche Musik schon gespielt
-> wurde, Speaker-Einstellungen und der Passwort-Hash — im Cloudflare-KV-Speicher des Relay-Workers, also **beim
+> Namen der Kinder, eigene Fotos, Musikauswahl, welches Kind welche Musik
+> schon gespielt hat, Speaker-Einstellungen und der Passwort-Hash — im Cloudflare-KV-Speicher des Relay-Workers, also **beim
 > Besitzer des Cloudflare-Accounts, in dem der Worker läuft**. Wer dieses
 > Repo kopiert, sollte einen eigenen Worker deployen (`SonosConfig.kt`) und
 > nicht den eines anderen verwenden. Ohne KV-Speicher im Worker bleibt der
@@ -63,14 +63,18 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Würfel) — gezeichnet in `OrderIcons.kt`, damit auch Kinder ohne Lesen
     wählen können. Playlisten mit nur einem Titel laufen ohne Frage der
     Reihe nach.
-  - **Neue Musik:** Was noch nie gespielt wurde, trägt oben rechts am Cover
-    einen kleinen pinken Stern mit Funkeln — ebenso die Kategorie, in der so
-    etwas steckt. Sobald Sonos die Musik angenommen hat, ist sie nicht mehr
-    neu, auch nicht in anderen Kategorien und — mit dem Abgleich über die
-    Cloud — auf den anderen Tablets (siehe unten). Was schon vor dem Update
-    auf diese Version in der Auswahl war, gilt als gespielt; neu ist erst,
-    was danach dazukommt. Musik, die in der Sonos-App gestartet wurde, zählt
-    nicht.
+  - **Neue Musik:** Was das gewählte Kind noch nie gespielt hat, trägt oben
+    rechts am Cover einen kleinen pinken Stern mit Funkeln — ebenso die
+    Kategorie, in der so etwas steckt. Das gilt je Kinder-Profil: Hört Mia
+    etwas, bleibt es für Paul neu. Sobald Sonos die Musik angenommen hat, ist
+    sie für das Kind nicht mehr neu, auch nicht in anderen Kategorien und —
+    mit dem Abgleich über die Cloud — auf den anderen Tablets (siehe unten).
+    Die Eltern können Musik in den Einstellungen wieder als neu markieren
+    (siehe „Neu-Markierung“). Was ein Profil schon vor dem Update auf diese
+    Version in seiner Auswahl hatte, gilt als gespielt; neu ist erst, was
+    danach dazukommt — auch eine Kategorie, die ein Kind später zu sehen
+    bekommt, und für ein neu angelegtes Profil alles. Musik, die in der
+    Sonos-App gestartet wurde, zählt nicht.
   - Senkrechte **Lautstärke-Leiste** rechts neben dem Cover mit 10 großen,
     nach oben breiter werdenden Stufen: Tippen oder Ziehen setzt die
     Lautstärke, + / − gehen eine Stufe weiter. Die oberste Stufe ist die
@@ -171,6 +175,11 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     - **Tier am Cover**: „Tanzen“ oder „Vorlesen“. Kategorien mit „Hörbuch“,
       „Hörspiel“, „Geschichte“ oder „Märchen“ im Namen (oder dem
       Hörbuch-Bild) lesen von Anfang an vor, alle anderen tanzen.
+    - **Neu-Markierung:** Der Stern-Knopf an jedem Eintrag zeigt, für welche
+      Kinder (unter denen, die die Kategorie sehen) er neu ist, und stellt das
+      je Kind um; unter dem Namen steht „Neu für …“. Im Menü der Kategorie
+      markieren „Alle als neu markieren“ und „Alle als gespielt markieren“ die
+      ganze Kategorie für alle diese Kinder auf einmal.
     - **Neue Musik einfügen:** „Am Anfang“ oder „Am Ende“ der Kategorie
       (wird gemerkt, gilt für die manuelle Sortierung). Mehrere Einträge,
       die in einem Durchgang an den Anfang kommen, stehen dort in der
@@ -385,7 +394,7 @@ WLAN oder als Datei. Das empfangende Tablet sucht sich aus, was es
 
 | Bereich | Inhalt | Vorauswahl |
 |---|---|---|
-| Kinder-Profile und Musikauswahl | Profile (Name, Icon), alle Kategorien mit Musik, Reihenfolge, Tier am Cover, eigenen Bildern und gespeicherten Covern, welches Profil welche Kategorie sieht und welche Musik schon gespielt wurde | an |
+| Kinder-Profile und Musikauswahl | Profile (Name, Icon), alle Kategorien mit Musik, Reihenfolge, Tier am Cover, eigenen Bildern und gespeicherten Covern, welches Profil welche Kategorie sieht und welches Kind welche Musik schon gespielt hat | an |
 | Speaker-Einstellungen | Icon und maximale Lautstärke | an |
 | Speaker-Freigabe | „auf dem Homescreen auswählbar“ | aus |
 | Passwort | Hash, Salt und „nur mit Passwort öffnen“ | aus |
@@ -393,8 +402,9 @@ WLAN oder als Datei. Das empfangende Tablet sucht sich aus, was es
 Die zuletzt gewählten Bereiche merkt sich das Tablet als Vorauswahl.
 Übernommenes ersetzt den Stand auf dem Tablet: Die Musikauswahl wird
 komplett ersetzt, Profile, die es auf dem sendenden Tablet nicht gibt,
-werden gelöscht. Nur die schon gespielte Musik kommt dazu — was auf dem
-empfangenden Tablet schon gespielt wurde, bleibt gespielt. Je Tablet erhalten bleiben,
+werden gelöscht. Nur die schon gespielte Musik wird zusammengeführt: Je Kind
+und Musik gewinnt die neuere Änderung, ob gespielt oder wieder als neu
+markiert. Je Tablet erhalten bleiben,
 welche Profile dort aktiv sind und welcher Speaker und welches Profil
 zuletzt gewählt waren. Speaker werden nur ergänzt, nie gelöscht; noch
 unbekannte kommen ohne übernommene Freigabe gesperrt und als „Neu“ dazu.
@@ -423,14 +433,20 @@ Ids von Sonos im ganzen Haushalt gleich sind.
 
 **Schon gespielte Musik** gleichen alle Tablets mit „Haupt-Tablet“ oder
 „Stand übernehmen“ untereinander ab, in beide Richtungen: Jedes Tablet lädt
-hoch, was dort gespielt wurde, und holt sich, was auf den anderen gespielt
-wurde — beim Start, alle 5 Minuten, beim Öffnen der Musikauswahl (höchstens
-alle 30 Sekunden) und gleich nachdem hier etwas zum ersten Mal gespielt
-wurde. Im Worker hat jedes Tablet dafür einen eigenen Eintrag unter einer
-zufälligen Kennung (`cloud_sync_tablet_id`), so überschreiben sich zwei
-Tablets nie gegenseitig. Hochgeladen wird nur, wenn ein Tablet etwas kennt,
-das in der Cloud noch fehlt. Erkannt wird Musik an Quelle, Sonos-Id und
-Namen, unabhängig von der Kategorie. Unter „Tablets abgleichen“ steht, wann
+hoch, was die Kinder dort gespielt und die Eltern dort als neu oder gespielt
+markiert haben, und holt sich, was auf den anderen passiert ist — beim Start,
+alle 5 Minuten, beim Öffnen der Musikauswahl (höchstens alle 30 Sekunden),
+gleich nachdem ein Kind hier etwas zum ersten Mal gespielt hat und beim
+Schließen der Einstellungen. Jeder Eintrag sagt je Kinder-Profil
+(`syncId`) und Musik, ob sie gespielt ist, und wann sich das zuletzt
+geändert hat; beim Zusammenführen gewinnt die neuere Änderung, bei gleichem
+Zeitpunkt „gespielt“. So kommt auch „wieder neu“ auf allen Tablets an. Im
+Worker hat jedes Tablet einen eigenen Eintrag unter einer zufälligen Kennung
+(`cloud_sync_tablet_id`), so überschreiben sich zwei Tablets nie
+gegenseitig. Hochgeladen wird nur, wenn ein Tablet etwas kennt, das in der
+Cloud noch fehlt. Erkannt wird Musik an Quelle, Sonos-Id und Namen,
+unabhängig von der Kategorie. Bekommt ein Profil beim allerersten Abgleich
+die Kennung vom anderen Tablet, zieht das dort Gespielte mit. Unter „Tablets abgleichen“ steht, wann
 zuletzt abgeglichen wurde; ein älterer Worker ohne `/sync/played` meldet sich
 dort mit dem Hinweis, ihn neu zu deployen. Ohne Cloud reist die gespielte
 Musik beim Übertragen als Datei oder im WLAN mit.
@@ -500,11 +516,13 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 12):
   aktualisiert beim Laden des Katalogs), Zeitpunkt des Hinzufügens
   (`addedAt`, seit Version 10; bei älteren Einträgen 0 — sie zählen als die
   ältesten, untereinander in der Reihenfolge ihrer Id)
-- `played_music` — Musik, die schon gespielt wurde, als Text aus Quelle,
-  Sonos-Id und Name (`FAVORITE:12:Bibi Blocksberg`), auf diesem oder einem
-  anderen Tablet. Was fehlt, ist in der Musikauswahl neu (seit Version 12,
-  Migration `MIGRATION_11_12`; trägt alle Einträge ein, die schon in der
-  Musikauswahl sind)
+- `played_music` — je Kinder-Profil (`profileSyncId`) und Musik (`musicKey`,
+  Text aus Quelle, Sonos-Id und Name, z. B. `FAVORITE:12:Bibi Blocksberg`),
+  ob das Kind sie schon gespielt hat (`played`; false = wieder als neu
+  markiert) und wann sich das geändert hat (`changedAt`) — auf diesem oder
+  einem anderen Tablet. Ohne Eintrag ist die Musik neu (seit Version 12,
+  Migration `MIGRATION_11_12`; trägt je Profil alles als gespielt ein, was
+  es schon sieht, mit Zeitpunkt 0)
 
 ## Neue Version veröffentlichen
 

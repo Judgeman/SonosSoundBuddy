@@ -132,10 +132,10 @@ class MainViewModel(
         private set
 
     /**
-     * [MusicItem.playedKey] der Musik, die schon gespielt wurde — auf einem der Tablets.
-     * Alles andere zeigt die Musikauswahl als neu. null = noch nicht geladen, dann ist nichts neu.
+     * Je Profil ([ChildProfile.syncId]) die [MusicItem.playedKey] der Musik, die es schon gespielt hat —
+     * auf einem der Tablets. null = noch nicht geladen.
      */
-    var playedMusic: Set<String>? by mutableStateOf(null)
+    var playedMusic: Map<String, Set<String>>? by mutableStateOf(null)
         private set
 
     var selectedProfileId: Long? by mutableStateOf(null)
@@ -228,6 +228,16 @@ class MainViewModel(
 
     val selectedProfile: ProfileWithMusic?
         get() = selectableProfiles.firstOrNull { it.profile.id == selectedProfileId }
+
+    /**
+     * Was das gewählte Profil schon gespielt hat; alles andere zeigt seine Musikauswahl als neu.
+     * null = noch nicht geladen, dann ist nichts neu.
+     */
+    val selectedProfilePlayed: Set<String>?
+        get() {
+            val played = playedMusic ?: return null
+            return selectedProfile?.let { played[it.profile.syncId].orEmpty() }
+        }
 
     val editingProfile: ProfileWithMusic?
         get() = profiles.firstOrNull { it.profile.id == editingProfileId }
@@ -629,12 +639,14 @@ class MainViewModel(
      * Spielt einen Eintrag aus der Musikauswahl auf dem gewählten Speaker ab.
      * Die Warteschlange wird dabei ersetzt. [shuffle] = null heißt: so, wie es
      * in der Kategorie eingestellt ist (bei „Kinder entscheiden" kommt die Wahl
-     * der Kinder als true/false herein). [onNewMusicPlayed] kommt, wenn die Musik
-     * bis eben noch nie gespielt wurde — damit die anderen Tablets davon erfahren.
+     * der Kinder als true/false herein). [onNewMusicPlayed] kommt, wenn das gewählte
+     * Profil die Musik bis eben noch nie gespielt hat — damit die anderen Tablets davon erfahren.
      */
     fun playMusic(item: MusicItem, shuffle: Boolean? = null, onNewMusicPlayed: () -> Unit = {}) {
         val playerId = selectedPlayerId ?: return
         val household = householdId ?: return
+        // Jetzt merken: Bis Sonos die Musik angenommen hat, könnte schon ein anderes Profil gewählt sein
+        val profileSyncId = selectedProfile?.profile?.syncId
         val order = categories
             .firstOrNull { it.category.id == item.categoryId }?.category?.playOrderMode ?: PlayOrder.ORDERED
         val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
@@ -644,7 +656,9 @@ class MainViewModel(
             onFinished = { startingMusic = null },
             // Erst wenn Sonos die Musik angenommen hat, ist sie nicht mehr neu
             onSent = {
-                viewModelScope.launch { if (repository.markPlayed(item)) onNewMusicPlayed() }
+                if (profileSyncId != null) {
+                    viewModelScope.launch { if (repository.markPlayed(profileSyncId, item)) onNewMusicPlayed() }
+                }
             },
             // Ist das Cover noch nicht auf dem Tablet gespeichert (z. B. abgelaufene Apple-Music-
             // Adresse), das frische aus der Wiedergabe nehmen — für Playlisten das der Playlist
@@ -1056,6 +1070,14 @@ class MainViewModel(
 
     fun removeMusicItem(itemId: Long) {
         viewModelScope.launch { repository.removeMusicItem(itemId) }
+    }
+
+    /**
+     * Markiert [items] für die Profile ([ChildProfile.syncId]) wieder als neu bzw. als gespielt.
+     * Die anderen Tablets erfahren es beim Schließen der Einstellungen.
+     */
+    fun setMusicNew(items: List<MusicItem>, profileSyncIds: List<String>, new: Boolean) {
+        viewModelScope.launch { repository.setPlayed(profileSyncIds, items, played = !new) }
     }
 
     /** Öffnet den Sonos-Katalog, um Musik zu einer Kategorie hinzuzufügen. */

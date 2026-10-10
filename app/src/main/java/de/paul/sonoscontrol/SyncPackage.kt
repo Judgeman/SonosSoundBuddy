@@ -19,7 +19,7 @@ enum class SyncScope(val label: String, val description: String) {
     PROFILES(
         "Kinder-Profile und Musikauswahl",
         "Profile mit Namen und Icons, alle Kategorien mit Musik und eigenen Bildern, wer was sieht, " +
-            "was schon gespielt wurde"
+            "wer was schon gespielt hat"
     ),
     SPEAKER_SETTINGS("Speaker-Einstellungen", "Icons und maximale Lautstärke"),
     SPEAKER_SELECTION("Speaker-Freigabe", "Welche Speaker auf dem Homescreen auswählbar sind"),
@@ -58,10 +58,11 @@ data class SyncSnapshot(
     val speakers: List<SyncSpeaker>? = null,
     val password: SyncPassword? = null,
     /**
-     * [MusicItem.playedKey] der Musik aus [categories], die schon gespielt wurde. Gehört zu
-     * [SyncScope.PROFILES] und wird dazugenommen, nie ersetzt. Fehlt bei Paketen älterer App-Versionen.
+     * Was die Profile aus [profiles] von der Musik aus [categories] schon gespielt haben. Gehört zu
+     * [SyncScope.PROFILES] und wird zusammengeführt, nicht ersetzt: Je Eintrag gewinnt die neuere
+     * Änderung ([winsOver]). Fehlt bei Paketen älterer App-Versionen.
      */
-    val played: List<String>? = null
+    val played: List<PlayedMusic>? = null
 ) {
     /** Bereiche, die in diesem Stand enthalten sind. */
     val availableScopes: Set<SyncScope>

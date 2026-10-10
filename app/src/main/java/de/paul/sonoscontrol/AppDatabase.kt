@@ -15,6 +15,7 @@ import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** Pro Sonos-Player: darf er auf dem Homescreen gewählt werden und welches Icon bekommt er. */
@@ -117,11 +118,31 @@ val MusicItem.musicSource: MusicSource get() = MusicSource.fromKey(source)
 val MusicItem.musicType: MusicType get() = MusicType.fromKey(type)
 
 /**
- * Musik, die schon einmal aus der Musikauswahl gespielt wurde — auf diesem oder einem
- * anderen Tablet. Was hier fehlt, ist für die Kinder neu. [musicKey] ist [MusicItem.playedKey].
+ * Ob ein Kind-Profil eine Musik schon gespielt hat — auf diesem oder einem anderen Tablet.
+ * Ohne Eintrag oder mit [played] = false ist sie für das Kind neu. Reist so, wie sie ist,
+ * auch zu den anderen Tablets (Datei, WLAN und Cloud).
  */
-@Entity(tableName = "played_music")
-data class PlayedMusic(@PrimaryKey val musicKey: String)
+@Serializable
+@Entity(tableName = "played_music", primaryKeys = ["profileSyncId", "musicKey"])
+data class PlayedMusic(
+    /** [ChildProfile.syncId] — auf allen Tablets gleich, anders als die Id. */
+    val profileSyncId: String,
+    /** [MusicItem.playedKey]. */
+    val musicKey: String,
+    /** false = von den Eltern wieder als neu markiert. Bleibt stehen, damit die anderen Tablets davon erfahren. */
+    val played: Boolean,
+    /** Zeitpunkt der Änderung (Millisekunden), 0 = beim Update auf diese Version eingetragen. */
+    val changedAt: Long
+)
+
+/**
+ * Beim Zusammenführen zweier Tablets gewinnt je Profil und Musik die neuere Änderung, bei
+ * gleichem Zeitpunkt „gespielt“. Der Worker rechnet genauso, so landen alle beim selben Stand.
+ */
+fun PlayedMusic.winsOver(other: PlayedMusic): Boolean =
+    changedAt > other.changedAt || (changedAt == other.changedAt && played && !other.played)
+
+val PlayedMusic.entryKey: Pair<String, String> get() = profileSyncId to musicKey
 
 @Dao
 interface SpeakerConfigDao {
@@ -340,15 +361,17 @@ interface ProfileDao {
 
 @Dao
 interface PlayedMusicDao {
-    @Query("SELECT musicKey FROM played_music")
-    fun observeKeys(): Flow<List<String>>
+    @Query("SELECT * FROM played_music WHERE played = 1")
+    fun observePlayed(): Flow<List<PlayedMusic>>
 
-    @Query("SELECT musicKey FROM played_music")
-    suspend fun getKeys(): List<String>
+    @Query("SELECT * FROM played_music")
+    suspend fun getAll(): List<PlayedMusic>
 
-    /** Gibt je Eintrag die Zeilen-Id zurück, -1 = war schon gespielt. */
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertAll(played: List<PlayedMusic>): List<Long>
+    @Upsert
+    suspend fun upsertAll(entries: List<PlayedMusic>)
+
+    @Query("DELETE FROM played_music WHERE profileSyncId = :syncId")
+    suspend fun deleteOfProfile(syncId: String)
 }
 
 @Database(
@@ -490,17 +513,22 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * Was schon vor dem Update in der Musikauswahl war, haben die Kinder vermutlich gehört —
-         * neu ist erst, was danach dazukommt. Der Schlüssel ist derselbe wie [MusicItem.playedKey].
+         * Was ein Profil schon vor dem Update in seiner Musikauswahl hatte, hat das Kind vermutlich
+         * gehört — neu ist erst, was danach dazukommt. Der Schlüssel ist derselbe wie [MusicItem.playedKey];
+         * mit Zeitpunkt 0 ist jede spätere Änderung neuer, auch „wieder neu“ auf einem anderen Tablet.
          */
         private val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `played_music` (`musicKey` TEXT NOT NULL, PRIMARY KEY(`musicKey`))"
+                    "CREATE TABLE IF NOT EXISTS `played_music` (`profileSyncId` TEXT NOT NULL, " +
+                        "`musicKey` TEXT NOT NULL, `played` INTEGER NOT NULL, `changedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`profileSyncId`, `musicKey`))"
                 )
                 db.execSQL(
-                    "INSERT OR IGNORE INTO played_music (musicKey) " +
-                        "SELECT source || ':' || sonosId || ':' || name FROM music_item"
+                    "INSERT OR IGNORE INTO played_music (profileSyncId, musicKey, played, changedAt) " +
+                        "SELECT p.syncId, i.source || ':' || i.sonosId || ':' || i.name, 1, 0 FROM music_item i " +
+                        "JOIN profile_category pc ON pc.categoryId = i.categoryId " +
+                        "JOIN child_profile p ON p.id = pc.profileId"
                 )
             }
         }

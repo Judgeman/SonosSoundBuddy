@@ -40,10 +40,7 @@ private data class UploadRequest(val deviceName: String, val images: List<String
 private data class MissingRequest(val hashes: List<String>)
 
 @Serializable
-private data class PlayedResponse(val played: List<String> = emptyList())
-
-@Serializable
-private data class PlayedUpload(val keys: List<String>)
+private data class PlayedEntries(val entries: List<PlayedMusic> = emptyList())
 
 /** Fehler mit einer Meldung, die so angezeigt werden kann. */
 class CloudSyncException(message: String) : IOException(message)
@@ -102,18 +99,20 @@ class CloudSyncClient(
         return syncJson.decodeFromString(CloudState.serializer(), response.decodeToString())
     }
 
-    /** Was auf irgendeinem Tablet des Haushalts schon gespielt wurde ([MusicItem.playedKey]). */
-    suspend fun played(household: String): Set<String> {
+    /** Was die Profile des Haushalts auf den Tablets gespielt haben, je Profil und Musik die neueste Änderung. */
+    suspend fun played(household: String): List<PlayedMusic> {
         // Ohne Eintrag liefert der Worker eine leere Liste — „gibt es nicht“ heißt: alter Worker
         val response = send(household, "/sync/played") ?: throw outdatedWorker(PLAYED_FEATURE)
-        return syncJson.decodeFromString(PlayedResponse.serializer(), response.decodeToString()).played.toSet()
+        return syncJson.decodeFromString(PlayedEntries.serializer(), response.decodeToString()).entries
     }
 
     /** Ersetzt die Liste dieses Tablets; jedes Tablet hat seine eigene, abgeholt werden alle zusammen. */
-    suspend fun uploadPlayed(household: String, tabletId: String, keys: Collection<String>) {
+    suspend fun uploadPlayed(household: String, tabletId: String, entries: Collection<PlayedMusic>) {
         // Einen überlangen Namen lehnt der Worker ab — und mit ihm die ganze Liste, bei jedem Versuch
-        val upload = PlayedUpload(keys.filter { it.length <= MAX_PLAYED_KEY_LENGTH }.sorted())
-        val body = syncJson.encodeToString(PlayedUpload.serializer(), upload)
+        val upload = entries
+            .filter { it.musicKey.length <= MAX_MUSIC_KEY_LENGTH && it.profileSyncId.length <= MAX_PROFILE_LENGTH }
+            .sortedWith(compareBy({ it.profileSyncId }, { it.musicKey }))
+        val body = syncJson.encodeToString(PlayedEntries.serializer(), PlayedEntries(upload))
         send(household, "/sync/played/$tabletId", "PUT", body.toRequestBody(jsonType))
             ?: throw outdatedWorker(PLAYED_FEATURE)
     }
@@ -174,7 +173,8 @@ class CloudSyncClient(
 
     private companion object {
         const val PLAYED_FEATURE = "den Abgleich gespielter Musik"
-        /** So lang darf ein Eintrag gespielter Musik beim Worker höchstens sein. */
-        const val MAX_PLAYED_KEY_LENGTH = 1000
+        /** So lang dürfen Musik und Profil-Kennung eines Eintrags beim Worker höchstens sein. */
+        const val MAX_MUSIC_KEY_LENGTH = 1000
+        const val MAX_PROFILE_LENGTH = 100
     }
 }

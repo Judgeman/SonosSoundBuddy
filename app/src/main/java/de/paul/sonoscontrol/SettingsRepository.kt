@@ -34,8 +34,10 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     val speakerConfigs: Flow<List<SpeakerConfig>> = speakerDao.observeAll()
 
-    /** [MusicItem.playedKey] aller Musik, die schon gespielt wurde — alles andere ist für die Kinder neu. */
-    val playedMusic: Flow<Set<String>> = playedDao.observeKeys().map { it.toSet() }
+    /** Je Profil ([ChildProfile.syncId]) die [MusicItem.playedKey] der Musik, die es schon gespielt hat. */
+    val playedMusic: Flow<Map<String, Set<String>>> = playedDao.observePlayed().map { rows ->
+        rows.groupBy({ it.profileSyncId }, { it.musicKey }).mapValues { (_, keys) -> keys.toSet() }
+    }
 
     val settings: Flow<AppSettings> = settingDao.observeAll().map { rows ->
         val values = rows.associate { it.key to it.value }
@@ -134,9 +136,31 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     suspend fun setAddMusicAtStart(atStart: Boolean) =
         settingDao.put(AppSetting(KEY_ADD_MUSIC_AT_START, atStart.toString()))
 
-    /** Merkt sich, dass [item] gespielt wurde. true = es war bis eben neu. */
-    suspend fun markPlayed(item: MusicItem): Boolean =
-        playedDao.insertAll(listOf(PlayedMusic(item.playedKey))).single() != -1L
+    /** Merkt sich, dass das Profil [item] gespielt hat. true = es war für das Profil bis eben neu. */
+    suspend fun markPlayed(profileSyncId: String, item: MusicItem): Boolean =
+        setPlayed(listOf(profileSyncId), listOf(item), played = true)
+
+    /**
+     * Markiert [items] für die Profile als gespielt bzw. wieder als neu. Auch „wieder neu“
+     * bleibt als Eintrag stehen, damit die anderen Tablets davon erfahren. true = es hat sich etwas geändert.
+     */
+    suspend fun setPlayed(profileSyncIds: Collection<String>, items: Collection<MusicItem>, played: Boolean): Boolean =
+        database.withTransaction {
+            val current = playedDao.getAll().associateBy { it.entryKey }
+            val now = System.currentTimeMillis()
+            val keys = items.map { it.playedKey }.distinct()
+            val changes = profileSyncIds.distinct().flatMap { profile ->
+                keys.mapNotNull { key ->
+                    val entry = current[profile to key]
+                    // Ohne Eintrag ist die Musik neu
+                    if ((entry?.played ?: false) == played) return@mapNotNull null
+                    // Geht die Uhr hier nach, muss die Änderung trotzdem neuer sein als der Stand, den man gesehen hat
+                    PlayedMusic(profile, key, played, maxOf(now, (entry?.changedAt ?: 0L) + 1))
+                }
+            }
+            if (changes.isNotEmpty()) playedDao.upsertAll(changes)
+            changes.isNotEmpty()
+        }
 
     // --- Profile und Musikauswahl ---------------------------------------
 

@@ -208,7 +208,7 @@ fun MusicChooserButton(
  * Musik. Ein Tipp auf die Musik spielt sie auf dem gewählten Speaker —
  * bei „Kinder entscheiden" wird vorher gefragt: der Reihe nach oder durcheinander.
  * [onPlay] bekommt die Wahl der Kinder (oder null = Einstellung der Kategorie).
- * Musik, die nicht in [playedMusic] steht, trägt einen Stern — und ebenso ihre Kategorie.
+ * Musik, die das Profil laut [playedMusic] noch nie gespielt hat, trägt einen Stern — und ebenso ihre Kategorie.
  */
 @Composable
 fun MusicPickerDialog(
@@ -356,7 +356,7 @@ private fun NewBadge(modifier: Modifier = Modifier) {
         modifier = modifier
             .size(36.dp)
             .shadow(3.dp, CircleShape)
-            .background(NewBadgeColor, CircleShape)
+            .background(NewMusicColor, CircleShape)
             .border(2.dp, Color.White, CircleShape)
     ) {
         Icon(
@@ -368,7 +368,8 @@ private fun NewBadge(modifier: Modifier = Modifier) {
     }
 }
 
-private val NewBadgeColor = Color(0xFFFF3D7F)
+/** Farbe des Sterns für neue Musik — in der Musikauswahl der Kinder und in den Einstellungen. */
+val NewMusicColor = Color(0xFFFF3D7F)
 
 /** „Wie soll es laufen?" — zwei große Knöpfe mit Bildern, damit auch Kinder ohne Lesen wählen können. */
 @Composable

@@ -75,8 +75,9 @@ class SyncRepository(
             SyncSpeaker(it.playerId, it.name, it.iconKey, it.maxVolume, it.enabled)
         }
         val password = if (includePassword) readPassword() else null
-        // Nur, was zur Musikauswahl gehört — was einmal herausgenommen wurde, braucht das andere Tablet nicht
+        // Nur, was zu Profilen und Musikauswahl gehört — was herausgenommen wurde, braucht das andere Tablet nicht
         val libraryKeys = items.map { it.playedKey }.toSet()
+        val profileSyncIds = localProfiles.map { it.syncId }.toSet()
         val snapshot = SyncSnapshot(
             createdAtMillis = System.currentTimeMillis(),
             deviceName = deviceName,
@@ -85,7 +86,9 @@ class SyncRepository(
             categories = categories,
             speakers = speakers,
             password = password,
-            played = playedDao.getKeys().filter { it in libraryKeys }.sorted()
+            played = playedDao.getAll()
+                .filter { it.musicKey in libraryKeys && it.profileSyncId in profileSyncIds }
+                .sortedWith(compareBy({ it.profileSyncId }, { it.musicKey }))
         )
         return SyncPackage(snapshot, images.images)
     }
@@ -182,6 +185,8 @@ class SyncRepository(
         val profileIds = match.pairs.associate { (source, local) ->
             val id = if (local != null) {
                 profileDao.updateSyncedProfile(local.id, source.name, source.iconKey, source.syncId)
+                // Beim ersten Abgleich von Hand angelegter Profile: Was das Kind hier gehört hat, zieht mit
+                if (local.syncId != source.syncId) movePlayed(local.syncId, source.syncId)
                 local.id
             } else {
                 profileDao.insertProfile(
@@ -326,15 +331,33 @@ class SyncRepository(
 
     // --- Gespielte Musik ---------------------------------------------------
 
-    suspend fun playedKeys(): Set<String> = playedDao.getKeys().toSet()
+    suspend fun playedEntries(): List<PlayedMusic> = playedDao.getAll()
 
-    /** Nimmt auf, was auf anderen Tablets gespielt wurde, und gibt alles zurück, was dieses Tablet kennt. */
-    suspend fun mergePlayed(keys: Collection<String>): Set<String> {
-        val known = playedKeys()
-        // Nur Neues schreiben — sonst meldet die Datenbank bei jedem Nachsehen eine Änderung
-        val added = keys.filterNot { it in known }.distinct()
-        if (added.isNotEmpty()) playedDao.insertAll(added.map(::PlayedMusic))
-        return known + added
+    /**
+     * Führt zusammen, was auf anderen Tablets gespielt oder wieder als neu markiert wurde: Je Profil
+     * und Musik gewinnt die neuere Änderung ([winsOver]). Gibt alles zurück, was dieses Tablet danach kennt.
+     */
+    suspend fun mergePlayed(incoming: Collection<PlayedMusic>): List<PlayedMusic> = database.withTransaction {
+        val merged = playedDao.getAll().associateBy { it.entryKey }.toMutableMap()
+        val changed = mutableMapOf<Pair<String, String>, PlayedMusic>()
+        incoming.forEach { entry ->
+            val current = merged[entry.entryKey]
+            if (current == null || entry.winsOver(current)) {
+                merged[entry.entryKey] = entry
+                changed[entry.entryKey] = entry
+            }
+        }
+        // Nur Geändertes schreiben — sonst meldet die Datenbank bei jedem Nachsehen eine Änderung
+        if (changed.isNotEmpty()) playedDao.upsertAll(changed.values.toList())
+        merged.values.toList()
+    }
+
+    private suspend fun movePlayed(oldSyncId: String, newSyncId: String) {
+        val moved = playedDao.getAll()
+            .filter { it.profileSyncId == oldSyncId }
+            .map { it.copy(profileSyncId = newSyncId) }
+        playedDao.deleteOfProfile(oldSyncId)
+        mergePlayed(moved)
     }
 
     /**
