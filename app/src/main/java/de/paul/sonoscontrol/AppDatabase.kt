@@ -379,7 +379,7 @@ interface PlayedMusicDao {
         SpeakerConfig::class, AppSetting::class, ChildProfile::class,
         MusicCategory::class, ProfileCategory::class, MusicItem::class, PlayedMusic::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -512,13 +512,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 12 gab es nur in Testständen, dort hatte `played_music` noch eine einzige Spalte. */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) = Unit
+        }
+
         /**
          * Was ein Profil schon vor dem Update in seiner Musikauswahl hatte, hat das Kind vermutlich
          * gehört — neu ist erst, was danach dazukommt. Der Schlüssel ist derselbe wie [MusicItem.playedKey];
          * mit Zeitpunkt 0 ist jede spätere Änderung neuer, auch „wieder neu“ auf einem anderen Tablet.
+         * Eine Tabelle aus den Testständen von Version 12 wird ersetzt.
          */
-        private val MIGRATION_11_12 = object : Migration(11, 12) {
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `played_music`")
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `played_music` (`profileSyncId` TEXT NOT NULL, " +
                         "`musicKey` TEXT NOT NULL, `played` INTEGER NOT NULL, `changedAt` INTEGER NOT NULL, " +
@@ -546,7 +553,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-                        MIGRATION_10_11, MIGRATION_11_12
+                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13
                     )
                     .build()
                     .also { instance = it }

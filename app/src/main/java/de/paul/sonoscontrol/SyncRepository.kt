@@ -86,7 +86,7 @@ class SyncRepository(
             categories = categories,
             speakers = speakers,
             password = password,
-            played = playedDao.getAll()
+            playedMusic = playedDao.getAll()
                 .filter { it.musicKey in libraryKeys && it.profileSyncId in profileSyncIds }
                 .sortedWith(compareBy({ it.profileSyncId }, { it.musicKey }))
         )
@@ -164,7 +164,7 @@ class SyncRepository(
                 categories?.let { replaceLibrary(snapshot.profiles.orEmpty(), it) }
                 // Mit der Musik zusammen, damit sie nicht kurz als neu erscheint. Was hier schon
                 // gespielt wurde, bleibt es
-                if (SyncScope.PROFILES in applied) snapshot.played?.let { mergePlayed(it) }
+                if (SyncScope.PROFILES in applied) snapshot.playedMusic?.let { mergePlayed(it) }
                 snapshot.speakers?.let { applySpeakers(it, applied) }
                 if (SyncScope.PASSWORD in applied) snapshot.password?.let { applyPassword(it) }
             }
@@ -325,7 +325,7 @@ class SyncRepository(
      * würde das Haupt-Tablet nach jedem neuen Hörspiel den ganzen Stand neu hochladen.
      */
     fun fingerprint(syncPackage: SyncPackage): String {
-        val snapshot = syncPackage.snapshot.copy(createdAtMillis = 0, played = null)
+        val snapshot = syncPackage.snapshot.copy(createdAtMillis = 0, playedMusic = null)
         return sha256Hex(syncJson.encodeToString(SyncSnapshot.serializer(), snapshot).toByteArray())
     }
 

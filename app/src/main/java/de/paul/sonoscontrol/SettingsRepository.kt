@@ -138,13 +138,22 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     /** Merkt sich, dass das Profil [item] gespielt hat. true = es war für das Profil bis eben neu. */
     suspend fun markPlayed(profileSyncId: String, item: MusicItem): Boolean =
-        setPlayed(listOf(profileSyncId), listOf(item), played = true)
+        setPlayed(listOf(profileSyncId), listOf(item), played = true, onlyChanges = true)
 
     /**
      * Markiert [items] für die Profile als gespielt bzw. wieder als neu. Auch „wieder neu“
-     * bleibt als Eintrag stehen, damit die anderen Tablets davon erfahren. true = es hat sich etwas geändert.
+     * bleibt als Eintrag stehen, damit die anderen Tablets davon erfahren. true = es wurde etwas geschrieben.
+     *
+     * Mit [onlyChanges] wird nur geschrieben, was sich hier ändert (Abspielen). Ohne — wenn die Eltern
+     * etwas umstellen — bekommt jeder Eintrag einen neuen Zeitpunkt: Sonst würde ein Abspielen auf einem
+     * anderen Tablet, von dem dieses noch nichts weiß, die Entscheidung der Eltern beim Abgleich überstimmen.
      */
-    suspend fun setPlayed(profileSyncIds: Collection<String>, items: Collection<MusicItem>, played: Boolean): Boolean =
+    suspend fun setPlayed(
+        profileSyncIds: Collection<String>,
+        items: Collection<MusicItem>,
+        played: Boolean,
+        onlyChanges: Boolean = false
+    ): Boolean =
         database.withTransaction {
             val current = playedDao.getAll().associateBy { it.entryKey }
             val now = System.currentTimeMillis()
@@ -153,7 +162,7 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
                 keys.mapNotNull { key ->
                     val entry = current[profile to key]
                     // Ohne Eintrag ist die Musik neu
-                    if ((entry?.played ?: false) == played) return@mapNotNull null
+                    if (onlyChanges && (entry?.played ?: false) == played) return@mapNotNull null
                     // Geht die Uhr hier nach, muss die Änderung trotzdem neuer sein als der Stand, den man gesehen hat
                     PlayedMusic(profile, key, played, maxOf(now, (entry?.changedAt ?: 0L) + 1))
                 }

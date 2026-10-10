@@ -92,7 +92,7 @@ val MusicItem.catalogKey: String get() = "$source:$sonosId"
 /**
  * Woran alle Tablets erkennen, dass diese Musik schon gespielt wurde — die Ids von Sonos
  * gelten im ganzen Haushalt, die Kategorie zählt nicht. Mit Namen, weil Sonos die Id
- * eines gelöschten Favoriten neu vergeben kann. Dieselbe Formel steht in `MIGRATION_11_12`.
+ * eines gelöschten Favoriten neu vergeben kann. Dieselbe Formel steht in `MIGRATION_12_13`.
  */
 val MusicItem.playedKey: String get() = "$source:$sonosId:$name"
 

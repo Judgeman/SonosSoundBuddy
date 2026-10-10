@@ -439,8 +439,11 @@ Ids von Sonos im ganzen Haushalt gleich sind.
 hoch, was die Kinder dort gespielt und die Eltern dort als neu oder gespielt
 markiert haben, und holt sich, was auf den anderen passiert ist — beim Start,
 alle 5 Minuten, beim Öffnen der Musikauswahl (höchstens alle 30 Sekunden),
-gleich nachdem ein Kind hier etwas zum ersten Mal gespielt hat und beim
-Schließen der Einstellungen. Jeder Eintrag sagt je Kinder-Profil
+gleich nachdem ein Kind hier etwas zum ersten Mal gespielt hat sowie beim
+Öffnen und Schließen der Einstellungen. Was die Eltern umstellen, bekommt
+immer einen neuen Zeitpunkt — auch wenn es auf diesem Tablet schon so
+aussah —, damit es nicht von einem Abspielen auf einem anderen Tablet
+überstimmt wird, von dem dieses noch nichts wusste. Jeder Eintrag sagt je Kinder-Profil
 (`syncId`) und Musik, ob sie gespielt ist, und wann sich das zuletzt
 geändert hat; beim Zusammenführen gewinnt die neuere Änderung, bei gleichem
 Zeitpunkt „gespielt“. So kommt auch „wieder neu“ auf allen Tablets an. Im
@@ -487,7 +490,7 @@ liest die Datei auf dem anderen Tablet ein.
 
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 12):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 13):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
@@ -523,9 +526,10 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 12):
   Text aus Quelle, Sonos-Id und Name, z. B. `FAVORITE:12:Bibi Blocksberg`),
   ob das Kind sie schon gespielt hat (`played`; false = wieder als neu
   markiert) und wann sich das geändert hat (`changedAt`) — auf diesem oder
-  einem anderen Tablet. Ohne Eintrag ist die Musik neu (seit Version 12,
-  Migration `MIGRATION_11_12`; trägt je Profil alles als gespielt ein, was
-  es schon sieht, mit Zeitpunkt 0)
+  einem anderen Tablet. Ohne Eintrag ist die Musik neu (seit Version 13,
+  Migration `MIGRATION_12_13`; trägt je Profil alles als gespielt ein, was
+  es schon sieht, mit Zeitpunkt 0. Version 12 gab es nur in Testständen mit
+  einer einspaltigen Tabelle, die dabei ersetzt wird)
 
 ## Neue Version veröffentlichen
 

@@ -60,9 +60,10 @@ data class SyncSnapshot(
     /**
      * Was die Profile aus [profiles] von der Musik aus [categories] schon gespielt haben. Gehört zu
      * [SyncScope.PROFILES] und wird zusammengeführt, nicht ersetzt: Je Eintrag gewinnt die neuere
-     * Änderung ([winsOver]). Fehlt bei Paketen älterer App-Versionen.
+     * Änderung ([winsOver]). Fehlt bei Paketen älterer App-Versionen. Nicht `played`: So hieß in
+     * Testständen eine Liste von Texten — die wird jetzt einfach übergangen.
      */
-    val played: List<PlayedMusic>? = null
+    val playedMusic: List<PlayedMusic>? = null
 ) {
     /** Bereiche, die in diesem Stand enthalten sind. */
     val availableScopes: Set<SyncScope>

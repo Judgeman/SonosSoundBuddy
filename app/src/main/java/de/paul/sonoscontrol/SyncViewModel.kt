@@ -409,16 +409,16 @@ class SyncViewModel(
     /**
      * Die Einstellungen wurden geöffnet oder geschlossen. Solange sie offen sind,
      * wird nichts automatisch übernommen; beim Schließen lädt das Haupt-Tablet hoch,
-     * und jedes Tablet, was die Eltern dort als neu oder gespielt markiert haben.
+     * und jedes Tablet, was die Eltern dort als neu oder gespielt markiert haben. Beim Öffnen
+     * holt es, was die Kinder inzwischen gespielt haben, damit die Eltern den aktuellen Stand sehen.
      */
     fun onSettingsOpenChanged(open: Boolean) {
         if (open == settingsOpen) return
         settingsOpen = open
-        if (!open && cloudSettings.role != CloudRole.OFF) {
-            viewModelScope.launch {
-                runCloudCycle(userAction = false)
-                syncPlayed()
-            }
+        if (cloudSettings.role == CloudRole.OFF) return
+        viewModelScope.launch {
+            if (!open) runCloudCycle(userAction = false)
+            syncPlayed()
         }
     }
 

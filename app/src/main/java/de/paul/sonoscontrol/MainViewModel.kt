@@ -1073,8 +1073,9 @@ class MainViewModel(
     }
 
     /**
-     * Markiert [items] für die Profile ([ChildProfile.syncId]) wieder als neu bzw. als gespielt.
-     * Die anderen Tablets erfahren es beim Schließen der Einstellungen.
+     * Markiert [items] für die Profile ([ChildProfile.syncId]) wieder als neu bzw. als gespielt —
+     * auch wenn es hier schon so aussieht, damit es auf allen Tablets gilt. Die anderen Tablets
+     * erfahren es beim Schließen der Einstellungen.
      */
     fun setMusicNew(items: List<MusicItem>, profileSyncIds: List<String>, new: Boolean) {
         viewModelScope.launch { repository.setPlayed(profileSyncIds, items, played = !new) }

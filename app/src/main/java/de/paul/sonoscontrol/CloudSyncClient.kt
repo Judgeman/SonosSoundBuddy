@@ -3,6 +3,7 @@ package de.paul.sonoscontrol
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
@@ -39,8 +40,9 @@ private data class UploadRequest(val deviceName: String, val images: List<String
 @Serializable
 private data class MissingRequest(val hashes: List<String>)
 
+/** Ohne Vorgabewert: Auch eine leere Liste muss mitgeschickt werden, sonst lehnt der Worker sie ab. */
 @Serializable
-private data class PlayedEntries(val entries: List<PlayedMusic> = emptyList())
+private data class PlayedEntries(val entries: List<PlayedMusic>)
 
 /** Fehler mit einer Meldung, die so angezeigt werden kann. */
 class CloudSyncException(message: String) : IOException(message)
@@ -103,7 +105,12 @@ class CloudSyncClient(
     suspend fun played(household: String): List<PlayedMusic> {
         // Ohne Eintrag liefert der Worker eine leere Liste — „gibt es nicht“ heißt: alter Worker
         val response = send(household, "/sync/played") ?: throw outdatedWorker(PLAYED_FEATURE)
-        return syncJson.decodeFromString(PlayedEntries.serializer(), response.decodeToString()).entries
+        return try {
+            syncJson.decodeFromString(PlayedEntries.serializer(), response.decodeToString()).entries
+        } catch (e: SerializationException) {
+            // Antwort ohne „entries“: ein Worker aus der Zeit vor dem Abgleich je Profil
+            throw outdatedWorker(PLAYED_FEATURE)
+        }
     }
 
     /** Ersetzt die Liste dieses Tablets; jedes Tablet hat seine eigene, abgeholt werden alle zusammen. */
