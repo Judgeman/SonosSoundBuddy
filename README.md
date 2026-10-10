@@ -64,8 +64,10 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     wählen können. Playlisten mit nur einem Titel laufen ohne Frage der
     Reihe nach.
   - **Neue Musik:** Was das gewählte Kind noch nie gespielt hat, trägt oben
-    rechts am Cover einen kleinen pinken Stern mit Funkeln — ebenso die
-    Kategorie, in der so etwas steckt. Das gilt je Kinder-Profil: Hört Mia
+    rechts am Cover ein buntes Funkeln (`NewMusicIcon.kt`): einen goldenen
+    Funkelstern mit fröhlichem Gesicht, dazu pinke und türkise Funkel und
+    bunte Pünktchen, auf einem weißen Sticker mit Schatten, damit es auf jedem
+    Cover leuchtet — ebenso die Kategorie, in der so etwas steckt. Das gilt je Kinder-Profil: Hört Mia
     etwas, bleibt es für Paul neu. Sobald Sonos die Musik angenommen hat, ist
     sie für das Kind nicht mehr neu, auch nicht in anderen Kategorien und —
     mit dem Abgleich über die Cloud — auf den anderen Tablets (siehe unten).
@@ -175,7 +177,8 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     - **Tier am Cover**: „Tanzen“ oder „Vorlesen“. Kategorien mit „Hörbuch“,
       „Hörspiel“, „Geschichte“ oder „Märchen“ im Namen (oder dem
       Hörbuch-Bild) lesen von Anfang an vor, alle anderen tanzen.
-    - **Neu-Markierung:** Der Stern-Knopf an jedem Eintrag zeigt, für welche
+    - **Neu-Markierung:** Der Funkel-Knopf an jedem Eintrag (bunt, solange
+      er für jemanden neu ist) zeigt, für welche
       Kinder (unter denen, die die Kategorie sehen) er neu ist, und stellt das
       je Kind um; unter dem Namen steht „Neu für …“. Im Menü der Kategorie
       markieren „Alle als neu markieren“ und „Alle als gespielt markieren“ die
@@ -544,7 +547,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `ErrorBuddy.kt` | Animierter SoundBuddy für Fehlermeldungen |
-| `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup mit Stern für neue Musik |
+| `MusicPicker.kt`, `NewMusicIcon.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup, buntes Funkeln für neue Musik |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
 | `BatteryIndicator.kt` | Kleine Akku-Anzeige in der Kopfzeile |
 | `AnimalFigure.kt` | Profil-Tiere als Figur mit Körper, geschlossene Augen zum Schlafen |

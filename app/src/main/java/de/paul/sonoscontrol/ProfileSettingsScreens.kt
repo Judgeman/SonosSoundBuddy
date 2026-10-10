@@ -639,7 +639,9 @@ fun CategoryEditorScreen(
                             if (viewers.isNotEmpty() && category.items.isNotEmpty()) {
                                 DropdownMenuItem(
                                     text = { Text("Alle als neu markieren") },
-                                    leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
+                                    leadingIcon = {
+                                        Icon(NewMusicIcon, contentDescription = null, tint = Color.Unspecified)
+                                    },
                                     onClick = {
                                         menuExpanded = false
                                         actions.onSetMusicNew(category.items, viewerSyncIds, true)
@@ -879,11 +881,20 @@ private fun MusicItemRow(
             }
             if (onNewClick != null) {
                 IconButton(onClick = onNewClick) {
-                    Icon(
-                        Icons.Rounded.AutoAwesome,
-                        contentDescription = "Neu-Markierung von ${item.name}",
-                        tint = if (newFor.isNotEmpty()) NewMusicColor else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // Bunt wie bei den Kindern, solange die Musik für jemanden neu ist
+                    if (newFor.isNotEmpty()) {
+                        Icon(
+                            NewMusicIcon,
+                            contentDescription = "Neu-Markierung von ${item.name}",
+                            tint = Color.Unspecified
+                        )
+                    } else {
+                        Icon(
+                            Icons.Rounded.AutoAwesome,
+                            contentDescription = "Neu-Markierung von ${item.name}",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             IconButton(onClick = onRemove) {
@@ -895,7 +906,7 @@ private fun MusicItemRow(
 
 /**
  * Für welche Kinder die Musik neu ist — einzeln umstellbar. Wieder als neu Markiertes trägt in der
- * Musikauswahl des Kindes den Stern, bis es die Musik spielt; auf den anderen Tablets ebenso.
+ * Musikauswahl des Kindes das bunte Funkeln, bis es die Musik spielt; auf den anderen Tablets ebenso.
  */
 @Composable
 private fun NewMusicDialog(
@@ -907,12 +918,14 @@ private fun NewMusicDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = NewMusicColor) },
+        icon = {
+            Icon(NewMusicIcon, contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(40.dp))
+        },
         title = { Text("„${item.name}“ ist neu für …", maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             Column {
                 Text(
-                    "Neue Musik trägt in der Musikauswahl des Kindes einen Stern, bis es sie zum ersten Mal spielt.",
+                    "Neue Musik funkelt in der Musikauswahl des Kindes, bis es sie zum ersten Mal spielt.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(modifier = Modifier.height(8.dp))

@@ -302,8 +302,8 @@ private fun CloudSection(
         description = "Ein Haupt-Tablet lädt seinen Stand in den Speicher des Cloudflare-Workers, die anderen " +
             "holen ihn ab — auch wenn sie woanders stehen. Alle Tablets müssen beim selben Sonos-Haushalt " +
             "angemeldet sein; andere Haushalte sehen die Daten nicht. Was die Kinder schon gespielt haben, " +
-            "gleichen alle teilnehmenden Tablets untereinander ab — neue Musik trägt in der Musikauswahl einen " +
-            "Stern. Die Daten liegen beim Betreiber des Workers."
+            "gleichen alle teilnehmenden Tablets untereinander ab — neue Musik funkelt in der Musikauswahl. " +
+            "Die Daten liegen beim Betreiber des Workers."
     )
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         CloudRole.entries.forEach { role ->

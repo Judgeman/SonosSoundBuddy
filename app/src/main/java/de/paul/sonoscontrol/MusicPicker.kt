@@ -2,7 +2,6 @@ package de.paul.sonoscontrol
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -208,7 +206,7 @@ fun MusicChooserButton(
  * Musik. Ein Tipp auf die Musik spielt sie auf dem gewählten Speaker —
  * bei „Kinder entscheiden" wird vorher gefragt: der Reihe nach oder durcheinander.
  * [onPlay] bekommt die Wahl der Kinder (oder null = Einstellung der Kategorie).
- * Musik, die das Profil laut [playedMusic] noch nie gespielt hat, trägt einen Stern — und ebenso ihre Kategorie.
+ * Musik, die das Profil laut [playedMusic] noch nie gespielt hat, funkelt bunt — und ebenso ihre Kategorie.
  */
 @Composable
 fun MusicPickerDialog(
@@ -346,30 +344,21 @@ private fun PickerTile(title: String, isNew: Boolean, onClick: () -> Unit, image
 }
 
 /**
- * Kleiner Stern oben rechts am Bild: Diese Musik wurde noch nie gespielt. Ein Bild statt
- * „Neu“, damit auch Kinder ohne Lesen es verstehen; weißer Rand und Schatten heben es von jedem Cover ab.
+ * Buntes Funkeln oben rechts am Bild: Das Kind hat diese Musik noch nie gespielt. Ein Bild statt
+ * „Neu“, damit auch Kinder ohne Lesen es verstehen; der weiße Sticker mit Schatten hebt es von jedem Cover ab.
  */
 @Composable
 private fun NewBadge(modifier: Modifier = Modifier) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(36.dp)
+            .size(44.dp)
             .shadow(3.dp, CircleShape)
-            .background(NewMusicColor, CircleShape)
-            .border(2.dp, Color.White, CircleShape)
+            .background(Color.White, CircleShape)
     ) {
-        Icon(
-            Icons.Rounded.AutoAwesome,
-            contentDescription = "Neu",
-            tint = Color.White,
-            modifier = Modifier.size(22.dp)
-        )
+        Icon(NewMusicIcon, contentDescription = "Neu", tint = Color.Unspecified, modifier = Modifier.size(38.dp))
     }
 }
-
-/** Farbe des Sterns für neue Musik — in der Musikauswahl der Kinder und in den Einstellungen. */
-val NewMusicColor = Color(0xFFFF3D7F)
 
 /** „Wie soll es laufen?" — zwei große Knöpfe mit Bildern, damit auch Kinder ohne Lesen wählen können. */
 @Composable
