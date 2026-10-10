@@ -296,6 +296,7 @@ class SyncViewModel(
             if (settings.role != previous.role) {
                 cloudUpdate = null
                 cloudStatus = null
+                playedStatus = null
                 if (isForeground) startCloudLoop(firstIsUserAction = true)
             }
         }

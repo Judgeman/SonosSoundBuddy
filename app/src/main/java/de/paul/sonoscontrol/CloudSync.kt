@@ -109,18 +109,24 @@ class CloudSync(
         if (cloud.containsAll(local)) return
         // Liefert die Cloud den eigenen Upload noch nicht mit (KV braucht dafür bis zu einer Minute),
         // nicht noch einmal schreiben
-        val fingerprint = sha256Hex(local.sorted().joinToString("\n").toByteArray())
+        val fingerprint = playedFingerprint(local)
         if (fingerprint == repository.uploadedPlayedFingerprint(household)) return
         client.uploadPlayed(household, repository.tabletId(), local)
         repository.setUploadedPlayedFingerprint(household, fingerprint)
     }
 
-    /** Löscht den Stand und die gespielte Musik dieses Haushalts aus der Cloud. */
+    private fun playedFingerprint(keys: Set<String>): String = sha256Hex(keys.sorted().joinToString("\n").toByteArray())
+
+    /**
+     * Löscht den Stand und die gespielte Musik dieses Haushalts aus der Cloud. Die gespielte
+     * Musik gilt danach als hochgeladen — sonst stünde sie beim nächsten Abgleich gleich wieder
+     * dort. Erst was hier neu gespielt wird, lädt das Tablet wieder hoch.
+     */
     suspend fun deleteFromCloud() {
         val household = household()
         client.delete(household)
         repository.setUploadedFingerprint(household, null)
-        repository.setUploadedPlayedFingerprint(household, null)
+        repository.setUploadedPlayedFingerprint(household, playedFingerprint(repository.playedKeys()))
     }
 
     companion object {

@@ -326,9 +326,11 @@ class SyncRepository(
 
     // --- Gespielte Musik ---------------------------------------------------
 
+    suspend fun playedKeys(): Set<String> = playedDao.getKeys().toSet()
+
     /** Nimmt auf, was auf anderen Tablets gespielt wurde, und gibt alles zurück, was dieses Tablet kennt. */
     suspend fun mergePlayed(keys: Collection<String>): Set<String> {
-        val known = playedDao.getKeys().toSet()
+        val known = playedKeys()
         // Nur Neues schreiben — sonst meldet die Datenbank bei jedem Nachsehen eine Änderung
         val added = keys.filterNot { it in known }.distinct()
         if (added.isNotEmpty()) playedDao.insertAll(added.map(::PlayedMusic))

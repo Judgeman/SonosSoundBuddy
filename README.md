@@ -438,6 +438,10 @@ Musik beim Übertragen als Datei oder im WLAN mit.
 Bilder werden nach ihrem SHA-256 benannt und nur hochgeladen bzw.
 heruntergeladen, wenn sie fehlen. „Daten aus der Cloud löschen“ entfernt den
 Stand des Haushalts und die gespielte Musik aller Tablets aus dem Speicher.
+Sobald danach auf einem Tablet etwas zum ersten Mal gespielt wird, lädt es
+seine gespielte Musik wieder hoch, das Haupt-Tablet seinen Stand beim
+nächsten Schließen der Einstellungen — wer die Cloud nicht mehr nutzen will,
+stellt vorher alle Tablets auf „Aus“.
 
 **Getrennte Haushalte:** Alles läuft je Sonos-Haushalt. Der Worker prüft
 bei jeder Anfrage bei Sonos, ob der Access-Token der App zu dem Haushalt

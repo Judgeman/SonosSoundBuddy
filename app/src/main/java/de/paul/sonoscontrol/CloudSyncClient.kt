@@ -111,7 +111,9 @@ class CloudSyncClient(
 
     /** Ersetzt die Liste dieses Tablets; jedes Tablet hat seine eigene, abgeholt werden alle zusammen. */
     suspend fun uploadPlayed(household: String, tabletId: String, keys: Collection<String>) {
-        val body = syncJson.encodeToString(PlayedUpload.serializer(), PlayedUpload(keys.sorted()))
+        // Einen überlangen Namen lehnt der Worker ab — und mit ihm die ganze Liste, bei jedem Versuch
+        val upload = PlayedUpload(keys.filter { it.length <= MAX_PLAYED_KEY_LENGTH }.sorted())
+        val body = syncJson.encodeToString(PlayedUpload.serializer(), upload)
         send(household, "/sync/played/$tabletId", "PUT", body.toRequestBody(jsonType))
             ?: throw outdatedWorker(PLAYED_FEATURE)
     }
@@ -172,5 +174,7 @@ class CloudSyncClient(
 
     private companion object {
         const val PLAYED_FEATURE = "den Abgleich gespielter Musik"
+        /** So lang darf ein Eintrag gespielter Musik beim Worker höchstens sein. */
+        const val MAX_PLAYED_KEY_LENGTH = 1000
     }
 }
