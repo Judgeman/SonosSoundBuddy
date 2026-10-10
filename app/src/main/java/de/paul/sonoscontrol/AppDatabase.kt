@@ -116,6 +116,13 @@ data class MusicItem(
 val MusicItem.musicSource: MusicSource get() = MusicSource.fromKey(source)
 val MusicItem.musicType: MusicType get() = MusicType.fromKey(type)
 
+/**
+ * Musik, die schon einmal aus der Musikauswahl gespielt wurde — auf diesem oder einem
+ * anderen Tablet. Was hier fehlt, ist für die Kinder neu. [musicKey] ist [MusicItem.playedKey].
+ */
+@Entity(tableName = "played_music")
+data class PlayedMusic(@PrimaryKey val musicKey: String)
+
 @Dao
 interface SpeakerConfigDao {
     @Query("SELECT * FROM speaker_config ORDER BY name COLLATE NOCASE")
@@ -331,18 +338,32 @@ interface ProfileDao {
     suspend fun deleteProfileRow(id: Long)
 }
 
+@Dao
+interface PlayedMusicDao {
+    @Query("SELECT musicKey FROM played_music")
+    fun observeKeys(): Flow<List<String>>
+
+    @Query("SELECT musicKey FROM played_music")
+    suspend fun getKeys(): List<String>
+
+    /** Gibt je Eintrag die Zeilen-Id zurück, -1 = war schon gespielt. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(played: List<PlayedMusic>): List<Long>
+}
+
 @Database(
     entities = [
         SpeakerConfig::class, AppSetting::class, ChildProfile::class,
-        MusicCategory::class, ProfileCategory::class, MusicItem::class
+        MusicCategory::class, ProfileCategory::class, MusicItem::class, PlayedMusic::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun speakerConfigDao(): SpeakerConfigDao
     abstract fun appSettingDao(): AppSettingDao
     abstract fun profileDao(): ProfileDao
+    abstract fun playedMusicDao(): PlayedMusicDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -468,6 +489,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Was schon vor dem Update in der Musikauswahl war, haben die Kinder vermutlich gehört —
+         * neu ist erst, was danach dazukommt. Der Schlüssel ist derselbe wie [MusicItem.playedKey].
+         */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `played_music` (`musicKey` TEXT NOT NULL, PRIMARY KEY(`musicKey`))"
+                )
+                db.execSQL(
+                    "INSERT OR IGNORE INTO played_music (musicKey) " +
+                        "SELECT source || ':' || sonosId || ':' || name FROM music_item"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -481,7 +518,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-                        MIGRATION_10_11
+                        MIGRATION_10_11, MIGRATION_11_12
                     )
                     .build()
                     .also { instance = it }

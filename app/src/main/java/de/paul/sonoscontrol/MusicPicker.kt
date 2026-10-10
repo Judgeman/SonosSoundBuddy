@@ -2,6 +2,7 @@ package de.paul.sonoscontrol
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -48,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -205,13 +208,17 @@ fun MusicChooserButton(
  * Musik. Ein Tipp auf die Musik spielt sie auf dem gewählten Speaker —
  * bei „Kinder entscheiden" wird vorher gefragt: der Reihe nach oder durcheinander.
  * [onPlay] bekommt die Wahl der Kinder (oder null = Einstellung der Kategorie).
+ * Musik, die nicht in [playedMusic] steht, trägt einen Stern — und ebenso ihre Kategorie.
  */
 @Composable
 fun MusicPickerDialog(
     profile: ProfileWithMusic,
+    playedMusic: Set<String>?,
     onPlay: (MusicItem, Boolean?) -> Unit,
     onDismiss: () -> Unit
 ) {
+    // Solange nicht geladen ist, was schon gespielt wurde, ist nichts neu — sonst blinkt alles kurz auf
+    val isNew: (MusicItem) -> Boolean = { item -> playedMusic != null && item.playedKey !in playedMusic }
     val categories = profile.playableCategories
     var openCategoryId by remember { mutableStateOf(categories.singleOrNull()?.category?.id) }
     var askOrderFor by remember { mutableStateOf<MusicItem?>(null) }
@@ -279,6 +286,7 @@ fun MusicPickerDialog(
                         items(categories, key = { "category-${it.category.id}" }) { category ->
                             PickerTile(
                                 title = category.category.name,
+                                isNew = category.items.any(isNew),
                                 onClick = { openCategoryId = category.category.id }
                             ) { CategoryImageView(category) }
                         }
@@ -286,6 +294,7 @@ fun MusicPickerDialog(
                         items(openCategory.items, key = { "item-${it.id}" }) { item ->
                             PickerTile(
                                 title = item.name,
+                                isNew = isNew(item),
                                 onClick = {
                                     val ask = openCategory.category.playOrderMode == PlayOrder.CHILD_CHOICE &&
                                         item.hasMultipleTracks
@@ -312,7 +321,7 @@ fun MusicPickerDialog(
 }
 
 @Composable
-private fun PickerTile(title: String, onClick: () -> Unit, image: @Composable () -> Unit) {
+private fun PickerTile(title: String, isNew: Boolean, onClick: () -> Unit, image: @Composable () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -320,7 +329,10 @@ private fun PickerTile(title: String, onClick: () -> Unit, image: @Composable ()
             .clickable(onClick = onClick)
             .padding(4.dp)
     ) {
-        image()
+        Box {
+            image()
+            if (isNew) NewBadge(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
+        }
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             title,
@@ -332,6 +344,31 @@ private fun PickerTile(title: String, onClick: () -> Unit, image: @Composable ()
         )
     }
 }
+
+/**
+ * Kleiner Stern oben rechts am Bild: Diese Musik wurde noch nie gespielt. Ein Bild statt
+ * „Neu“, damit auch Kinder ohne Lesen es verstehen; weißer Rand und Schatten heben es von jedem Cover ab.
+ */
+@Composable
+private fun NewBadge(modifier: Modifier = Modifier) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(36.dp)
+            .shadow(3.dp, CircleShape)
+            .background(NewBadgeColor, CircleShape)
+            .border(2.dp, Color.White, CircleShape)
+    ) {
+        Icon(
+            Icons.Rounded.AutoAwesome,
+            contentDescription = "Neu",
+            tint = Color.White,
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+private val NewBadgeColor = Color(0xFFFF3D7F)
 
 /** „Wie soll es laufen?" — zwei große Knöpfe mit Bildern, damit auch Kinder ohne Lesen wählen können. */
 @Composable

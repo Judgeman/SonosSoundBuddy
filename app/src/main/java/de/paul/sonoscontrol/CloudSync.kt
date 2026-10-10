@@ -96,11 +96,31 @@ class CloudSync(
 
     suspend fun markSeen(household: String, version: String) = repository.setSeenCloudVersion(household, version)
 
-    /** Löscht den Stand dieses Haushalts aus der Cloud. */
+    /**
+     * Gleicht ab, was die Kinder schon gespielt haben. Anders als den Stand lädt das jedes
+     * Tablet hoch, egal in welcher Rolle, und jedes holt sich, was die anderen gespielt haben.
+     * Hochgeladen wird nur, wenn dieses Tablet etwas kennt, das in der Cloud noch fehlt —
+     * meist, weil hier gerade zum ersten Mal etwas gespielt wurde.
+     */
+    suspend fun syncPlayed() {
+        val household = household()
+        val cloud = client.played(household)
+        val local = repository.mergePlayed(cloud)
+        if (cloud.containsAll(local)) return
+        // Liefert die Cloud den eigenen Upload noch nicht mit (KV braucht dafür bis zu einer Minute),
+        // nicht noch einmal schreiben
+        val fingerprint = sha256Hex(local.sorted().joinToString("\n").toByteArray())
+        if (fingerprint == repository.uploadedPlayedFingerprint(household)) return
+        client.uploadPlayed(household, repository.tabletId(), local)
+        repository.setUploadedPlayedFingerprint(household, fingerprint)
+    }
+
+    /** Löscht den Stand und die gespielte Musik dieses Haushalts aus der Cloud. */
     suspend fun deleteFromCloud() {
         val household = household()
         client.delete(household)
         repository.setUploadedFingerprint(household, null)
+        repository.setUploadedPlayedFingerprint(household, null)
     }
 
     companion object {

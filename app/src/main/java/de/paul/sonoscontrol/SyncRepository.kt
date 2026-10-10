@@ -27,6 +27,7 @@ class SyncRepository(
     private val speakerDao = database.speakerConfigDao()
     private val settingDao = database.appSettingDao()
     private val profileDao = database.profileDao()
+    private val playedDao = database.playedMusicDao()
 
     /** Name des Tablets, wie er in den Android-Einstellungen steht — so erkennt man es auf den anderen. */
     val deviceName: String =
@@ -43,7 +44,8 @@ class SyncRepository(
         val localProfiles = profileDao.getProfiles()
         val syncIdOf = localProfiles.associate { it.id to it.syncId }
         val profilesByCategory = profileDao.getAssignments().groupBy({ it.categoryId }, { it.profileId })
-        val itemsByCategory = profileDao.getItems().groupBy { it.categoryId }
+        val items = profileDao.getItems()
+        val itemsByCategory = items.groupBy { it.categoryId }
         val profiles = localProfiles.map { SyncProfile(syncId = it.syncId, name = it.name, iconKey = it.iconKey) }
         val categories = profileDao.getCategories().map { category ->
             SyncCategory(
@@ -73,6 +75,8 @@ class SyncRepository(
             SyncSpeaker(it.playerId, it.name, it.iconKey, it.maxVolume, it.enabled)
         }
         val password = if (includePassword) readPassword() else null
+        // Nur, was zur Musikauswahl gehört — was einmal herausgenommen wurde, braucht das andere Tablet nicht
+        val libraryKeys = items.map { it.playedKey }.toSet()
         val snapshot = SyncSnapshot(
             createdAtMillis = System.currentTimeMillis(),
             deviceName = deviceName,
@@ -80,7 +84,8 @@ class SyncRepository(
             profiles = profiles,
             categories = categories,
             speakers = speakers,
-            password = password
+            password = password,
+            played = playedDao.getKeys().filter { it in libraryKeys }.sorted()
         )
         return SyncPackage(snapshot, images.images)
     }
@@ -154,6 +159,9 @@ class SyncRepository(
         try {
             database.withTransaction {
                 categories?.let { replaceLibrary(snapshot.profiles.orEmpty(), it) }
+                // Mit der Musik zusammen, damit sie nicht kurz als neu erscheint. Was hier schon
+                // gespielt wurde, bleibt es
+                if (SyncScope.PROFILES in applied) snapshot.played?.let { mergePlayed(it) }
                 snapshot.speakers?.let { applySpeakers(it, applied) }
                 if (SyncScope.PASSWORD in applied) snapshot.password?.let { applyPassword(it) }
             }
@@ -306,10 +314,44 @@ class SyncRepository(
     /** Liegt das Bild [name] aus einem Paket schon auf diesem Tablet? Dann muss es nicht geladen werden. */
     suspend fun hasImage(name: String): Boolean = imageHash(name)?.let { imageStore.findReceived(it) } != null
 
-    /** Prüfsumme des Stands ohne Zeitpunkt — gleich, solange sich nichts geändert hat. */
+    /**
+     * Prüfsumme des Stands ohne Zeitpunkt — gleich, solange sich nichts geändert hat.
+     * Ohne die gespielte Musik: Die gleichen die Tablets über die Cloud eigens ab, sonst
+     * würde das Haupt-Tablet nach jedem neuen Hörspiel den ganzen Stand neu hochladen.
+     */
     fun fingerprint(syncPackage: SyncPackage): String {
-        val json = syncJson.encodeToString(SyncSnapshot.serializer(), syncPackage.snapshot.copy(createdAtMillis = 0))
-        return sha256Hex(json.toByteArray())
+        val snapshot = syncPackage.snapshot.copy(createdAtMillis = 0, played = null)
+        return sha256Hex(syncJson.encodeToString(SyncSnapshot.serializer(), snapshot).toByteArray())
+    }
+
+    // --- Gespielte Musik ---------------------------------------------------
+
+    /** Nimmt auf, was auf anderen Tablets gespielt wurde, und gibt alles zurück, was dieses Tablet kennt. */
+    suspend fun mergePlayed(keys: Collection<String>): Set<String> {
+        val known = playedDao.getKeys().toSet()
+        // Nur Neues schreiben — sonst meldet die Datenbank bei jedem Nachsehen eine Änderung
+        val added = keys.filterNot { it in known }.distinct()
+        if (added.isNotEmpty()) playedDao.insertAll(added.map(::PlayedMusic))
+        return known + added
+    }
+
+    /**
+     * Kennung dieses Tablets für seine Liste gespielter Musik in der Cloud. Zufällig und nur
+     * hier gespeichert — der Name aus den Android-Einstellungen kann auf zwei Tablets gleich sein.
+     */
+    suspend fun tabletId(): String = settingDao.get(KEY_TABLET_ID)
+        ?: UUID.randomUUID().toString().also { settingDao.put(AppSetting(KEY_TABLET_ID, it)) }
+
+    /** Prüfsumme der zuletzt hochgeladenen Liste gespielter Musik — je Haushalt. */
+    suspend fun uploadedPlayedFingerprint(household: String): String? =
+        settingDao.get(KEY_CLOUD_PLAYED_UPLOADED_PREFIX + household)
+
+    suspend fun setUploadedPlayedFingerprint(household: String, fingerprint: String?) {
+        if (fingerprint == null) {
+            settingDao.delete(listOf(KEY_CLOUD_PLAYED_UPLOADED_PREFIX + household))
+        } else {
+            settingDao.put(AppSetting(KEY_CLOUD_PLAYED_UPLOADED_PREFIX + household, fingerprint))
+        }
     }
 
     // --- Einstellungen für den Abgleich über die Cloud ---------------------
@@ -350,6 +392,8 @@ class SyncRepository(
         private const val KEY_CLOUD_SCOPES = "cloud_sync_scopes"
         private const val KEY_CLOUD_SEEN_PREFIX = "cloud_sync_seen:"
         private const val KEY_CLOUD_UPLOADED_PREFIX = "cloud_sync_uploaded:"
+        private const val KEY_CLOUD_PLAYED_UPLOADED_PREFIX = "cloud_sync_played_uploaded:"
+        private const val KEY_TABLET_ID = "cloud_sync_tablet_id"
 
         private val HASH_NAME = Regex("^([0-9a-f]{64})\\.jpg$")
 

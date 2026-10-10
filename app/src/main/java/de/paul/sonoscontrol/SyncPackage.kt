@@ -18,7 +18,8 @@ import java.util.zip.ZipOutputStream
 enum class SyncScope(val label: String, val description: String) {
     PROFILES(
         "Kinder-Profile und Musikauswahl",
-        "Profile mit Namen und Icons, alle Kategorien mit Musik und eigenen Bildern, wer was sieht"
+        "Profile mit Namen und Icons, alle Kategorien mit Musik und eigenen Bildern, wer was sieht, " +
+            "was schon gespielt wurde"
     ),
     SPEAKER_SETTINGS("Speaker-Einstellungen", "Icons und maximale Lautstärke"),
     SPEAKER_SELECTION("Speaker-Freigabe", "Welche Speaker auf dem Homescreen auswählbar sind"),
@@ -55,7 +56,12 @@ data class SyncSnapshot(
     /** Die zentrale Musikauswahl in ihrer Reihenfolge. */
     val categories: List<SyncCategory>? = null,
     val speakers: List<SyncSpeaker>? = null,
-    val password: SyncPassword? = null
+    val password: SyncPassword? = null,
+    /**
+     * [MusicItem.playedKey] der Musik aus [categories], die schon gespielt wurde. Gehört zu
+     * [SyncScope.PROFILES] und wird dazugenommen, nie ersetzt. Fehlt bei Paketen älterer App-Versionen.
+     */
+    val played: List<String>? = null
 ) {
     /** Bereiche, die in diesem Stand enthalten sind. */
     val availableScopes: Set<SyncScope>

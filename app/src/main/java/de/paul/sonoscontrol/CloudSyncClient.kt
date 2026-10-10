@@ -39,6 +39,12 @@ private data class UploadRequest(val deviceName: String, val images: List<String
 @Serializable
 private data class MissingRequest(val hashes: List<String>)
 
+@Serializable
+private data class PlayedResponse(val played: List<String> = emptyList())
+
+@Serializable
+private data class PlayedUpload(val keys: List<String>)
+
 /** Fehler mit einer Meldung, die so angezeigt werden kann. */
 class CloudSyncException(message: String) : IOException(message)
 
@@ -96,7 +102,21 @@ class CloudSyncClient(
         return syncJson.decodeFromString(CloudState.serializer(), response.decodeToString())
     }
 
-    /** Löscht den Stand dieses Haushalts samt Bildern aus der Cloud. */
+    /** Was auf irgendeinem Tablet des Haushalts schon gespielt wurde ([MusicItem.playedKey]). */
+    suspend fun played(household: String): Set<String> {
+        // Ohne Eintrag liefert der Worker eine leere Liste — „gibt es nicht“ heißt: alter Worker
+        val response = send(household, "/sync/played") ?: throw outdatedWorker(PLAYED_FEATURE)
+        return syncJson.decodeFromString(PlayedResponse.serializer(), response.decodeToString()).played.toSet()
+    }
+
+    /** Ersetzt die Liste dieses Tablets; jedes Tablet hat seine eigene, abgeholt werden alle zusammen. */
+    suspend fun uploadPlayed(household: String, tabletId: String, keys: Collection<String>) {
+        val body = syncJson.encodeToString(PlayedUpload.serializer(), PlayedUpload(keys.sorted()))
+        send(household, "/sync/played/$tabletId", "PUT", body.toRequestBody(jsonType))
+            ?: throw outdatedWorker(PLAYED_FEATURE)
+    }
+
+    /** Löscht den Stand dieses Haushalts samt Bildern und gespielter Musik aus der Cloud. */
     suspend fun delete(household: String) {
         send(household, "/sync", "DELETE")
     }
@@ -147,6 +167,10 @@ class CloudSyncClient(
         }
     )
 
-    private fun outdatedWorker() =
-        CloudSyncException("Der Worker kennt den Abgleich noch nicht. Bitte die neue Version deployen (siehe README).")
+    private fun outdatedWorker(feature: String = "den Abgleich") =
+        CloudSyncException("Der Worker kennt $feature noch nicht. Bitte die neue Version deployen (siehe README).")
+
+    private companion object {
+        const val PLAYED_FEATURE = "den Abgleich gespielter Musik"
+    }
 }

@@ -131,6 +131,13 @@ class MainViewModel(
     var categories: List<CategoryWithMusic> by mutableStateOf(emptyList())
         private set
 
+    /**
+     * [MusicItem.playedKey] der Musik, die schon gespielt wurde — auf einem der Tablets.
+     * Alles andere zeigt die Musikauswahl als neu. null = noch nicht geladen, dann ist nichts neu.
+     */
+    var playedMusic: Set<String>? by mutableStateOf(null)
+        private set
+
     var selectedProfileId: Long? by mutableStateOf(null)
         private set
 
@@ -272,6 +279,9 @@ class MainViewModel(
                 speakerConfigs = it
                 updateSelection()
             }
+        }
+        viewModelScope.launch {
+            repository.playedMusic.collect { playedMusic = it }
         }
         if (uiState is UiState.LoadingSpeakers) loadSpeakers()
         viewModelScope.launch {
@@ -619,9 +629,10 @@ class MainViewModel(
      * Spielt einen Eintrag aus der Musikauswahl auf dem gewählten Speaker ab.
      * Die Warteschlange wird dabei ersetzt. [shuffle] = null heißt: so, wie es
      * in der Kategorie eingestellt ist (bei „Kinder entscheiden" kommt die Wahl
-     * der Kinder als true/false herein).
+     * der Kinder als true/false herein). [onNewMusicPlayed] kommt, wenn die Musik
+     * bis eben noch nie gespielt wurde — damit die anderen Tablets davon erfahren.
      */
-    fun playMusic(item: MusicItem, shuffle: Boolean? = null) {
+    fun playMusic(item: MusicItem, shuffle: Boolean? = null, onNewMusicPlayed: () -> Unit = {}) {
         val playerId = selectedPlayerId ?: return
         val household = householdId ?: return
         val order = categories
@@ -631,6 +642,10 @@ class MainViewModel(
         sendPlaybackCommand(
             refreshDelayMillis = MUSIC_REFRESH_DELAY_MS,
             onFinished = { startingMusic = null },
+            // Erst wenn Sonos die Musik angenommen hat, ist sie nicht mehr neu
+            onSent = {
+                viewModelScope.launch { if (repository.markPlayed(item)) onNewMusicPlayed() }
+            },
             // Ist das Cover noch nicht auf dem Tablet gespeichert (z. B. abgelaufene Apple-Music-
             // Adresse), das frische aus der Wiedergabe nehmen — für Playlisten das der Playlist
             onPlaying = { playing ->
@@ -754,9 +769,14 @@ class MainViewModel(
             ?: throw SonosApiException("Die Playlist „${item.name}“ gibt es nicht mehr bei Sonos.")
     }
 
+    /**
+     * [onSent]: [command] hat geklappt. [onPlaying]: danach ist auch die neue Wiedergabe
+     * abgefragt — bleibt aus, wenn inzwischen ein anderer Speaker gewählt wurde.
+     */
     private fun sendPlaybackCommand(
         refreshDelayMillis: Long = COMMAND_REFRESH_DELAY_MS,
         onFinished: () -> Unit = {},
+        onSent: () -> Unit = {},
         onPlaying: (NowPlaying) -> Unit = {},
         command: suspend () -> Unit
     ) {
@@ -767,6 +787,7 @@ class MainViewModel(
             try {
                 command()
                 lastCommandAtMillis = SystemClock.elapsedRealtime()
+                onSent()
                 // Sonos braucht einen Moment, bis Track und Status aktualisiert sind
                 delay(refreshDelayMillis)
                 if (selectedPlayerId == playerId) {

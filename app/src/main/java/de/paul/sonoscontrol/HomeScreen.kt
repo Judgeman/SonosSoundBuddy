@@ -66,6 +66,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -110,8 +111,12 @@ fun HomeScreen(
     selectedProfile: ProfileWithMusic?,
     /** Musik, die gerade gestartet wird — solange sperrt ein Popup den Bildschirm. */
     startingMusic: MusicItem?,
+    /** Was schon gespielt wurde; alles andere zeigt die Musikauswahl als neu. */
+    playedMusic: Set<String>?,
     onSelectProfile: (Long) -> Unit,
     onPlayMusic: (MusicItem, Boolean?) -> Unit,
+    /** Die Musikauswahl geht auf — Gelegenheit nachzusehen, was auf den anderen Tablets gespielt wurde. */
+    onMusicPickerOpened: () -> Unit,
     controls: PlaybackControls,
     onOpenSettings: () -> Unit,
     onLoginClick: () -> Unit,
@@ -125,6 +130,7 @@ fun HomeScreen(
         startingMusic == null && visiblePlaybackError == null && !musicPickerOpen
     val showsPlayback = state is UiState.SpeakerList && selectedSpeaker != null
     val coverColors = rememberCoverColors(if (showsPlayback) nowPlaying?.imageUrl else null)
+    LaunchedEffect(musicPickerOpen) { if (musicPickerOpen) onMusicPickerOpened() }
 
     CoverTheme(colors = if (showsPlayback) coverColors else null) { background ->
         Box(modifier = Modifier.fillMaxSize()) {
@@ -189,6 +195,7 @@ fun HomeScreen(
                             profiles = profiles,
                             selectedProfile = selectedProfile,
                             isStartingMusic = startingMusic != null,
+                            playedMusic = playedMusic,
                             onSelectProfile = onSelectProfile,
                             onPlayMusic = onPlayMusic,
                             onMusicPickerOpenChange = { musicPickerOpen = it },
@@ -391,6 +398,7 @@ private fun SpeakerHomeContent(
     profiles: List<ProfileWithMusic>,
     selectedProfile: ProfileWithMusic?,
     isStartingMusic: Boolean,
+    playedMusic: Set<String>?,
     onSelectProfile: (Long) -> Unit,
     onPlayMusic: (MusicItem, Boolean?) -> Unit,
     onMusicPickerOpenChange: (Boolean) -> Unit,
@@ -477,6 +485,7 @@ private fun SpeakerHomeContent(
         SoundBuddyTheme {
             MusicPickerDialog(
                 profile = selectedProfile,
+                playedMusic = playedMusic,
                 onPlay = { item, shuffle ->
                     showMusicPicker = false
                     onPlayMusic(item, shuffle)

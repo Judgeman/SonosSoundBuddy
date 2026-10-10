@@ -30,8 +30,12 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     private val speakerDao = database.speakerConfigDao()
     private val settingDao = database.appSettingDao()
     private val profileDao = database.profileDao()
+    private val playedDao = database.playedMusicDao()
 
     val speakerConfigs: Flow<List<SpeakerConfig>> = speakerDao.observeAll()
+
+    /** [MusicItem.playedKey] aller Musik, die schon gespielt wurde — alles andere ist für die Kinder neu. */
+    val playedMusic: Flow<Set<String>> = playedDao.observeKeys().map { it.toSet() }
 
     val settings: Flow<AppSettings> = settingDao.observeAll().map { rows ->
         val values = rows.associate { it.key to it.value }
@@ -129,6 +133,10 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     suspend fun setAddMusicAtStart(atStart: Boolean) =
         settingDao.put(AppSetting(KEY_ADD_MUSIC_AT_START, atStart.toString()))
+
+    /** Merkt sich, dass [item] gespielt wurde. true = es war bis eben neu. */
+    suspend fun markPlayed(item: MusicItem): Boolean =
+        playedDao.insertAll(listOf(PlayedMusic(item.playedKey))).single() != -1L
 
     // --- Profile und Musikauswahl ---------------------------------------
 

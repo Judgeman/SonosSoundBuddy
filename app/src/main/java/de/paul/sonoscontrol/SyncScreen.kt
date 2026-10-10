@@ -137,6 +137,7 @@ fun SyncScreen(viewModel: SyncViewModel, onBack: () -> Unit) {
                 CloudSection(
                     settings = viewModel.cloudSettings,
                     status = viewModel.cloudStatus,
+                    playedStatus = viewModel.playedStatus,
                     busy = viewModel.cloudBusy,
                     notice = viewModel.cloudNotice,
                     onSettingsChange = viewModel::updateCloudSettings,
@@ -287,6 +288,7 @@ fun SyncScreen(viewModel: SyncViewModel, onBack: () -> Unit) {
 private fun CloudSection(
     settings: CloudSettings,
     status: String?,
+    playedStatus: String?,
     busy: Boolean,
     notice: String?,
     onSettingsChange: (CloudSettings) -> Unit,
@@ -299,7 +301,9 @@ private fun CloudSection(
         title = "Automatisch über die Cloud",
         description = "Ein Haupt-Tablet lädt seinen Stand in den Speicher des Cloudflare-Workers, die anderen " +
             "holen ihn ab — auch wenn sie woanders stehen. Alle Tablets müssen beim selben Sonos-Haushalt " +
-            "angemeldet sein; andere Haushalte sehen die Daten nicht. Die Daten liegen beim Betreiber des Workers."
+            "angemeldet sein; andere Haushalte sehen die Daten nicht. Was die Kinder schon gespielt haben, " +
+            "gleichen alle teilnehmenden Tablets untereinander ab — neue Musik trägt in der Musikauswahl einen " +
+            "Stern. Die Daten liegen beim Betreiber des Workers."
     )
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         CloudRole.entries.forEach { role ->
@@ -402,7 +406,7 @@ private fun CloudSection(
                     Text(if (settings.role == CloudRole.SOURCE) "Jetzt hochladen" else "Jetzt nachsehen")
                 }
             }
-            status?.let {
+            listOfNotNull(status, playedStatus).forEach {
                 Text(
                     it,
                     style = MaterialTheme.typography.bodyMedium,

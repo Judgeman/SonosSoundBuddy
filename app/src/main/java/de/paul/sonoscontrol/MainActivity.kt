@@ -118,8 +118,13 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             profiles = viewModel.selectableProfiles,
             selectedProfile = viewModel.selectedProfile,
             startingMusic = viewModel.startingMusic,
+            playedMusic = viewModel.playedMusic,
             onSelectProfile = viewModel::selectProfile,
-            onPlayMusic = viewModel::playMusic,
+            // Was zum ersten Mal gespielt wurde, gleich an die anderen Tablets weitergeben
+            onPlayMusic = { item, shuffle ->
+                viewModel.playMusic(item, shuffle, onNewMusicPlayed = syncViewModel::onNewMusicPlayed)
+            },
+            onMusicPickerOpened = syncViewModel::onMusicPickerOpened,
             controls = remember(viewModel) {
                 PlaybackControls(
                     onTogglePlayPause = viewModel::togglePlayPause,

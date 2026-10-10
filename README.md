@@ -8,8 +8,8 @@ die Eltern.
 
 > **Datenschutz-Hinweis zum Abgleich über die Cloud:** Wird der automatische
 > Abgleich zwischen Tablets genutzt, liegen die Einstellungen der App —
-> Namen der Kinder, eigene Fotos, Musikauswahl, Speaker-Einstellungen und der
-> Passwort-Hash — im Cloudflare-KV-Speicher des Relay-Workers, also **beim
+> Namen der Kinder, eigene Fotos, Musikauswahl, welche Musik schon gespielt
+> wurde, Speaker-Einstellungen und der Passwort-Hash — im Cloudflare-KV-Speicher des Relay-Workers, also **beim
 > Besitzer des Cloudflare-Accounts, in dem der Worker läuft**. Wer dieses
 > Repo kopiert, sollte einen eigenen Worker deployen (`SonosConfig.kt`) und
 > nicht den eines anderen verwenden. Ohne KV-Speicher im Worker bleibt der
@@ -27,7 +27,8 @@ alle Token-Anfragen bei Sonos:
   und leitet zurück in die App (`sonoscontrol://callback?…`)
 - `POST /refresh` — erneuert abgelaufene Access-Tokens
 - `/sync/…` — optionaler Speicher für den Abgleich zwischen Tablets
-  (braucht ein KV-Binding `SYNC_KV`, siehe README des Relay-Projekts)
+  (braucht ein KV-Binding `SYNC_KV`, siehe README des Relay-Projekts),
+  auch für die schon gespielte Musik (`/sync/played`)
 
 Setup, Deploy (auch ohne Wrangler über das Cloudflare-Dashboard) und Tests
 sind im README des Relay-Projekts beschrieben. Die Worker-URL wird in der
@@ -62,6 +63,14 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Würfel) — gezeichnet in `OrderIcons.kt`, damit auch Kinder ohne Lesen
     wählen können. Playlisten mit nur einem Titel laufen ohne Frage der
     Reihe nach.
+  - **Neue Musik:** Was noch nie gespielt wurde, trägt oben rechts am Cover
+    einen kleinen pinken Stern mit Funkeln — ebenso die Kategorie, in der so
+    etwas steckt. Sobald Sonos die Musik angenommen hat, ist sie nicht mehr
+    neu, auch nicht in anderen Kategorien und — mit dem Abgleich über die
+    Cloud — auf den anderen Tablets (siehe unten). Was schon vor dem Update
+    auf diese Version in der Auswahl war, gilt als gespielt; neu ist erst,
+    was danach dazukommt. Musik, die in der Sonos-App gestartet wurde, zählt
+    nicht.
   - Senkrechte **Lautstärke-Leiste** rechts neben dem Cover mit 10 großen,
     nach oben breiter werdenden Stufen: Tippen oder Ziehen setzt die
     Lautstärke, + / − gehen eine Stufe weiter. Die oberste Stufe ist die
@@ -376,7 +385,7 @@ WLAN oder als Datei. Das empfangende Tablet sucht sich aus, was es
 
 | Bereich | Inhalt | Vorauswahl |
 |---|---|---|
-| Kinder-Profile und Musikauswahl | Profile (Name, Icon), alle Kategorien mit Musik, Reihenfolge, Tier am Cover, eigenen Bildern und gespeicherten Covern sowie welches Profil welche Kategorie sieht | an |
+| Kinder-Profile und Musikauswahl | Profile (Name, Icon), alle Kategorien mit Musik, Reihenfolge, Tier am Cover, eigenen Bildern und gespeicherten Covern, welches Profil welche Kategorie sieht und welche Musik schon gespielt wurde | an |
 | Speaker-Einstellungen | Icon und maximale Lautstärke | an |
 | Speaker-Freigabe | „auf dem Homescreen auswählbar“ | aus |
 | Passwort | Hash, Salt und „nur mit Passwort öffnen“ | aus |
@@ -384,7 +393,8 @@ WLAN oder als Datei. Das empfangende Tablet sucht sich aus, was es
 Die zuletzt gewählten Bereiche merkt sich das Tablet als Vorauswahl.
 Übernommenes ersetzt den Stand auf dem Tablet: Die Musikauswahl wird
 komplett ersetzt, Profile, die es auf dem sendenden Tablet nicht gibt,
-werden gelöscht. Je Tablet erhalten bleiben,
+werden gelöscht. Nur die schon gespielte Musik kommt dazu — was auf dem
+empfangenden Tablet schon gespielt wurde, bleibt gespielt. Je Tablet erhalten bleiben,
 welche Profile dort aktiv sind und welcher Speaker und welches Profil
 zuletzt gewählt waren. Speaker werden nur ergänzt, nie gelöscht; noch
 unbekannte kommen ohne übernommene Freigabe gesperrt und als „Neu“ dazu.
@@ -411,9 +421,23 @@ Ids von Sonos im ganzen Haushalt gleich sind.
   auf dem Homescreen nichts davon.
 - **Aus** — Standard.
 
+**Schon gespielte Musik** gleichen alle Tablets mit „Haupt-Tablet“ oder
+„Stand übernehmen“ untereinander ab, in beide Richtungen: Jedes Tablet lädt
+hoch, was dort gespielt wurde, und holt sich, was auf den anderen gespielt
+wurde — beim Start, alle 5 Minuten, beim Öffnen der Musikauswahl (höchstens
+alle 30 Sekunden) und gleich nachdem hier etwas zum ersten Mal gespielt
+wurde. Im Worker hat jedes Tablet dafür einen eigenen Eintrag unter einer
+zufälligen Kennung (`cloud_sync_tablet_id`), so überschreiben sich zwei
+Tablets nie gegenseitig. Hochgeladen wird nur, wenn ein Tablet etwas kennt,
+das in der Cloud noch fehlt. Erkannt wird Musik an Quelle, Sonos-Id und
+Namen, unabhängig von der Kategorie. Unter „Tablets abgleichen“ steht, wann
+zuletzt abgeglichen wurde; ein älterer Worker ohne `/sync/played` meldet sich
+dort mit dem Hinweis, ihn neu zu deployen. Ohne Cloud reist die gespielte
+Musik beim Übertragen als Datei oder im WLAN mit.
+
 Bilder werden nach ihrem SHA-256 benannt und nur hochgeladen bzw.
 heruntergeladen, wenn sie fehlen. „Daten aus der Cloud löschen“ entfernt den
-Stand des Haushalts aus dem Speicher.
+Stand des Haushalts und die gespielte Musik aller Tablets aus dem Speicher.
 
 **Getrennte Haushalte:** Alles läuft je Sonos-Haushalt. Der Worker prüft
 bei jeder Anfrage bei Sonos, ob der Access-Token der App zu dem Haushalt
@@ -440,14 +464,15 @@ liest die Datei auf dem anderen Tablet ein.
 
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 11):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 12):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
 - `app_setting` — Key-Value: Passwort-Hash/-Salt, Passwortschutz an/aus,
   zuletzt gewählter Speaker und zuletzt gewähltes Profil, je Speaker die
   Kategorie der zuletzt gestarteten Musik (`last_category_<playerId>`),
-  ob neue Musik an den Anfang kommt (`add_music_at_start`)
+  ob neue Musik an den Anfang kommt (`add_music_at_start`), die Kennung
+  des Tablets für die gespielte Musik in der Cloud (`cloud_sync_tablet_id`)
 - `child_profile` — Name, Icon-Schlüssel, auf diesem Tablet aktiv
   (seit Version 4, Migration `MIGRATION_3_4`, ebenso die beiden folgenden),
   Kennung für den Abgleich zwischen Tablets (`syncId`, seit Version 9,
@@ -471,6 +496,11 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 11):
   aktualisiert beim Laden des Katalogs), Zeitpunkt des Hinzufügens
   (`addedAt`, seit Version 10; bei älteren Einträgen 0 — sie zählen als die
   ältesten, untereinander in der Reihenfolge ihrer Id)
+- `played_music` — Musik, die schon gespielt wurde, als Text aus Quelle,
+  Sonos-Id und Name (`FAVORITE:12:Bibi Blocksberg`), auf diesem oder einem
+  anderen Tablet. Was fehlt, ist in der Musikauswahl neu (seit Version 12,
+  Migration `MIGRATION_11_12`; trägt alle Einträge ein, die schon in der
+  Musikauswahl sind)
 
 ## Neue Version veröffentlichen
 
@@ -492,7 +522,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `ErrorBuddy.kt` | Animierter SoundBuddy für Fehlermeldungen |
-| `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup |
+| `MusicPicker.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup mit Stern für neue Musik |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |
 | `BatteryIndicator.kt` | Kleine Akku-Anzeige in der Kopfzeile |
 | `AnimalFigure.kt` | Profil-Tiere als Figur mit Körper, geschlossene Augen zum Schlafen |
@@ -512,7 +542,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `SyncScreen.kt`, `SyncViewModel.kt` | Seite „Tablets abgleichen“ |
 | `SyncPackage.kt`, `SyncRepository.kt` | Datenformat (ZIP) für den Abgleich, Einpacken und Übernehmen |
 | `LocalTransfer.kt` | Übertragung zwischen Tablets im WLAN (mDNS + TCP) |
-| `CloudSync.kt`, `CloudSyncClient.kt` | Abgleich über den Relay-Worker: hochladen, nachsehen, abholen |
+| `CloudSync.kt`, `CloudSyncClient.kt` | Abgleich über den Relay-Worker: hochladen, nachsehen, abholen; gespielte Musik |
 
 Wichtige Bibliotheken: Compose Material 3 und `material-icons-extended`,
 Room 2.6 (über KSP), Coil 2 für Cover, `androidx.palette`, OkHttp,
