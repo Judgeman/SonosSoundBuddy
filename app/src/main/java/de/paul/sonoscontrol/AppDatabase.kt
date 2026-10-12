@@ -399,6 +399,9 @@ interface PlayLogDao {
 
     @Query("SELECT * FROM play_log ORDER BY playedAt DESC, id DESC")
     fun observeAll(): Flow<List<PlayLogEntry>>
+
+    @Query("UPDATE play_log SET profileSyncId = :newSyncId WHERE profileSyncId = :oldSyncId")
+    suspend fun moveToProfile(oldSyncId: String, newSyncId: String)
 }
 
 @Database(

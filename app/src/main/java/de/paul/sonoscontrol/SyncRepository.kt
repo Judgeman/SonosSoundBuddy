@@ -28,6 +28,7 @@ class SyncRepository(
     private val settingDao = database.appSettingDao()
     private val profileDao = database.profileDao()
     private val playedDao = database.playedMusicDao()
+    private val playLogDao = database.playLogDao()
 
     /** Name des Tablets, wie er in den Android-Einstellungen steht — so erkennt man es auf den anderen. */
     val deviceName: String =
@@ -358,6 +359,8 @@ class SyncRepository(
             .map { it.copy(profileSyncId = newSyncId) }
         playedDao.deleteOfProfile(oldSyncId)
         mergePlayed(moved)
+        // Auch „Zuletzt gespielt“ soll das Kind wiederfinden
+        playLogDao.moveToProfile(oldSyncId, newSyncId)
     }
 
     /**
