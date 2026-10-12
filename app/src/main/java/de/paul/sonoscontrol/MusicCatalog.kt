@@ -103,8 +103,11 @@ data class CategoryWithMusic(
     val profileIds: Set<Long> = emptySet()
 )
 
-/** Ein Kind hat diese Musik gespielt, für „Zuletzt gespielt“ in den Einstellungen. */
-data class RecentPlay(val item: MusicItem, val profile: ChildProfile, val playedAt: Long)
+/**
+ * Ein Kind hat diese Musik auf diesem Tablet gespielt, für „Zuletzt gespielt“ in den Einstellungen.
+ * [isNew]: Sie ist für das Kind inzwischen wieder neu.
+ */
+data class RecentPlay(val item: MusicItem, val profile: ChildProfile, val playedAt: Long, val isNew: Boolean)
 
 /** Profil samt den Kategorien, die es sieht — so wie Home- und Settings-Screen es brauchen. */
 data class ProfileWithMusic(

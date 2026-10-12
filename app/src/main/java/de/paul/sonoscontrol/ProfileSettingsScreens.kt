@@ -140,8 +140,8 @@ fun LazyListScope.musicLibrarySection(categories: List<CategoryWithMusic>, onOpe
 }
 
 /**
- * Was die Kinder zuletzt gespielt haben, auf allen Tablets — mit „Wieder neu“, z. B. wenn man selbst
- * etwas zum Ausprobieren gespielt hat und es für das Kind trotzdem neu bleiben soll. Leer: kein Abschnitt.
+ * Was auf diesem Tablet zuletzt gespielt wurde — mit „Wieder neu“, z. B. wenn man selbst etwas zum
+ * Ausprobieren gespielt hat und es für das Kind trotzdem neu bleiben soll. Leer: kein Abschnitt.
  */
 fun LazyListScope.recentPlaysSection(plays: List<RecentPlay>, onMarkNew: (RecentPlay) -> Unit) {
     if (plays.isEmpty()) return
@@ -149,8 +149,8 @@ fun LazyListScope.recentPlaysSection(plays: List<RecentPlay>, onMarkNew: (Recent
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         SectionHeader(
             title = "Zuletzt gespielt",
-            description = "Selbst zum Ausprobieren gespielt? „Wieder neu“ lässt die Musik für das Kind wieder " +
-                "funkeln — auch auf den anderen Tablets."
+            description = "Was auf diesem Tablet zuletzt gespielt wurde. Selbst zum Ausprobieren gespielt? " +
+                "„Wieder neu“ lässt die Musik für das Kind wieder funkeln — auch auf den anderen Tablets."
         )
     }
     items(plays, key = { "recent-${it.profile.syncId}-${it.item.playedKey}" }) { play ->
@@ -169,15 +169,29 @@ fun LazyListScope.recentPlaysSection(plays: List<RecentPlay>, onMarkNew: (Recent
                 }
             },
             trailingContent = {
-                OutlinedButton(onClick = { onMarkNew(play) }) {
-                    Icon(
-                        NewMusicIcon,
-                        contentDescription = null,
-                        tint = Color.Unspecified,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Wieder neu")
+                if (play.isNew) {
+                    // Schon (wieder) neu — zur Bestätigung das Funkeln, wie die Kinder es sehen
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            NewMusicIcon,
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Neu", style = MaterialTheme.typography.labelLarge, color = NewMusicColor)
+                    }
+                } else {
+                    OutlinedButton(onClick = { onMarkNew(play) }) {
+                        Icon(
+                            NewMusicIcon,
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Wieder neu")
+                    }
                 }
             }
         )

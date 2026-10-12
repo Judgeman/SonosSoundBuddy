@@ -139,12 +139,13 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     Notes. Speaker und Kategorien haben eigene Unterseiten, damit die
     Hauptseite kurz bleibt.
   - **Zuletzt gespielt** (direkt unter der Musikauswahl, nur wenn schon
-    etwas gespielt wurde): die letzten 5 Einträge von allen Tablets mit
-    Cover, Kind und Uhrzeit, jeweils mit „Wieder neu“ — z. B. wenn man selbst
-    etwas zum Ausprobieren gespielt hat und es für das Kind trotzdem funkeln
-    soll. „Alle als gespielt markieren“ zählt nicht als Abspielen und steht
-    nicht in der Liste (diese Einträge teilen sich einen Zeitpunkt), ebenso
-    wenig, was beim Update als gespielt eingetragen wurde.
+    etwas gespielt wurde): die letzten 5 Abspielvorgänge aus der
+    Musikauswahl auf diesem Tablet mit Cover, Kind und Uhrzeit — je Kind und
+    Musik nur das letzte Mal. „Wieder neu“ lässt die Musik für das Kind wieder
+    funkeln, auf allen Tablets — z. B. wenn man selbst etwas zum Ausprobieren
+    gespielt hat. Danach steht dort „Neu“ mit dem Funkeln. Was die Eltern
+    nur als gespielt markieren, ist kein Abspielen und steht nicht in der
+    Liste.
   - **Speaker** (eigene Unterseite „Speaker verwalten“; die Hauptseite
     zeigt nur, wie viele es gibt, wie viele auswählbar und ob neue dazu
     gekommen sind): pro Speaker ein Schalter „auf dem Homescreen
@@ -497,7 +498,7 @@ liest die Datei auf dem anderen Tablet ein.
 
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 13):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 14):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
@@ -537,6 +538,9 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 13):
   Migration `MIGRATION_12_13`; trägt je Profil alles als gespielt ein, was
   es schon sieht, mit Zeitpunkt 0. Version 12 gab es nur in Testständen mit
   einer einspaltigen Tabelle, die dabei ersetzt wird)
+- `play_log` — die letzten 50 Abspielvorgänge aus der Musikauswahl auf
+  diesem Tablet (Profil, Musik, Zeitpunkt) für „Zuletzt gespielt“; wird
+  nicht abgeglichen (seit Version 14, Migration `MIGRATION_13_14`)
 
 ## Neue Version veröffentlichen
 

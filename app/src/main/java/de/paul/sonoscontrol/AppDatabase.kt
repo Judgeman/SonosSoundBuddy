@@ -144,6 +144,20 @@ fun PlayedMusic.winsOver(other: PlayedMusic): Boolean =
 
 val PlayedMusic.entryKey: Pair<String, String> get() = profileSyncId to musicKey
 
+/**
+ * Ein Abspielen aus der Musikauswahl auf diesem Tablet — für „Zuletzt gespielt“ in den Einstellungen.
+ * Bleibt auf dem Tablet; nur die neuesten Einträge werden behalten.
+ */
+@Entity(tableName = "play_log")
+data class PlayLogEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** [ChildProfile.syncId] des Profils, das gewählt war. */
+    val profileSyncId: String,
+    /** [MusicItem.playedKey]. */
+    val musicKey: String,
+    val playedAt: Long
+)
+
 @Dao
 interface SpeakerConfigDao {
     @Query("SELECT * FROM speaker_config ORDER BY name COLLATE NOCASE")
@@ -367,18 +381,6 @@ interface PlayedMusicDao {
     @Query("SELECT * FROM played_music")
     suspend fun getAll(): List<PlayedMusic>
 
-    /**
-     * Zuletzt Gespieltes, neueste zuerst — ohne die Einträge vom Update (Zeitpunkt 0) und ohne
-     * „Alle als gespielt markieren“: Dabei teilen sich viele Einträge einen Zeitpunkt, ein Abspielen
-     * hat einen eigenen.
-     */
-    @Query(
-        "SELECT * FROM played_music WHERE played = 1 AND changedAt > 0 AND changedAt IN " +
-            "(SELECT changedAt FROM played_music GROUP BY changedAt HAVING COUNT(*) = 1) " +
-            "ORDER BY changedAt DESC LIMIT :limit"
-    )
-    fun observeRecentlyPlayed(limit: Int): Flow<List<PlayedMusic>>
-
     @Upsert
     suspend fun upsertAll(entries: List<PlayedMusic>)
 
@@ -386,12 +388,25 @@ interface PlayedMusicDao {
     suspend fun deleteOfProfile(syncId: String)
 }
 
+@Dao
+interface PlayLogDao {
+    @Insert
+    suspend fun insert(entry: PlayLogEntry)
+
+    /** Nur die neuesten [keep] Einträge behalten. */
+    @Query("DELETE FROM play_log WHERE id NOT IN (SELECT id FROM play_log ORDER BY playedAt DESC, id DESC LIMIT :keep)")
+    suspend fun trim(keep: Int)
+
+    @Query("SELECT * FROM play_log ORDER BY playedAt DESC, id DESC")
+    fun observeAll(): Flow<List<PlayLogEntry>>
+}
+
 @Database(
     entities = [
         SpeakerConfig::class, AppSetting::class, ChildProfile::class,
-        MusicCategory::class, ProfileCategory::class, MusicItem::class, PlayedMusic::class
+        MusicCategory::class, ProfileCategory::class, MusicItem::class, PlayedMusic::class, PlayLogEntry::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -399,6 +414,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun appSettingDao(): AppSettingDao
     abstract fun profileDao(): ProfileDao
     abstract fun playedMusicDao(): PlayedMusicDao
+    abstract fun playLogDao(): PlayLogDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -552,6 +568,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Was auf diesem Tablet zuletzt gespielt wurde, für „Zuletzt gespielt“ in den Einstellungen. */
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `play_log` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`profileSyncId` TEXT NOT NULL, `musicKey` TEXT NOT NULL, `playedAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -565,7 +591,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13
+                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
                     )
                     .build()
                     .also { instance = it }

@@ -31,6 +31,7 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     private val settingDao = database.appSettingDao()
     private val profileDao = database.profileDao()
     private val playedDao = database.playedMusicDao()
+    private val playLogDao = database.playLogDao()
 
     val speakerConfigs: Flow<List<SpeakerConfig>> = speakerDao.observeAll()
 
@@ -39,8 +40,8 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         rows.groupBy({ it.profileSyncId }, { it.musicKey }).mapValues { (_, keys) -> keys.toSet() }
     }
 
-    /** Was die Kinder zuletzt gespielt haben, auf allen Tablets, neueste zuerst. */
-    val recentlyPlayed: Flow<List<PlayedMusic>> = playedDao.observeRecentlyPlayed(limit = 20)
+    /** Was auf diesem Tablet zuletzt aus der Musikauswahl gespielt wurde, neueste zuerst. */
+    val playLog: Flow<List<PlayLogEntry>> = playLogDao.observeAll()
 
     val settings: Flow<AppSettings> = settingDao.observeAll().map { rows ->
         val values = rows.associate { it.key to it.value }
@@ -139,9 +140,16 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     suspend fun setAddMusicAtStart(atStart: Boolean) =
         settingDao.put(AppSetting(KEY_ADD_MUSIC_AT_START, atStart.toString()))
 
-    /** Merkt sich, dass das Profil [item] gespielt hat. true = es war für das Profil bis eben neu. */
-    suspend fun markPlayed(profileSyncId: String, item: MusicItem): Boolean =
-        setPlayed(listOf(profileSyncId), listOf(item), played = true, onlyChanges = true)
+    /**
+     * Merkt sich, dass das Profil [item] gespielt hat — für die Neu-Markierung und für „Zuletzt
+     * gespielt“. true = es war für das Profil bis eben neu.
+     */
+    suspend fun markPlayed(profileSyncId: String, item: MusicItem): Boolean {
+        val now = System.currentTimeMillis()
+        playLogDao.insert(PlayLogEntry(profileSyncId = profileSyncId, musicKey = item.playedKey, playedAt = now))
+        playLogDao.trim(keep = PLAY_LOG_SIZE)
+        return setPlayed(listOf(profileSyncId), listOf(item), played = true, onlyChanges = true)
+    }
 
     /**
      * Markiert [items] für die Profile als gespielt bzw. wieder als neu. Auch „wieder neu“
@@ -416,6 +424,8 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         /** Im Dateinamen: das Cover stammt von der Playlist/dem Album selbst, nicht von einem Titel. */
         private const val CONTAINER_COVER_MARK = "-container"
         internal const val KEY_SPEAKERS_SYNCED = "speakers_synced"
+        /** So viele Abspielvorgänge merkt sich das Tablet für „Zuletzt gespielt“. */
+        private const val PLAY_LOG_SIZE = 50
     }
 }
 

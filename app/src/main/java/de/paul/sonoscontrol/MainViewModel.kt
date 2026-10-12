@@ -138,18 +138,26 @@ class MainViewModel(
     var playedMusic: Map<String, Set<String>>? by mutableStateOf(null)
         private set
 
-    private var recentlyPlayed: List<PlayedMusic> by mutableStateOf(emptyList())
+    private var playLog: List<PlayLogEntry> by mutableStateOf(emptyList())
 
-    /** Was die Kinder zuletzt gespielt haben — nur, was es in der Musikauswahl und bei den Profilen noch gibt. */
+    /**
+     * Was auf diesem Tablet zuletzt gespielt wurde, je Kind und Musik nur das letzte Mal — und nur,
+     * was es in der Musikauswahl und bei den Profilen noch gibt.
+     */
     val recentPlays: List<RecentPlay>
         get() {
             val items = categories.flatMap { it.items }.associateBy { it.playedKey }
             val profilesBySyncId = profiles.associate { it.profile.syncId to it.profile }
-            return recentlyPlayed.mapNotNull { entry ->
-                val item = items[entry.musicKey] ?: return@mapNotNull null
-                val profile = profilesBySyncId[entry.profileSyncId] ?: return@mapNotNull null
-                RecentPlay(item, profile, entry.changedAt)
-            }.take(RECENT_PLAYS_SHOWN)
+            val played = playedMusic.orEmpty()
+            return playLog
+                .distinctBy { it.profileSyncId to it.musicKey }
+                .mapNotNull { entry ->
+                    val item = items[entry.musicKey] ?: return@mapNotNull null
+                    val profile = profilesBySyncId[entry.profileSyncId] ?: return@mapNotNull null
+                    val isNew = entry.musicKey !in played[entry.profileSyncId].orEmpty()
+                    RecentPlay(item, profile, entry.playedAt, isNew)
+                }
+                .take(RECENT_PLAYS_SHOWN)
         }
 
     var selectedProfileId: Long? by mutableStateOf(null)
@@ -308,7 +316,7 @@ class MainViewModel(
             repository.playedMusic.collect { playedMusic = it }
         }
         viewModelScope.launch {
-            repository.recentlyPlayed.collect { recentlyPlayed = it }
+            repository.playLog.collect { playLog = it }
         }
         if (uiState is UiState.LoadingSpeakers) loadSpeakers()
         viewModelScope.launch {
