@@ -367,6 +367,18 @@ interface PlayedMusicDao {
     @Query("SELECT * FROM played_music")
     suspend fun getAll(): List<PlayedMusic>
 
+    /**
+     * Zuletzt Gespieltes, neueste zuerst — ohne die Einträge vom Update (Zeitpunkt 0) und ohne
+     * „Alle als gespielt markieren“: Dabei teilen sich viele Einträge einen Zeitpunkt, ein Abspielen
+     * hat einen eigenen.
+     */
+    @Query(
+        "SELECT * FROM played_music WHERE played = 1 AND changedAt > 0 AND changedAt IN " +
+            "(SELECT changedAt FROM played_music GROUP BY changedAt HAVING COUNT(*) = 1) " +
+            "ORDER BY changedAt DESC LIMIT :limit"
+    )
+    fun observeRecentlyPlayed(limit: Int): Flow<List<PlayedMusic>>
+
     @Upsert
     suspend fun upsertAll(entries: List<PlayedMusic>)
 

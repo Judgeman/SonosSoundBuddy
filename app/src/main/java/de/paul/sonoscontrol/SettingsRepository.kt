@@ -39,6 +39,9 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         rows.groupBy({ it.profileSyncId }, { it.musicKey }).mapValues { (_, keys) -> keys.toSet() }
     }
 
+    /** Was die Kinder zuletzt gespielt haben, auf allen Tablets, neueste zuerst. */
+    val recentlyPlayed: Flow<List<PlayedMusic>> = playedDao.observeRecentlyPlayed(limit = 20)
+
     val settings: Flow<AppSettings> = settingDao.observeAll().map { rows ->
         val values = rows.associate { it.key to it.value }
         AppSettings(

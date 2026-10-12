@@ -113,6 +113,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 // --- Abschnitte „Musikauswahl" und „Kinder-Profile" auf der Settings-Hauptseite
 
@@ -132,6 +137,64 @@ fun LazyListScope.musicLibrarySection(categories: List<CategoryWithMusic>, onOpe
             modifier = Modifier.clickable(onClick = onOpenLibrary)
         )
     }
+}
+
+/**
+ * Was die Kinder zuletzt gespielt haben, auf allen Tablets — mit „Wieder neu“, z. B. wenn man selbst
+ * etwas zum Ausprobieren gespielt hat und es für das Kind trotzdem neu bleiben soll. Leer: kein Abschnitt.
+ */
+fun LazyListScope.recentPlaysSection(plays: List<RecentPlay>, onMarkNew: (RecentPlay) -> Unit) {
+    if (plays.isEmpty()) return
+    item {
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        SectionHeader(
+            title = "Zuletzt gespielt",
+            description = "Selbst zum Ausprobieren gespielt? „Wieder neu“ lässt die Musik für das Kind wieder " +
+                "funkeln — auch auf den anderen Tablets."
+        )
+    }
+    items(plays, key = { "recent-${it.profile.syncId}-${it.item.playedKey}" }) { play ->
+        ListItem(
+            leadingContent = { MusicItemImage(play.item, size = 48.dp) },
+            headlineContent = { Text(play.item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            supportingContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProfileIconBadge(play.profile.icon, size = 20.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        "${play.profile.name} · ${describePlayedAt(play.playedAt)}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            trailingContent = {
+                OutlinedButton(onClick = { onMarkNew(play) }) {
+                    Icon(
+                        NewMusicIcon,
+                        contentDescription = null,
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Wieder neu")
+                }
+            }
+        )
+    }
+}
+
+/** „heute, 18:20“, „gestern, 7:05“ oder „3.10., 9:30“. */
+private fun describePlayedAt(millis: Long): String {
+    val zone = ZoneId.systemDefault()
+    val time = Instant.ofEpochMilli(millis).atZone(zone)
+    val today = LocalDate.now(zone)
+    val day = when (time.toLocalDate()) {
+        today -> "heute"
+        today.minusDays(1) -> "gestern"
+        else -> time.format(DateTimeFormatter.ofPattern("d.M.", Locale.GERMANY))
+    }
+    return "$day, ${time.format(DateTimeFormatter.ofPattern("H:mm", Locale.GERMANY))}"
 }
 
 /** Liste der Profile mit Schalter „auf diesem Tablet aktiv"; ein Tipp öffnet die Profil-Seite. */

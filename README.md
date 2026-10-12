@@ -138,6 +138,13 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     darunter Speaker, Kinder-Profile, Abgleich, Passwort, Konto und Release
     Notes. Speaker und Kategorien haben eigene Unterseiten, damit die
     Hauptseite kurz bleibt.
+  - **Zuletzt gespielt** (direkt unter der Musikauswahl, nur wenn schon
+    etwas gespielt wurde): die letzten 5 Einträge von allen Tablets mit
+    Cover, Kind und Uhrzeit, jeweils mit „Wieder neu“ — z. B. wenn man selbst
+    etwas zum Ausprobieren gespielt hat und es für das Kind trotzdem funkeln
+    soll. „Alle als gespielt markieren“ zählt nicht als Abspielen und steht
+    nicht in der Liste (diese Einträge teilen sich einen Zeitpunkt), ebenso
+    wenig, was beim Update als gespielt eingetragen wurde.
   - **Speaker** (eigene Unterseite „Speaker verwalten“; die Hauptseite
     zeigt nur, wie viele es gibt, wie viele auswählbar und ob neue dazu
     gekommen sind): pro Speaker ein Schalter „auf dem Homescreen

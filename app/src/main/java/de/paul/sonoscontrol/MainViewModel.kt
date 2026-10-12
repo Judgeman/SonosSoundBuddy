@@ -138,6 +138,20 @@ class MainViewModel(
     var playedMusic: Map<String, Set<String>>? by mutableStateOf(null)
         private set
 
+    private var recentlyPlayed: List<PlayedMusic> by mutableStateOf(emptyList())
+
+    /** Was die Kinder zuletzt gespielt haben — nur, was es in der Musikauswahl und bei den Profilen noch gibt. */
+    val recentPlays: List<RecentPlay>
+        get() {
+            val items = categories.flatMap { it.items }.associateBy { it.playedKey }
+            val profilesBySyncId = profiles.associate { it.profile.syncId to it.profile }
+            return recentlyPlayed.mapNotNull { entry ->
+                val item = items[entry.musicKey] ?: return@mapNotNull null
+                val profile = profilesBySyncId[entry.profileSyncId] ?: return@mapNotNull null
+                RecentPlay(item, profile, entry.changedAt)
+            }.take(RECENT_PLAYS_SHOWN)
+        }
+
     var selectedProfileId: Long? by mutableStateOf(null)
         private set
 
@@ -292,6 +306,9 @@ class MainViewModel(
         }
         viewModelScope.launch {
             repository.playedMusic.collect { playedMusic = it }
+        }
+        viewModelScope.launch {
+            repository.recentlyPlayed.collect { recentlyPlayed = it }
         }
         if (uiState is UiState.LoadingSpeakers) loadSpeakers()
         viewModelScope.launch {
@@ -1081,6 +1098,9 @@ class MainViewModel(
         viewModelScope.launch { repository.setPlayed(profileSyncIds, items, played = !new) }
     }
 
+    /** „Wieder neu“ unter „Zuletzt gespielt“: z. B. nach dem Ausprobieren durch die Eltern. */
+    fun markNewAgain(play: RecentPlay) = setMusicNew(listOf(play.item), listOf(play.profile.syncId), new = true)
+
     /** Öffnet den Sonos-Katalog, um Musik zu einer Kategorie hinzuzufügen. */
     fun openCatalog(categoryId: Long) {
         catalogCategoryId = categoryId
@@ -1242,6 +1262,8 @@ class MainViewModel(
         private const val SHUFFLE_OFF_SETTLE_MS = 1_000L
         private const val LOAD_ATTEMPTS = 3
         private const val LOAD_RETRY_DELAY_MS = 1_500L
+        /** So viele Einträge zeigt „Zuletzt gespielt“ in den Einstellungen. */
+        private const val RECENT_PLAYS_SHOWN = 5
     }
 }
 

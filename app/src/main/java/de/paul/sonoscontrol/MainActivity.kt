@@ -149,6 +149,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                 onOpenSpeakers = viewModel::openSpeakers,
                 categories = viewModel.categories,
                 onOpenLibrary = viewModel::openLibrary,
+                recentPlays = viewModel.recentPlays,
+                onMarkPlayNew = viewModel::markNewAgain,
                 profiles = viewModel.profiles,
                 onCreateProfile = viewModel::createProfile,
                 onOpenProfile = viewModel::openProfile,
