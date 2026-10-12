@@ -89,12 +89,25 @@ data class CatalogEntry(
 
 val MusicItem.catalogKey: String get() = "$source:$sonosId"
 
+/**
+ * Woran alle Tablets erkennen, dass diese Musik schon gespielt wurde — die Ids von Sonos
+ * gelten im ganzen Haushalt, die Kategorie zählt nicht. Mit Namen, weil Sonos die Id
+ * eines gelöschten Favoriten neu vergeben kann. Dieselbe Formel steht in `MIGRATION_12_13`.
+ */
+val MusicItem.playedKey: String get() = "$source:$sonosId:$name"
+
 /** Kategorie der zentralen Musikauswahl samt ihrer Musik und der Profile, die sie sehen. */
 data class CategoryWithMusic(
     val category: MusicCategory,
     val items: List<MusicItem>,
     val profileIds: Set<Long> = emptySet()
 )
+
+/**
+ * Ein Kind hat diese Musik auf diesem Tablet gespielt, für „Zuletzt gespielt“ in den Einstellungen.
+ * [isNew]: Sie ist für das Kind inzwischen wieder neu.
+ */
+data class RecentPlay(val item: MusicItem, val profile: ChildProfile, val playedAt: Long, val isNew: Boolean)
 
 /** Profil samt den Kategorien, die es sieht — so wie Home- und Settings-Screen es brauchen. */
 data class ProfileWithMusic(

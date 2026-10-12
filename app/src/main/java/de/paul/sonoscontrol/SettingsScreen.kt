@@ -83,6 +83,8 @@ fun SettingsScreen(
     onOpenSpeakers: () -> Unit,
     categories: List<CategoryWithMusic>,
     onOpenLibrary: () -> Unit,
+    recentPlays: List<RecentPlay>,
+    onMarkPlayNew: (RecentPlay) -> Unit,
     profiles: List<ProfileWithMusic>,
     onCreateProfile: (String) -> Unit,
     onOpenProfile: (Long) -> Unit,
@@ -125,6 +127,7 @@ fun SettingsScreen(
 
             // Die Musikauswahl ändert sich am häufigsten, deshalb ganz oben
             musicLibrarySection(categories = categories, onOpenLibrary = onOpenLibrary)
+            recentPlaysSection(plays = recentPlays, onMarkNew = onMarkPlayNew)
 
             item {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

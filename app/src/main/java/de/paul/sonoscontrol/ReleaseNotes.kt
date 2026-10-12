@@ -43,6 +43,43 @@ data class ReleaseSection(val title: String, val items: List<String>)
  */
 val ReleaseHistory = listOf(
     Release(
+        version = "1.1.0",
+        date = "12. Oktober 2026",
+        sections = listOf(
+            ReleaseSection(
+                "Neue Musik funkelt",
+                listOf(
+                    "Was ein Kind noch nie gespielt hat, trägt in seiner Musikauswahl ein buntes Funkeln – " +
+                        "ebenso die Kategorie, in der so etwas steckt.",
+                    "Das gilt je Kinder-Profil: Hört Mia etwas, bleibt es für Paul neu.",
+                    "Sobald die Musik startet, ist sie für das Kind nicht mehr neu. Was beim Update schon " +
+                        "in der Auswahl war, gilt als gespielt."
+                )
+            ),
+            ReleaseSection(
+                "Einstellungen",
+                listOf(
+                    "Auf der Seite einer Kategorie zeigt der Funkel-Knopf an jedem Eintrag, für welche " +
+                        "Kinder er neu ist, und stellt das je Kind um.",
+                    "Im Menü der Kategorie: „Alle als neu markieren“ und „Alle als gespielt markieren“.",
+                    "Neuer Bereich „Zuletzt gespielt“ mit den letzten Abspielvorgängen auf diesem Tablet – " +
+                        "„Wieder neu“ lässt etwas, das man selbst zum Ausprobieren gespielt hat, für das Kind " +
+                        "wieder funkeln."
+                )
+            ),
+            ReleaseSection(
+                "Mehrere Tablets",
+                listOf(
+                    "Was die Kinder gespielt und die Eltern als neu markiert haben, gleichen alle Tablets " +
+                        "mit Cloud-Abgleich untereinander ab – die neueste Änderung gewinnt.",
+                    "Beim Übertragen als Datei oder im WLAN reist es ebenfalls mit.",
+                    "Braucht die neue Version des Relay-Workers; ohne sie steht unter „Tablets abgleichen“ " +
+                        "ein Hinweis."
+                )
+            )
+        )
+    ),
+    Release(
         version = "1.0.0",
         date = "7. Oktober 2026",
         sections = listOf(

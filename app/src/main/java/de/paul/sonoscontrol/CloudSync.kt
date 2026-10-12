@@ -96,11 +96,41 @@ class CloudSync(
 
     suspend fun markSeen(household: String, version: String) = repository.setSeenCloudVersion(household, version)
 
-    /** Löscht den Stand dieses Haushalts aus der Cloud. */
+    /**
+     * Gleicht ab, was die Kinder schon gespielt haben und was die Eltern wieder als neu markiert
+     * haben. Anders als den Stand lädt das jedes Tablet hoch, egal in welcher Rolle, und jedes holt
+     * sich, was auf den anderen passiert ist — je Profil und Musik gewinnt die neuere Änderung.
+     * Hochgeladen wird nur, wenn dieses Tablet etwas kennt, das in der Cloud noch fehlt —
+     * meist, weil hier gerade zum ersten Mal etwas gespielt wurde.
+     */
+    suspend fun syncPlayed() {
+        val household = household()
+        val cloud = client.played(household)
+        val local = repository.mergePlayed(cloud)
+        if (cloud.toSet().containsAll(local)) return
+        // Liefert die Cloud den eigenen Upload noch nicht mit (KV braucht dafür bis zu einer Minute),
+        // nicht noch einmal schreiben
+        val fingerprint = playedFingerprint(local)
+        if (fingerprint == repository.uploadedPlayedFingerprint(household)) return
+        client.uploadPlayed(household, repository.tabletId(), local)
+        repository.setUploadedPlayedFingerprint(household, fingerprint)
+    }
+
+    private fun playedFingerprint(entries: Collection<PlayedMusic>): String = sha256Hex(
+        entries.map { "${it.profileSyncId}\t${it.musicKey}\t${it.played}\t${it.changedAt}" }
+            .sorted().joinToString("\n").toByteArray()
+    )
+
+    /**
+     * Löscht den Stand und die gespielte Musik dieses Haushalts aus der Cloud. Die gespielte
+     * Musik gilt danach als hochgeladen — sonst stünde sie beim nächsten Abgleich gleich wieder
+     * dort. Erst was hier neu gespielt wird, lädt das Tablet wieder hoch.
+     */
     suspend fun deleteFromCloud() {
         val household = household()
         client.delete(household)
         repository.setUploadedFingerprint(household, null)
+        repository.setUploadedPlayedFingerprint(household, playedFingerprint(repository.playedEntries()))
     }
 
     companion object {

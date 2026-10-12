@@ -118,8 +118,13 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
             profiles = viewModel.selectableProfiles,
             selectedProfile = viewModel.selectedProfile,
             startingMusic = viewModel.startingMusic,
+            playedMusic = viewModel.selectedProfilePlayed,
             onSelectProfile = viewModel::selectProfile,
-            onPlayMusic = viewModel::playMusic,
+            // Was zum ersten Mal gespielt wurde, gleich an die anderen Tablets weitergeben
+            onPlayMusic = { item, shuffle ->
+                viewModel.playMusic(item, shuffle, onNewMusicPlayed = syncViewModel::onNewMusicPlayed)
+            },
+            onMusicPickerOpened = syncViewModel::onMusicPickerOpened,
             controls = remember(viewModel) {
                 PlaybackControls(
                     onTogglePlayPause = viewModel::togglePlayPause,
@@ -144,6 +149,8 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                 onOpenSpeakers = viewModel::openSpeakers,
                 categories = viewModel.categories,
                 onOpenLibrary = viewModel::openLibrary,
+                recentPlays = viewModel.recentPlays,
+                onMarkPlayNew = viewModel::markNewAgain,
                 profiles = viewModel.profiles,
                 onCreateProfile = viewModel::createProfile,
                 onOpenProfile = viewModel::openProfile,
@@ -229,6 +236,7 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                     category = category,
                     categories = viewModel.categories,
                     profiles = viewModel.profiles.map { it.profile },
+                    playedMusic = viewModel.playedMusic.orEmpty(),
                     addMusicAtStart = viewModel.settings.addMusicAtStart,
                     imageError = viewModel.imageImportError,
                     actions = rememberMusicLibraryActions(viewModel)
@@ -280,6 +288,7 @@ private fun rememberMusicLibraryActions(viewModel: MainViewModel): MusicLibraryA
         onAddMusic = viewModel::openCatalog,
         onAddMusicAtStartChange = viewModel::setAddMusicAtStart,
         onRemoveMusicItem = viewModel::removeMusicItem,
+        onSetMusicNew = viewModel::setMusicNew,
         onCategoryImageChange = viewModel::setCategoryImage,
         onImportCategoryImage = viewModel::importCategoryImage,
         onItemImageChange = viewModel::setMusicItemImage,

@@ -46,11 +46,13 @@ import androidx.compose.material.icons.rounded.AddCircleOutline
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChildCare
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryAdd
@@ -111,6 +113,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 // --- Abschnitte „Musikauswahl" und „Kinder-Profile" auf der Settings-Hauptseite
 
@@ -130,6 +137,78 @@ fun LazyListScope.musicLibrarySection(categories: List<CategoryWithMusic>, onOpe
             modifier = Modifier.clickable(onClick = onOpenLibrary)
         )
     }
+}
+
+/**
+ * Was auf diesem Tablet zuletzt gespielt wurde — mit „Wieder neu“, z. B. wenn man selbst etwas zum
+ * Ausprobieren gespielt hat und es für das Kind trotzdem neu bleiben soll. Leer: kein Abschnitt.
+ */
+fun LazyListScope.recentPlaysSection(plays: List<RecentPlay>, onMarkNew: (RecentPlay) -> Unit) {
+    if (plays.isEmpty()) return
+    item {
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        SectionHeader(
+            title = "Zuletzt gespielt",
+            description = "Was auf diesem Tablet zuletzt gespielt wurde. Selbst zum Ausprobieren gespielt? " +
+                "„Wieder neu“ lässt die Musik für das Kind wieder funkeln — auch auf den anderen Tablets."
+        )
+    }
+    items(plays, key = { "recent-${it.profile.syncId}-${it.item.playedKey}" }) { play ->
+        ListItem(
+            leadingContent = { MusicItemImage(play.item, size = 48.dp) },
+            headlineContent = { Text(play.item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            supportingContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ProfileIconBadge(play.profile.icon, size = 20.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        "${play.profile.name} · ${describePlayedAt(play.playedAt)}",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            trailingContent = {
+                if (play.isNew) {
+                    // Schon (wieder) neu — zur Bestätigung das Funkeln, wie die Kinder es sehen
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            NewMusicIcon,
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Neu", style = MaterialTheme.typography.labelLarge, color = NewMusicColor)
+                    }
+                } else {
+                    OutlinedButton(onClick = { onMarkNew(play) }) {
+                        Icon(
+                            NewMusicIcon,
+                            contentDescription = null,
+                            tint = Color.Unspecified,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Wieder neu")
+                    }
+                }
+            }
+        )
+    }
+}
+
+/** „heute, 18:20“, „gestern, 7:05“ oder „3.10., 9:30“. */
+private fun describePlayedAt(millis: Long): String {
+    val zone = ZoneId.systemDefault()
+    val time = Instant.ofEpochMilli(millis).atZone(zone)
+    val today = LocalDate.now(zone)
+    val day = when (time.toLocalDate()) {
+        today -> "heute"
+        today.minusDays(1) -> "gestern"
+        else -> time.format(DateTimeFormatter.ofPattern("d.M.", Locale.GERMANY))
+    }
+    return "$day, ${time.format(DateTimeFormatter.ofPattern("H:mm", Locale.GERMANY))}"
 }
 
 /** Liste der Profile mit Schalter „auf diesem Tablet aktiv"; ein Tipp öffnet die Profil-Seite. */
@@ -375,6 +454,8 @@ class MusicLibraryActions(
     val onAddMusic: (Long) -> Unit,
     val onAddMusicAtStartChange: (Boolean) -> Unit,
     val onRemoveMusicItem: (Long) -> Unit,
+    /** Musik, [ChildProfile.syncId] der Profile, true = wieder als neu markieren, false = als gespielt. */
+    val onSetMusicNew: (List<MusicItem>, List<String>, Boolean) -> Unit,
     val onCategoryImageChange: (Long, CustomImage) -> Unit,
     val onImportCategoryImage: (Long, Uri) -> Unit,
     val onItemImageChange: (Long, CustomImage) -> Unit,
@@ -587,6 +668,8 @@ fun CategoryEditorScreen(
     category: CategoryWithMusic,
     categories: List<CategoryWithMusic>,
     profiles: List<ChildProfile>,
+    /** Je Profil ([ChildProfile.syncId]) die [MusicItem.playedKey] der Musik, die es schon gespielt hat. */
+    playedMusic: Map<String, Set<String>>,
     addMusicAtStart: Boolean,
     imageError: String?,
     actions: MusicLibraryActions
@@ -598,6 +681,13 @@ fun CategoryEditorScreen(
     var showRename by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    // Neu oder gespielt ist Musik nur für die Profile, die die Kategorie sehen
+    val viewers = profiles.filter { it.id in category.profileIds }
+    val viewerSyncIds = viewers.map { it.syncId }
+    val newFor: (MusicItem) -> List<ChildProfile> = { item ->
+        viewers.filter { item.playedKey !in playedMusic[it.syncId].orEmpty() }
+    }
+    var newDialogItemId by remember { mutableStateOf<Long?>(null) }
 
     val sort = category.category.itemSortMode
     val listState = rememberLazyListState()
@@ -623,6 +713,26 @@ fun CategoryEditorScreen(
                             Icon(Icons.Rounded.MoreVert, contentDescription = "Weitere Aktionen")
                         }
                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            if (viewers.isNotEmpty() && category.items.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("Alle als neu markieren") },
+                                    leadingIcon = {
+                                        Icon(NewMusicIcon, contentDescription = null, tint = Color.Unspecified)
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        actions.onSetMusicNew(category.items, viewerSyncIds, true)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Alle als gespielt markieren") },
+                                    leadingIcon = { Icon(Icons.Rounded.DoneAll, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        actions.onSetMusicNew(category.items, viewerSyncIds, false)
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Kategorie löschen") },
                                 leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
@@ -706,6 +816,8 @@ fun CategoryEditorScreen(
                     onMove = { actions.onMoveMusicItem(item.id, it) },
                     onMoveToEnd = { toTop -> actions.onMoveMusicItem(item.id, if (toTop) -items.size else items.size) },
                     onRemove = { actions.onRemoveMusicItem(item.id) },
+                    newFor = newFor(item),
+                    onNewClick = { newDialogItemId = item.id }.takeIf { viewers.isNotEmpty() },
                     modifier = if (reorder.draggedKey == item.id) {
                         Modifier.draggedItem(reorder, item.id)
                     } else {
@@ -716,6 +828,15 @@ fun CategoryEditorScreen(
         }
     }
 
+    category.items.firstOrNull { it.id == newDialogItemId }?.let { item ->
+        NewMusicDialog(
+            item = item,
+            viewers = viewers,
+            newFor = newFor(item),
+            onNewChange = { profile, new -> actions.onSetMusicNew(listOf(item), listOf(profile.syncId), new) },
+            onDismiss = { newDialogItemId = null }
+        )
+    }
     if (showRename) {
         RenameCategoryDialog(
             category = category.category,
@@ -773,7 +894,10 @@ private fun CategoryHeader(category: CategoryWithMusic, onImageClick: () -> Unit
     }
 }
 
-/** Ein Musik-Eintrag der Kategorie; bei manueller Sortierung mit Griff und Pfeilen. */
+/**
+ * Ein Musik-Eintrag der Kategorie; bei manueller Sortierung mit Griff und Pfeilen. [newFor]: Profile,
+ * für die er neu ist. [onNewClick] öffnet die Neu-Markierung, null = kein Profil sieht die Kategorie.
+ */
 @Composable
 private fun MusicItemRow(
     item: MusicItem,
@@ -785,6 +909,8 @@ private fun MusicItemRow(
     onMove: (Int) -> Unit,
     onMoveToEnd: (Boolean) -> Unit,
     onRemove: () -> Unit,
+    newFor: List<ChildProfile>,
+    onNewClick: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val dragged = reorder.draggedKey == item.id
@@ -811,6 +937,15 @@ private fun MusicItemRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (newFor.isNotEmpty()) {
+                    Text(
+                        "Neu für " + newFor.joinToString(", ") { it.name },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NewMusicColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             if (movable) {
                 MoveButtons(
@@ -821,11 +956,77 @@ private fun MusicItemRow(
                     onMoveToEnd = onMoveToEnd
                 )
             }
+            if (onNewClick != null) {
+                IconButton(onClick = onNewClick) {
+                    // Bunt wie bei den Kindern, solange die Musik für jemanden neu ist
+                    if (newFor.isNotEmpty()) {
+                        Icon(
+                            NewMusicIcon,
+                            contentDescription = "Neu-Markierung von ${item.name}",
+                            tint = Color.Unspecified
+                        )
+                    } else {
+                        Icon(
+                            Icons.Rounded.AutoAwesome,
+                            contentDescription = "Neu-Markierung von ${item.name}",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
             IconButton(onClick = onRemove) {
                 Icon(Icons.Rounded.Close, contentDescription = "${item.name} entfernen")
             }
         }
     }
+}
+
+/**
+ * Für welche Kinder die Musik neu ist — einzeln umstellbar. Wieder als neu Markiertes trägt in der
+ * Musikauswahl des Kindes das bunte Funkeln, bis es die Musik spielt; auf den anderen Tablets ebenso.
+ */
+@Composable
+private fun NewMusicDialog(
+    item: MusicItem,
+    viewers: List<ChildProfile>,
+    newFor: List<ChildProfile>,
+    onNewChange: (ChildProfile, Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(NewMusicIcon, contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(40.dp))
+        },
+        title = { Text("„${item.name}“ ist neu für …", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column {
+                Text(
+                    "Neue Musik funkelt in der Musikauswahl des Kindes, bis es sie zum ersten Mal spielt.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                viewers.forEach { profile ->
+                    val isNew = newFor.any { it.id == profile.id }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNewChange(profile, !isNew) }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        ProfileIconBadge(profile.icon, size = 40.dp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(profile.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Switch(checked = isNew, onCheckedChange = { onNewChange(profile, it) })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Fertig") }
+        }
+    )
 }
 
 /** Ob „Musik hinzufügen“ neue Einträge an den Anfang oder ans Ende der Kategorie setzt. */

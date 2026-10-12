@@ -1,6 +1,7 @@
 package de.paul.sonoscontrol
 
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -90,11 +91,18 @@ class SyncViewModel(
     var cloudUpdate: CloudUpdate? by mutableStateOf(null)
         private set
 
+    /** Letzter Abgleich der gespielten Musik, z. B. „Gespielte Musik abgeglichen am …“ oder der Fehler. */
+    var playedStatus: String? by mutableStateOf(null)
+        private set
+
     private var shareJob: Job? = null
     private var searchJob: Job? = null
     private var receiveJob: Job? = null
     private var cloudLoopJob: Job? = null
     private val cloudMutex = Mutex()
+    private val playedMutex = Mutex()
+    /** SystemClock.elapsedRealtime() beim letzten Abgleich der gespielten Musik, ob er geklappt hat oder nicht. */
+    private var playedCheckedAt = 0L
     private var settingsOpen = false
     private var isForeground = false
 
@@ -288,6 +296,7 @@ class SyncViewModel(
             if (settings.role != previous.role) {
                 cloudUpdate = null
                 cloudStatus = null
+                playedStatus = null
                 if (isForeground) startCloudLoop(firstIsUserAction = true)
             }
         }
@@ -295,7 +304,10 @@ class SyncViewModel(
 
     /** „Jetzt hochladen“ bzw. „Jetzt nachsehen“. */
     fun syncNow() {
-        viewModelScope.launch { runCloudCycle(userAction = true) }
+        viewModelScope.launch {
+            runCloudCycle(userAction = true)
+            syncPlayed(userAction = true)
+        }
     }
 
     /** Neuen Stand aus der Cloud ansehen und auswählen, was übernommen wird. */
@@ -321,8 +333,9 @@ class SyncViewModel(
     }
 
     fun deleteFromCloud() = runBusy("Daten werden aus der Cloud gelöscht …") {
-        cloudMutex.withLock { cloudSync.deleteFromCloud() }
+        cloudMutex.withLock { playedMutex.withLock { cloudSync.deleteFromCloud() } }
         cloudStatus = "Die Daten dieses Sonos-Haushalts wurden aus der Cloud gelöscht."
+        playedStatus = null
         message = cloudStatus
     }
 
@@ -346,25 +359,66 @@ class SyncViewModel(
     }
 
     private suspend fun runCloudLoop(firstIsUserAction: Boolean) {
-        var userAction = firstIsUserAction
-        while (true) {
-            runCloudCycle(userAction)
-            userAction = false
-            // Das Haupt-Tablet lädt nur nach Änderungen hoch, also beim Schließen der Einstellungen
-            if (cloudSettings.role != CloudRole.FOLLOWER) break
+        var first = true
+        while (cloudSettings.role != CloudRole.OFF) {
+            val userAction = first && firstIsUserAction
+            // Das Haupt-Tablet lädt seinen Stand nur nach Änderungen hoch, also beim Start
+            // und beim Schließen der Einstellungen
+            if (first || cloudSettings.role == CloudRole.FOLLOWER) runCloudCycle(userAction)
+            // Was die Kinder gespielt haben, gleichen dagegen alle Tablets regelmäßig ab
+            syncPlayed(userAction)
+            first = false
             delay(CLOUD_CHECK_INTERVAL_MS)
+        }
+    }
+
+    /** Auf diesem Tablet wurde etwas zum ersten Mal gespielt → gleich hochladen, damit es die anderen erfahren. */
+    fun onNewMusicPlayed() {
+        viewModelScope.launch { syncPlayed() }
+    }
+
+    /** Die Musikauswahl geht auf → nachsehen, was auf den anderen Tablets inzwischen gespielt wurde. */
+    fun onMusicPickerOpened() {
+        if (playedMutex.isLocked || SystemClock.elapsedRealtime() - playedCheckedAt < PLAYED_REFRESH_INTERVAL_MS) return
+        viewModelScope.launch { syncPlayed() }
+    }
+
+    /**
+     * Gleicht ab, was die Kinder schon gespielt haben — in jeder Rolle außer „Aus“. Fehler stehen nur
+     * auf der Abgleich-Seite: Die Kinder merken davon nichts, Musik ist dann höchstens länger als neu markiert.
+     */
+    private suspend fun syncPlayed(userAction: Boolean = false) {
+        if (cloudSettings.role == CloudRole.OFF) return
+        playedMutex.withLock {
+            playedCheckedAt = SystemClock.elapsedRealtime()
+            try {
+                cloudSync.syncPlayed()
+                playedStatus = "Gespielte Musik abgeglichen am ${formatTime(System.currentTimeMillis())}"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SessionExpiredException) {
+                playedStatus = "Für den Abgleich bei Sonos anmelden."
+            } catch (e: Exception) {
+                Log.w(TAG, "Abgleich der gespielten Musik fehlgeschlagen", e)
+                playedStatus = "Gespielte Musik: " + (e.message ?: "Der Abgleich ist fehlgeschlagen.")
+                if (userAction) message = playedStatus
+            }
         }
     }
 
     /**
      * Die Einstellungen wurden geöffnet oder geschlossen. Solange sie offen sind,
-     * wird nichts automatisch übernommen; beim Schließen lädt das Haupt-Tablet hoch.
+     * wird nichts automatisch übernommen; beim Schließen lädt das Haupt-Tablet hoch,
+     * und jedes Tablet, was die Eltern dort als neu oder gespielt markiert haben. Beim Öffnen
+     * holt es, was die Kinder inzwischen gespielt haben, damit die Eltern den aktuellen Stand sehen.
      */
     fun onSettingsOpenChanged(open: Boolean) {
         if (open == settingsOpen) return
         settingsOpen = open
-        if (!open && cloudSettings.role != CloudRole.OFF) {
-            viewModelScope.launch { runCloudCycle(userAction = false) }
+        if (cloudSettings.role == CloudRole.OFF) return
+        viewModelScope.launch {
+            if (!open) runCloudCycle(userAction = false)
+            syncPlayed()
         }
     }
 
@@ -448,6 +502,8 @@ class SyncViewModel(
     companion object {
         private const val TAG = "SoundBuddySync"
         private const val CLOUD_CHECK_INTERVAL_MS = 5 * 60 * 1000L
+        /** Beim Öffnen der Musikauswahl höchstens so oft nach gespielter Musik der anderen Tablets sehen. */
+        private const val PLAYED_REFRESH_INTERVAL_MS = 30 * 1000L
     }
 }
 

@@ -3,6 +3,7 @@ package de.paul.sonoscontrol
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
@@ -38,6 +39,10 @@ private data class UploadRequest(val deviceName: String, val images: List<String
 
 @Serializable
 private data class MissingRequest(val hashes: List<String>)
+
+/** Ohne Vorgabewert: Auch eine leere Liste muss mitgeschickt werden, sonst lehnt der Worker sie ab. */
+@Serializable
+private data class PlayedEntries(val entries: List<PlayedMusic>)
 
 /** Fehler mit einer Meldung, die so angezeigt werden kann. */
 class CloudSyncException(message: String) : IOException(message)
@@ -96,7 +101,30 @@ class CloudSyncClient(
         return syncJson.decodeFromString(CloudState.serializer(), response.decodeToString())
     }
 
-    /** Löscht den Stand dieses Haushalts samt Bildern aus der Cloud. */
+    /** Was die Profile des Haushalts auf den Tablets gespielt haben, je Profil und Musik die neueste Änderung. */
+    suspend fun played(household: String): List<PlayedMusic> {
+        // Ohne Eintrag liefert der Worker eine leere Liste — „gibt es nicht“ heißt: alter Worker
+        val response = send(household, "/sync/played") ?: throw outdatedWorker(PLAYED_FEATURE)
+        return try {
+            syncJson.decodeFromString(PlayedEntries.serializer(), response.decodeToString()).entries
+        } catch (e: SerializationException) {
+            // Antwort ohne „entries“: ein Worker aus der Zeit vor dem Abgleich je Profil
+            throw outdatedWorker(PLAYED_FEATURE)
+        }
+    }
+
+    /** Ersetzt die Liste dieses Tablets; jedes Tablet hat seine eigene, abgeholt werden alle zusammen. */
+    suspend fun uploadPlayed(household: String, tabletId: String, entries: Collection<PlayedMusic>) {
+        // Einen überlangen Namen lehnt der Worker ab — und mit ihm die ganze Liste, bei jedem Versuch
+        val upload = entries
+            .filter { it.musicKey.length <= MAX_MUSIC_KEY_LENGTH && it.profileSyncId.length <= MAX_PROFILE_LENGTH }
+            .sortedWith(compareBy({ it.profileSyncId }, { it.musicKey }))
+        val body = syncJson.encodeToString(PlayedEntries.serializer(), PlayedEntries(upload))
+        send(household, "/sync/played/$tabletId", "PUT", body.toRequestBody(jsonType))
+            ?: throw outdatedWorker(PLAYED_FEATURE)
+    }
+
+    /** Löscht den Stand dieses Haushalts samt Bildern und gespielter Musik aus der Cloud. */
     suspend fun delete(household: String) {
         send(household, "/sync", "DELETE")
     }
@@ -147,6 +175,13 @@ class CloudSyncClient(
         }
     )
 
-    private fun outdatedWorker() =
-        CloudSyncException("Der Worker kennt den Abgleich noch nicht. Bitte die neue Version deployen (siehe README).")
+    private fun outdatedWorker(feature: String = "den Abgleich") =
+        CloudSyncException("Der Worker kennt $feature noch nicht. Bitte die neue Version deployen (siehe README).")
+
+    private companion object {
+        const val PLAYED_FEATURE = "den Abgleich gespielter Musik"
+        /** So lang dürfen Musik und Profil-Kennung eines Eintrags beim Worker höchstens sein. */
+        const val MAX_MUSIC_KEY_LENGTH = 1000
+        const val MAX_PROFILE_LENGTH = 100
+    }
 }

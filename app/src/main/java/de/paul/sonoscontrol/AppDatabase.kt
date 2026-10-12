@@ -15,6 +15,7 @@ import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** Pro Sonos-Player: darf er auf dem Homescreen gewählt werden und welches Icon bekommt er. */
@@ -115,6 +116,47 @@ data class MusicItem(
 
 val MusicItem.musicSource: MusicSource get() = MusicSource.fromKey(source)
 val MusicItem.musicType: MusicType get() = MusicType.fromKey(type)
+
+/**
+ * Ob ein Kind-Profil eine Musik schon gespielt hat — auf diesem oder einem anderen Tablet.
+ * Ohne Eintrag oder mit [played] = false ist sie für das Kind neu. Reist so, wie sie ist,
+ * auch zu den anderen Tablets (Datei, WLAN und Cloud).
+ */
+@Serializable
+@Entity(tableName = "played_music", primaryKeys = ["profileSyncId", "musicKey"])
+data class PlayedMusic(
+    /** [ChildProfile.syncId] — auf allen Tablets gleich, anders als die Id. */
+    val profileSyncId: String,
+    /** [MusicItem.playedKey]. */
+    val musicKey: String,
+    /** false = von den Eltern wieder als neu markiert. Bleibt stehen, damit die anderen Tablets davon erfahren. */
+    val played: Boolean,
+    /** Zeitpunkt der Änderung (Millisekunden), 0 = beim Update auf diese Version eingetragen. */
+    val changedAt: Long
+)
+
+/**
+ * Beim Zusammenführen zweier Tablets gewinnt je Profil und Musik die neuere Änderung, bei
+ * gleichem Zeitpunkt „gespielt“. Der Worker rechnet genauso, so landen alle beim selben Stand.
+ */
+fun PlayedMusic.winsOver(other: PlayedMusic): Boolean =
+    changedAt > other.changedAt || (changedAt == other.changedAt && played && !other.played)
+
+val PlayedMusic.entryKey: Pair<String, String> get() = profileSyncId to musicKey
+
+/**
+ * Ein Abspielen aus der Musikauswahl auf diesem Tablet — für „Zuletzt gespielt“ in den Einstellungen.
+ * Bleibt auf dem Tablet; nur die neuesten Einträge werden behalten.
+ */
+@Entity(tableName = "play_log")
+data class PlayLogEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** [ChildProfile.syncId] des Profils, das gewählt war. */
+    val profileSyncId: String,
+    /** [MusicItem.playedKey]. */
+    val musicKey: String,
+    val playedAt: Long
+)
 
 @Dao
 interface SpeakerConfigDao {
@@ -331,18 +373,51 @@ interface ProfileDao {
     suspend fun deleteProfileRow(id: Long)
 }
 
+@Dao
+interface PlayedMusicDao {
+    @Query("SELECT * FROM played_music WHERE played = 1")
+    fun observePlayed(): Flow<List<PlayedMusic>>
+
+    @Query("SELECT * FROM played_music")
+    suspend fun getAll(): List<PlayedMusic>
+
+    @Upsert
+    suspend fun upsertAll(entries: List<PlayedMusic>)
+
+    @Query("DELETE FROM played_music WHERE profileSyncId = :syncId")
+    suspend fun deleteOfProfile(syncId: String)
+}
+
+@Dao
+interface PlayLogDao {
+    @Insert
+    suspend fun insert(entry: PlayLogEntry)
+
+    /** Nur die neuesten [keep] Einträge behalten. */
+    @Query("DELETE FROM play_log WHERE id NOT IN (SELECT id FROM play_log ORDER BY playedAt DESC, id DESC LIMIT :keep)")
+    suspend fun trim(keep: Int)
+
+    @Query("SELECT * FROM play_log ORDER BY playedAt DESC, id DESC")
+    fun observeAll(): Flow<List<PlayLogEntry>>
+
+    @Query("UPDATE play_log SET profileSyncId = :newSyncId WHERE profileSyncId = :oldSyncId")
+    suspend fun moveToProfile(oldSyncId: String, newSyncId: String)
+}
+
 @Database(
     entities = [
         SpeakerConfig::class, AppSetting::class, ChildProfile::class,
-        MusicCategory::class, ProfileCategory::class, MusicItem::class
+        MusicCategory::class, ProfileCategory::class, MusicItem::class, PlayedMusic::class, PlayLogEntry::class
     ],
-    version = 11,
+    version = 14,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun speakerConfigDao(): SpeakerConfigDao
     abstract fun appSettingDao(): AppSettingDao
     abstract fun profileDao(): ProfileDao
+    abstract fun playedMusicDao(): PlayedMusicDao
+    abstract fun playLogDao(): PlayLogDao
 
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -468,6 +543,44 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Version 12 gab es nur in Testständen, dort hatte `played_music` noch eine einzige Spalte. */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) = Unit
+        }
+
+        /**
+         * Was ein Profil schon vor dem Update in seiner Musikauswahl hatte, hat das Kind vermutlich
+         * gehört — neu ist erst, was danach dazukommt. Der Schlüssel ist derselbe wie [MusicItem.playedKey];
+         * mit Zeitpunkt 0 ist jede spätere Änderung neuer, auch „wieder neu“ auf einem anderen Tablet.
+         * Eine Tabelle aus den Testständen von Version 12 wird ersetzt.
+         */
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `played_music`")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `played_music` (`profileSyncId` TEXT NOT NULL, " +
+                        "`musicKey` TEXT NOT NULL, `played` INTEGER NOT NULL, `changedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`profileSyncId`, `musicKey`))"
+                )
+                db.execSQL(
+                    "INSERT OR IGNORE INTO played_music (profileSyncId, musicKey, played, changedAt) " +
+                        "SELECT p.syncId, i.source || ':' || i.sonosId || ':' || i.name, 1, 0 FROM music_item i " +
+                        "JOIN profile_category pc ON pc.categoryId = i.categoryId " +
+                        "JOIN child_profile p ON p.id = pc.profileId"
+                )
+            }
+        }
+
+        /** Was auf diesem Tablet zuletzt gespielt wurde, für „Zuletzt gespielt“ in den Einstellungen. */
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `play_log` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`profileSyncId` TEXT NOT NULL, `musicKey` TEXT NOT NULL, `playedAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -481,7 +594,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-                        MIGRATION_10_11
+                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
                     )
                     .build()
                     .also { instance = it }

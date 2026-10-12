@@ -30,8 +30,18 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
     private val speakerDao = database.speakerConfigDao()
     private val settingDao = database.appSettingDao()
     private val profileDao = database.profileDao()
+    private val playedDao = database.playedMusicDao()
+    private val playLogDao = database.playLogDao()
 
     val speakerConfigs: Flow<List<SpeakerConfig>> = speakerDao.observeAll()
+
+    /** Je Profil ([ChildProfile.syncId]) die [MusicItem.playedKey] der Musik, die es schon gespielt hat. */
+    val playedMusic: Flow<Map<String, Set<String>>> = playedDao.observePlayed().map { rows ->
+        rows.groupBy({ it.profileSyncId }, { it.musicKey }).mapValues { (_, keys) -> keys.toSet() }
+    }
+
+    /** Was auf diesem Tablet zuletzt aus der Musikauswahl gespielt wurde, neueste zuerst. */
+    val playLog: Flow<List<PlayLogEntry>> = playLogDao.observeAll()
 
     val settings: Flow<AppSettings> = settingDao.observeAll().map { rows ->
         val values = rows.associate { it.key to it.value }
@@ -129,6 +139,48 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     suspend fun setAddMusicAtStart(atStart: Boolean) =
         settingDao.put(AppSetting(KEY_ADD_MUSIC_AT_START, atStart.toString()))
+
+    /**
+     * Merkt sich, dass das Profil [item] gespielt hat — für die Neu-Markierung und für „Zuletzt
+     * gespielt“. true = es war für das Profil bis eben neu.
+     */
+    suspend fun markPlayed(profileSyncId: String, item: MusicItem): Boolean {
+        val now = System.currentTimeMillis()
+        playLogDao.insert(PlayLogEntry(profileSyncId = profileSyncId, musicKey = item.playedKey, playedAt = now))
+        playLogDao.trim(keep = PLAY_LOG_SIZE)
+        return setPlayed(listOf(profileSyncId), listOf(item), played = true, onlyChanges = true)
+    }
+
+    /**
+     * Markiert [items] für die Profile als gespielt bzw. wieder als neu. Auch „wieder neu“
+     * bleibt als Eintrag stehen, damit die anderen Tablets davon erfahren. true = es wurde etwas geschrieben.
+     *
+     * Mit [onlyChanges] wird nur geschrieben, was sich hier ändert (Abspielen). Ohne — wenn die Eltern
+     * etwas umstellen — bekommt jeder Eintrag einen neuen Zeitpunkt: Sonst würde ein Abspielen auf einem
+     * anderen Tablet, von dem dieses noch nichts weiß, die Entscheidung der Eltern beim Abgleich überstimmen.
+     */
+    suspend fun setPlayed(
+        profileSyncIds: Collection<String>,
+        items: Collection<MusicItem>,
+        played: Boolean,
+        onlyChanges: Boolean = false
+    ): Boolean =
+        database.withTransaction {
+            val current = playedDao.getAll().associateBy { it.entryKey }
+            val now = System.currentTimeMillis()
+            val keys = items.map { it.playedKey }.distinct()
+            val changes = profileSyncIds.distinct().flatMap { profile ->
+                keys.mapNotNull { key ->
+                    val entry = current[profile to key]
+                    // Ohne Eintrag ist die Musik neu
+                    if (onlyChanges && (entry?.played ?: false) == played) return@mapNotNull null
+                    // Geht die Uhr hier nach, muss die Änderung trotzdem neuer sein als der Stand, den man gesehen hat
+                    PlayedMusic(profile, key, played, maxOf(now, (entry?.changedAt ?: 0L) + 1))
+                }
+            }
+            if (changes.isNotEmpty()) playedDao.upsertAll(changes)
+            changes.isNotEmpty()
+        }
 
     // --- Profile und Musikauswahl ---------------------------------------
 
@@ -372,6 +424,8 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         /** Im Dateinamen: das Cover stammt von der Playlist/dem Album selbst, nicht von einem Titel. */
         private const val CONTAINER_COVER_MARK = "-container"
         internal const val KEY_SPEAKERS_SYNCED = "speakers_synced"
+        /** So viele Abspielvorgänge merkt sich das Tablet für „Zuletzt gespielt“. */
+        private const val PLAY_LOG_SIZE = 50
     }
 }
 
