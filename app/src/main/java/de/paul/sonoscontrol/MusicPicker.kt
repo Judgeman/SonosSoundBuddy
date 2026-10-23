@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -220,6 +222,8 @@ fun MusicPickerDialog(
     val categories = profile.playableCategories
     var openCategoryId by remember { mutableStateOf(categories.singleOrNull()?.category?.id) }
     var askOrderFor by remember { mutableStateOf<MusicItem?>(null) }
+    // Bleibt erhalten, solange eine Kategorie offen ist — „Zurück“ landet wieder dort, wo man war
+    val categoriesGridState = rememberLazyGridState()
     val openCategory = categories.firstOrNull { it.category.id == openCategoryId }
     val canGoBack = openCategory != null && categories.size > 1
 
@@ -274,31 +278,36 @@ fun MusicPickerDialog(
                     }
                 }
 
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 150.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)
-                ) {
-                    if (openCategory == null) {
-                        items(categories, key = { "category-${it.category.id}" }) { category ->
-                            PickerTile(
-                                title = category.category.name,
-                                isNew = category.items.any(isNew),
-                                onClick = { openCategoryId = category.category.id }
-                            ) { CategoryImageView(category) }
-                        }
-                    } else {
-                        items(openCategory.items, key = { "item-${it.id}" }) { item ->
-                            PickerTile(
-                                title = item.name,
-                                isNew = isNew(item),
-                                onClick = {
-                                    val ask = openCategory.category.playOrderMode == PlayOrder.CHILD_CHOICE &&
-                                        item.hasMultipleTracks
-                                    if (ask) askOrderFor = item else onPlay(item, null)
-                                }
-                            ) { MusicItemImage(item) }
+                // Je Ansicht ein eigenes Raster: Die Kategorien behalten ihre Scroll-Position,
+                // eine geöffnete Kategorie beginnt immer oben
+                key(openCategory?.category?.id) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 150.dp),
+                        state = if (openCategory == null) categoriesGridState else rememberLazyGridState(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)
+                    ) {
+                        if (openCategory == null) {
+                            items(categories, key = { "category-${it.category.id}" }) { category ->
+                                PickerTile(
+                                    title = category.category.name,
+                                    isNew = category.items.any(isNew),
+                                    onClick = { openCategoryId = category.category.id }
+                                ) { CategoryImageView(category) }
+                            }
+                        } else {
+                            items(openCategory.items, key = { "item-${it.id}" }) { item ->
+                                PickerTile(
+                                    title = item.name,
+                                    isNew = isNew(item),
+                                    onClick = {
+                                        val ask = openCategory.category.playOrderMode == PlayOrder.CHILD_CHOICE &&
+                                            item.hasMultipleTracks
+                                        if (ask) askOrderFor = item else onPlay(item, null)
+                                    }
+                                ) { MusicItemImage(item) }
+                            }
                         }
                     }
                 }

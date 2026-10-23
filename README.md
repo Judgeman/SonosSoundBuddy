@@ -54,7 +54,9 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
   - Ganz unten der Knopf **„Musik aussuchen“**: öffnet ein großes Popup mit
     der Musikauswahl des Profils — erst die Kategorien als große
     Bild-Kacheln (bei nur einer Kategorie direkt deren Musik), dann die
-    Cover-Kacheln. Ein Tipp spielt die Musik sofort auf dem gewählten
+    Cover-Kacheln. „Zurück“ aus einer Kategorie landet wieder an derselben
+    Stelle der Kategorien, eine geöffnete Kategorie beginnt immer oben.
+    Ein Tipp spielt die Musik sofort auf dem gewählten
     Speaker (die Warteschlange wird ersetzt). Solange die Musik startet,
     liegt ein Popup mit Cover, Namen und Ladekreis über dem Homescreen und
     fängt alle Berührungen und die Zurück-Taste ab. Steht die Kategorie auf
