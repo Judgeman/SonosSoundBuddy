@@ -55,9 +55,12 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     der Musikauswahl des Profils — erst die Kategorien als große
     Bild-Kacheln (bei nur einer Kategorie direkt deren Musik), dann die
     Cover-Kacheln. „Zurück“ aus einer Kategorie landet wieder an derselben
-    Stelle der Kategorien, eine geöffnete Kategorie beginnt immer oben.
-    Ein Tipp spielt die Musik sofort auf dem gewählten
-    Speaker (die Warteschlange wird ersetzt). Solange die Musik startet,
+    Stelle der Kategorien, eine geöffnete Kategorie beginnt immer oben. Die
+    Auswahl merkt sich je Profil die zuletzt offene Kategorie und wie weit
+    gescrollt war, und geht beim nächsten Öffnen wieder dort auf (bis zum
+    Wechsel in die Einstellungen oder zum Neustart der App). Ein Tipp spielt
+    die Musik sofort auf dem gewählten Speaker (die Warteschlange wird
+    ersetzt). Solange die Musik startet,
     liegt ein Popup mit Cover, Namen und Ladekreis über dem Homescreen und
     fängt alle Berührungen und die Zurück-Taste ab. Steht die Kategorie auf
     „Kinder entscheiden“, fragen zwei große Bild-Knöpfe: „Der Reihe nach“

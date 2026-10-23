@@ -407,6 +407,8 @@ private fun SpeakerHomeContent(
 ) {
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var showMusicPicker by remember { mutableStateOf(false) }
+    // Je Profil, wo seine Musikauswahl zuletzt stand — nach dem Abspielen geht sie wieder dort auf
+    val musicPickerPositions = remember { mutableMapOf<Long, MusicPickerPosition>() }
 
     Column(
         modifier = Modifier
@@ -485,6 +487,7 @@ private fun SpeakerHomeContent(
         SoundBuddyTheme {
             MusicPickerDialog(
                 profile = selectedProfile,
+                position = musicPickerPositions.getOrPut(selectedProfile.profile.id) { MusicPickerPosition() },
                 playedMusic = playedMusic,
                 onPlay = { item, shuffle ->
                     showMusicPicker = false

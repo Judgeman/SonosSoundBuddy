@@ -17,9 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -203,16 +204,43 @@ fun MusicChooserButton(
 }
 
 /**
+ * Wo die Musikauswahl eines Profils zuletzt stand: welche Kategorie offen war und wie weit
+ * gescrollt. Lebt außerhalb des Popups, damit es nach dem Abspielen wieder genau dort aufgeht.
+ */
+@Stable
+class MusicPickerPosition {
+    /** Zuletzt geöffnete Kategorie, null = Übersicht der Kategorien. */
+    var openCategoryId: Long? by mutableStateOf(null)
+        private set
+    val overviewGrid = LazyGridState()
+    private val categoryGrids = mutableMapOf<Long, LazyGridState>()
+
+    fun categoryGrid(categoryId: Long): LazyGridState = categoryGrids.getOrPut(categoryId) { LazyGridState() }
+
+    /** Eine frisch geöffnete Kategorie beginnt oben. */
+    fun open(categoryId: Long) {
+        categoryGrids.clear()
+        openCategoryId = categoryId
+    }
+
+    fun backToOverview() {
+        openCategoryId = null
+    }
+}
+
+/**
  * Großes Popup mit der Musikauswahl des Profils. Bei mehreren Kategorien
  * kommen zuerst die Kategorien als große Bild-Kacheln, ein Tipp öffnet deren
  * Musik. Ein Tipp auf die Musik spielt sie auf dem gewählten Speaker —
  * bei „Kinder entscheiden" wird vorher gefragt: der Reihe nach oder durcheinander.
  * [onPlay] bekommt die Wahl der Kinder (oder null = Einstellung der Kategorie).
  * Musik, die das Profil laut [playedMusic] noch nie gespielt hat, funkelt bunt — und ebenso ihre Kategorie.
+ * Geöffnet wird dort, wo [position] zuletzt stand.
  */
 @Composable
 fun MusicPickerDialog(
     profile: ProfileWithMusic,
+    position: MusicPickerPosition,
     playedMusic: Set<String>?,
     onPlay: (MusicItem, Boolean?) -> Unit,
     onDismiss: () -> Unit
@@ -220,11 +248,10 @@ fun MusicPickerDialog(
     // Solange nicht geladen ist, was schon gespielt wurde, ist nichts neu — sonst blinkt alles kurz auf
     val isNew: (MusicItem) -> Boolean = { item -> playedMusic != null && item.playedKey !in playedMusic }
     val categories = profile.playableCategories
-    var openCategoryId by remember { mutableStateOf(categories.singleOrNull()?.category?.id) }
     var askOrderFor by remember { mutableStateOf<MusicItem?>(null) }
-    // Bleibt erhalten, solange eine Kategorie offen ist — „Zurück“ landet wieder dort, wo man war
-    val categoriesGridState = rememberLazyGridState()
-    val openCategory = categories.firstOrNull { it.category.id == openCategoryId }
+    // Bei nur einer Kategorie gleich deren Musik
+    val openCategory = categories.singleOrNull()
+        ?: categories.firstOrNull { it.category.id == position.openCategoryId }
     val canGoBack = openCategory != null && categories.size > 1
 
     Dialog(
@@ -233,7 +260,7 @@ fun MusicPickerDialog(
     ) {
         // Zurück-Taste: erst die Frage schließen, dann zurück zu den Kategorien, dann Popup zu
         BackHandler(enabled = askOrderFor != null || canGoBack) {
-            if (askOrderFor != null) askOrderFor = null else openCategoryId = null
+            if (askOrderFor != null) askOrderFor = null else position.backToOverview()
         }
 
         Surface(
@@ -250,7 +277,7 @@ fun MusicPickerDialog(
                     modifier = Modifier.padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
                 ) {
                     if (canGoBack) {
-                        FilledTonalIconButton(onClick = { openCategoryId = null }, modifier = Modifier.size(64.dp)) {
+                        FilledTonalIconButton(onClick = position::backToOverview, modifier = Modifier.size(64.dp)) {
                             Icon(
                                 Icons.AutoMirrored.Rounded.ArrowBack,
                                 contentDescription = "Zurück",
@@ -278,12 +305,11 @@ fun MusicPickerDialog(
                     }
                 }
 
-                // Je Ansicht ein eigenes Raster: Die Kategorien behalten ihre Scroll-Position,
-                // eine geöffnete Kategorie beginnt immer oben
+                // Je Ansicht ein eigenes Raster mit eigener Scroll-Position aus [position]
                 key(openCategory?.category?.id) {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 150.dp),
-                        state = if (openCategory == null) categoriesGridState else rememberLazyGridState(),
+                        state = openCategory?.let { position.categoryGrid(it.category.id) } ?: position.overviewGrid,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp)
@@ -293,7 +319,7 @@ fun MusicPickerDialog(
                                 PickerTile(
                                     title = category.category.name,
                                     isNew = category.items.any(isNew),
-                                    onClick = { openCategoryId = category.category.id }
+                                    onClick = { position.open(category.category.id) }
                                 ) { CategoryImageView(category) }
                             }
                         } else {
