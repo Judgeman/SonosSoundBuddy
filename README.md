@@ -142,7 +142,9 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     (`versionName` aus `app/build.gradle.kts`), dann die **Musikauswahl**,
     darunter Speaker, Kinder-Profile, Abgleich, Passwort, Konto und Release
     Notes. Speaker und Kategorien haben eigene Unterseiten, damit die
-    Hauptseite kurz bleibt.
+    Hauptseite kurz bleibt. „Zurück“ landet wieder an derselben Stelle der
+    vorherigen Seite — etwa aus einer Kategorie zurück in der Musikauswahl
+    dort, wo man war; eine neu geöffnete Seite beginnt oben.
   - **Zuletzt gespielt** (direkt unter der Musikauswahl, nur wenn schon
     etwas gespielt wurde): die letzten 5 Abspielvorgänge aus der
     Musikauswahl auf diesem Tablet mit Cover, Kind und Uhrzeit — je Kind und
@@ -563,7 +565,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 
 | Datei | Inhalt |
 |---|---|
-| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich/Release Notes, Theme |
+| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich/Release Notes samt Seitenstand für „Zurück“, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `ErrorBuddy.kt` | Animierter SoundBuddy für Fehlermeldungen |
