@@ -15,7 +15,11 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
@@ -102,6 +106,41 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
     val settingsOpen = viewModel.screen != Screen.Home
     LaunchedEffect(settingsOpen) { syncViewModel.onSettingsOpenChanged(settingsOpen) }
 
+    // „Zurück“ zeigt eine Seite wieder so, wie man sie verlassen hat — etwa weit unten in einer langen Liste
+    rememberScreenStates(viewModel.screen).SaveableStateProvider(viewModel.screen) {
+        ScreenContent(viewModel, syncViewModel, onLoginClick)
+    }
+
+    if (viewModel.showPasswordPrompt) {
+        PasswordPromptDialog(
+            wrongPassword = viewModel.passwordWrong,
+            onSubmit = viewModel::submitPassword,
+            onDismiss = viewModel::dismissPasswordPrompt
+        )
+    }
+}
+
+/**
+ * Hält den Stand der Seiten wie einen Stapel: Führt „Zurück“ auf eine Seite, steht sie wieder da wie
+ * vorher. Eine Seite, die man per „Zurück“ verlässt, vergisst ihren Stand und beginnt beim nächsten Mal oben.
+ */
+@Composable
+private fun rememberScreenStates(screen: Screen): SaveableStateHolder {
+    val holder = rememberSaveableStateHolder()
+    val stack = rememberSaveable { mutableListOf<Screen>() }
+    SideEffect {
+        val index = stack.indexOf(screen)
+        if (index < 0) {
+            stack += screen
+        } else {
+            while (stack.lastIndex > index) holder.removeState(stack.removeAt(stack.lastIndex))
+        }
+    }
+    return holder
+}
+
+@Composable
+private fun ScreenContent(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLoginClick: () -> Unit) {
     when (viewModel.screen) {
         Screen.Home -> HomeScreen(
             state = viewModel.uiState,
@@ -263,14 +302,6 @@ fun SoundBuddyApp(viewModel: MainViewModel, syncViewModel: SyncViewModel, onLogi
                 )
             }
         }
-    }
-
-    if (viewModel.showPasswordPrompt) {
-        PasswordPromptDialog(
-            wrongPassword = viewModel.passwordWrong,
-            onSubmit = viewModel::submitPassword,
-            onDismiss = viewModel::dismissPasswordPrompt
-        )
     }
 }
 

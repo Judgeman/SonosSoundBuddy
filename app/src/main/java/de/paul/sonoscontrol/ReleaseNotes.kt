@@ -43,6 +43,31 @@ data class ReleaseSection(val title: String, val items: List<String>)
  */
 val ReleaseHistory = listOf(
     Release(
+        version = "1.1.1",
+        date = "25. Oktober 2026",
+        sections = listOf(
+            ReleaseSection(
+                "Musik aussuchen",
+                listOf(
+                    "„Zurück“ aus einer Kategorie landet wieder an derselben Stelle der Kategorien statt " +
+                        "ganz oben.",
+                    "Die Musikauswahl merkt sich je Profil die zuletzt offene Kategorie und wie weit " +
+                        "gescrollt war – nach dem Abspielen geht sie wieder genau dort auf.",
+                    "Eine neu geöffnete Kategorie beginnt immer oben."
+                )
+            ),
+            ReleaseSection(
+                "Einstellungen",
+                listOf(
+                    "„Zurück“ landet wieder an derselben Stelle der vorherigen Seite statt ganz oben – etwa " +
+                        "aus einer Kategorie zurück in der Musikauswahl oder aus dem Sonos-Katalog zurück in " +
+                        "der Kategorie.",
+                    "Eine neu geöffnete Seite beginnt oben."
+                )
+            )
+        )
+    ),
+    Release(
         version = "1.1.0",
         date = "12. Oktober 2026",
         sections = listOf(
