@@ -78,7 +78,15 @@ data class MusicCategory(
     /** Alphabetisch bzw. nach Datum absteigend (Z–A, Neueste zuerst). Bei manueller Sortierung ohne Bedeutung. */
     val itemSortDescending: Boolean = false,
     /** [CoverAnimation]-Name: was das Tier am Cover macht, solange etwas aus der Kategorie läuft. */
-    val coverAnimation: String = CoverAnimation.DANCE.name
+    val coverAnimation: String = CoverAnimation.DANCE.name,
+    /**
+     * Sonos-Playlist, aus der die Kategorie ihre Musik bezieht: Jedes Album darin ist ein eigener
+     * Eintrag ([MusicSource.PLAYLIST_ALBUM]), die App gleicht sie mit der Playlist ab.
+     * null = Musik wird von Hand aus dem Katalog hinzugefügt.
+     */
+    val playlistId: String? = null,
+    /** Name der Playlist — Sonos vergibt die Id neu, wenn sie gelöscht und neu angelegt wird. */
+    val playlistName: String? = null
 )
 
 /** Zuordnung: das Profil [profileId] sieht die Kategorie [categoryId]. */
@@ -295,6 +303,18 @@ interface ProfileDao {
     @Query("UPDATE music_category SET coverAnimation = :coverAnimation WHERE id = :id")
     suspend fun setCategoryCoverAnimation(id: Long, coverAnimation: String)
 
+    @Query("UPDATE music_category SET playlistId = :playlistId, playlistName = :playlistName WHERE id = :id")
+    suspend fun setCategoryPlaylist(id: Long, playlistId: String?, playlistName: String?)
+
+    @Query("SELECT * FROM music_category WHERE id = :id")
+    suspend fun getCategory(id: Long): MusicCategory?
+
+    @Query("SELECT * FROM music_item WHERE categoryId = :categoryId ORDER BY position, id")
+    suspend fun getItemsOfCategory(categoryId: Long): List<MusicItem>
+
+    @Query("UPDATE music_item SET description = :description, trackCount = :trackCount WHERE id = :id")
+    suspend fun setItemDetails(id: Long, description: String?, trackCount: Int?)
+
     @Query("SELECT imageKey FROM music_category WHERE id = :id")
     suspend fun getCategoryImage(id: Long): String?
 
@@ -409,7 +429,7 @@ interface PlayLogDao {
         SpeakerConfig::class, AppSetting::class, ChildProfile::class,
         MusicCategory::class, ProfileCategory::class, MusicItem::class, PlayedMusic::class, PlayLogEntry::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -581,6 +601,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Kategorien aus einer Sonos-Playlist, deren Alben je ein Eintrag sind. */
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE music_category ADD COLUMN playlistId TEXT")
+                db.execSQL("ALTER TABLE music_category ADD COLUMN playlistName TEXT")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -594,7 +622,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
                         MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14
+                        MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
                     )
                     .build()
                     .also { instance = it }

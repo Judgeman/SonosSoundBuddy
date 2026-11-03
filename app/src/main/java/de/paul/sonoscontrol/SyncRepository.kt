@@ -69,7 +69,9 @@ class SyncRepository(
                         addedAt = item.addedAt
                     )
                 },
-                profileSyncIds = profilesByCategory[category.id].orEmpty().mapNotNull { syncIdOf[it] }.sorted()
+                profileSyncIds = profilesByCategory[category.id].orEmpty().mapNotNull { syncIdOf[it] }.sorted(),
+                playlistId = category.playlistId,
+                playlistName = category.playlistName
             )
         }
         val speakers = speakerDao.getAll().sortedBy { it.name.lowercase() }.map {
@@ -210,7 +212,9 @@ class SyncRepository(
                     itemSort = category.itemSort,
                     itemSortDescending = category.itemSortDescending,
                     coverAnimation = category.coverAnimation
-                        ?: CoverAnimation.suggestedFor(category.name, category.imageKey).name
+                        ?: CoverAnimation.suggestedFor(category.name, category.imageKey).name,
+                    playlistId = category.playlistId,
+                    playlistName = category.playlistName
                 )
             )
             profileDao.insertAssignments(

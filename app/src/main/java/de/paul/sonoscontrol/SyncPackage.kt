@@ -98,7 +98,10 @@ data class SyncCategory(
     /** In manueller Reihenfolge. */
     val items: List<SyncItem>,
     /** [SyncProfile.syncId] der Profile, die die Kategorie sehen. */
-    val profileSyncIds: List<String> = emptyList()
+    val profileSyncIds: List<String> = emptyList(),
+    /** Sonos-Playlist, deren Alben die Einträge sind ([MusicCategory.playlistId]); fehlt bei normalen Kategorien. */
+    val playlistId: String? = null,
+    val playlistName: String? = null
 )
 
 @Serializable

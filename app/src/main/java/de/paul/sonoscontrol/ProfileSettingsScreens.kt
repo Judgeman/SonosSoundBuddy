@@ -282,8 +282,12 @@ private fun describeMusic(categories: List<CategoryWithMusic>): String {
     return "$categoryText · $itemText"
 }
 
-private fun describeItemCount(category: CategoryWithMusic): String =
-    if (category.items.size == 1) "1 Eintrag" else "${category.items.size} Einträge"
+private fun describeItemCount(category: CategoryWithMusic): String {
+    val count = category.items.size
+    if (!category.category.isPlaylistCategory) return if (count == 1) "1 Eintrag" else "$count Einträge"
+    val albums = if (count == 1) "1 Album" else "$count Alben"
+    return category.category.playlistName?.let { "$albums aus „$it“" } ?: albums
+}
 
 // --- Unterseite: ein Profil bearbeiten ------------------------------------
 
@@ -467,7 +471,15 @@ class MusicLibraryActions(
     val onMoveMusicItem: (Long, Int) -> Unit,
     /** Kategorie-Id, Ids ihrer Musik in der neuen Reihenfolge (nach Drag & Drop). */
     val onReorderMusicItems: (Long, List<Long>) -> Unit,
-    val onDismissImageError: () -> Unit
+    val onDismissImageError: () -> Unit,
+    /** Lädt die Sonos-Playlisten zur Auswahl für eine Playlist-Kategorie. */
+    val onLoadPlaylists: () -> Unit,
+    /** Legt eine Kategorie an, deren Einträge die Alben der Playlist sind. */
+    val onCreatePlaylistCategory: (CatalogEntry) -> Unit,
+    /** Kategorie-Id, neue Playlist. */
+    val onChangeCategoryPlaylist: (Long, CatalogEntry) -> Unit,
+    /** Kategorie-Id: sofort mit der Playlist abgleichen. */
+    val onRefreshPlaylistCategory: (Long) -> Unit
 )
 
 /**
@@ -480,12 +492,15 @@ fun MusicLibraryScreen(
     categories: List<CategoryWithMusic>,
     profiles: List<ChildProfile>,
     imageError: String?,
+    /** Der Sonos-Katalog — daraus kommen die Playlisten für eine Playlist-Kategorie. */
+    catalogState: CatalogState,
     actions: MusicLibraryActions
 ) {
     val openImageDialog = rememberImageChooser(categories, actions)
     val snackbarHostState = remember { SnackbarHostState() }
     ImageErrorSnackbar(imageError, snackbarHostState, actions.onDismissImageError)
     var showNewCategory by remember { mutableStateOf(false) }
+    var showNewPlaylistCategory by remember { mutableStateOf(false) }
     var renameCategory by remember { mutableStateOf<MusicCategory?>(null) }
 
     val listState = rememberLazyListState()
@@ -557,8 +572,40 @@ fun MusicLibraryScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Kategorie hinzufügen")
                 }
+                OutlinedButton(
+                    onClick = {
+                        actions.onLoadPlaylists()
+                        showNewPlaylistCategory = true
+                    },
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Kategorie aus Sonos-Playlist")
+                }
+                Text(
+                    "Z. B. für Hörbücher: Jedes Album einer Sonos-Playlist wird ein eigener Eintrag. Neue " +
+                        "Alben legst du dann nur noch in der Sonos-App in die Playlist.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
             }
         }
+    }
+
+    if (showNewPlaylistCategory) {
+        PlaylistChooserDialog(
+            title = "Kategorie aus Sonos-Playlist",
+            state = catalogState,
+            selectedPlaylistId = null,
+            onReload = actions.onLoadPlaylists,
+            onChoose = {
+                showNewPlaylistCategory = false
+                actions.onCreatePlaylistCategory(it)
+            },
+            onDismiss = { showNewPlaylistCategory = false }
+        )
     }
 
     if (showNewCategory) {
@@ -672,9 +719,17 @@ fun CategoryEditorScreen(
     playedMusic: Map<String, Set<String>>,
     addMusicAtStart: Boolean,
     imageError: String?,
+    /** Der Sonos-Katalog — daraus kommen die Playlisten, falls die Playlist gewechselt wird. */
+    catalogState: CatalogState,
+    /** Die Kategorie wird gerade mit ihrer Sonos-Playlist abgeglichen. */
+    refreshingPlaylist: Boolean,
+    /** Warum der letzte Abgleich mit der Playlist nicht geklappt hat. */
+    playlistError: String?,
     actions: MusicLibraryActions
 ) {
     val id = category.category.id
+    val fromPlaylist = category.category.isPlaylistCategory
+    var showPlaylistChooser by remember { mutableStateOf(false) }
     val openImageDialog = rememberImageChooser(categories, actions)
     val snackbarHostState = remember { SnackbarHostState() }
     ImageErrorSnackbar(imageError, snackbarHostState, actions.onDismissImageError)
@@ -695,7 +750,8 @@ fun CategoryEditorScreen(
         actions.onReorderMusicItems(id, keys.map { it as Long })
     }
     val items = reorder.arrange(category.items) { it.id }
-    val movable = sort == ItemSort.MANUAL && items.size > 1
+    // Bei Playlist-Kategorien bestimmt die Playlist die Reihenfolge
+    val movable = sort == ItemSort.MANUAL && !fromPlaylist && items.size > 1
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -778,28 +834,48 @@ fun CategoryEditorScreen(
                     selected = sort,
                     descending = category.category.itemSortDescending,
                     onSelect = { itemSort, descending -> actions.onItemSortChange(id, itemSort, descending) },
+                    fromPlaylist = fromPlaylist,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
-                AddPositionSelector(
-                    atStart = addMusicAtStart,
-                    sortedManually = sort == ItemSort.MANUAL,
-                    onChange = actions.onAddMusicAtStartChange,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-                Button(
-                    onClick = { actions.onAddMusic(id) },
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp)
-                ) {
-                    Icon(Icons.Rounded.LibraryAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Musik hinzufügen")
+                if (fromPlaylist) {
+                    PlaylistSourceCard(
+                        playlistName = category.category.playlistName ?: category.category.name,
+                        refreshing = refreshingPlaylist,
+                        error = playlistError,
+                        onRefresh = { actions.onRefreshPlaylistCategory(id) },
+                        onChangePlaylist = {
+                            actions.onLoadPlaylists()
+                            showPlaylistChooser = true
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                } else {
+                    AddPositionSelector(
+                        atStart = addMusicAtStart,
+                        sortedManually = sort == ItemSort.MANUAL,
+                        onChange = actions.onAddMusicAtStartChange,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                    Button(
+                        onClick = { actions.onAddMusic(id) },
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp)
+                    ) {
+                        Icon(Icons.Rounded.LibraryAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Musik hinzufügen")
+                    }
                 }
             }
 
             if (items.isEmpty()) {
                 item {
                     Text(
-                        "Noch keine Musik in dieser Kategorie. Leere Kategorien sehen die Kinder nicht.",
+                        if (fromPlaylist) {
+                            "Noch keine Alben. Lege in der Sonos-App Alben in die Playlist und gleiche dann hier ab. " +
+                                "Leere Kategorien sehen die Kinder nicht."
+                        } else {
+                            "Noch keine Musik in dieser Kategorie. Leere Kategorien sehen die Kinder nicht."
+                        },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
@@ -815,7 +891,8 @@ fun CategoryEditorScreen(
                     onImageClick = { openImageDialog("$ITEM_TARGET:${item.id}") },
                     onMove = { actions.onMoveMusicItem(item.id, it) },
                     onMoveToEnd = { toTop -> actions.onMoveMusicItem(item.id, if (toTop) -items.size else items.size) },
-                    onRemove = { actions.onRemoveMusicItem(item.id) },
+                    // Ein Album der Playlist käme beim nächsten Abgleich wieder — entfernt wird es in der Sonos-App
+                    onRemove = { actions.onRemoveMusicItem(item.id) }.takeUnless { fromPlaylist },
                     newFor = newFor(item),
                     onNewClick = { newDialogItemId = item.id }.takeIf { viewers.isNotEmpty() },
                     modifier = if (reorder.draggedKey == item.id) {
@@ -828,6 +905,19 @@ fun CategoryEditorScreen(
         }
     }
 
+    if (showPlaylistChooser) {
+        PlaylistChooserDialog(
+            title = "Andere Sonos-Playlist",
+            state = catalogState,
+            selectedPlaylistId = category.category.playlistId,
+            onReload = actions.onLoadPlaylists,
+            onChoose = {
+                showPlaylistChooser = false
+                if (it.sonosId != category.category.playlistId) actions.onChangeCategoryPlaylist(id, it)
+            },
+            onDismiss = { showPlaylistChooser = false }
+        )
+    }
     category.items.firstOrNull { it.id == newDialogItemId }?.let { item ->
         NewMusicDialog(
             item = item,
@@ -908,7 +998,8 @@ private fun MusicItemRow(
     onImageClick: () -> Unit,
     onMove: (Int) -> Unit,
     onMoveToEnd: (Boolean) -> Unit,
-    onRemove: () -> Unit,
+    /** null = lässt sich hier nicht entfernen (Album einer Playlist-Kategorie). */
+    onRemove: (() -> Unit)?,
     newFor: List<ChildProfile>,
     onNewClick: (() -> Unit)?,
     modifier: Modifier = Modifier
@@ -974,8 +1065,10 @@ private fun MusicItemRow(
                     }
                 }
             }
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Rounded.Close, contentDescription = "${item.name} entfernen")
+            if (onRemove != null) {
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Rounded.Close, contentDescription = "${item.name} entfernen")
+                }
             }
         }
     }
@@ -1318,6 +1411,8 @@ private fun ItemSortSelector(
     selected: ItemSort,
     descending: Boolean,
     onSelect: (ItemSort, Boolean) -> Unit,
+    /** Playlist-Kategorie: „Manuell“ heißt dort „Wie in der Playlist“. */
+    fromPlaylist: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
@@ -1335,7 +1430,7 @@ private fun ItemSortSelector(
                 FilterChip(
                     selected = sort == selected,
                     onClick = { onSelect(sort, descending) },
-                    label = { Text(sort.label) }
+                    label = { Text(if (fromPlaylist && sort == ItemSort.MANUAL) IN_PLAYLIST_ORDER else sort.label) }
                 )
             }
             if (selected != ItemSort.MANUAL) {
@@ -1354,8 +1449,12 @@ private fun ItemSortSelector(
         }
         if (selected == ItemSort.MANUAL) {
             Text(
-                "Am Griff ziehen oder mit den Pfeilen verschieben — langes Drücken auf einen Pfeil " +
-                    "setzt den Eintrag ganz nach oben bzw. unten.",
+                if (fromPlaylist) {
+                    "So, wie die Alben in der Sonos-Playlist stehen — verschieben lassen sie sich in der Sonos-App."
+                } else {
+                    "Am Griff ziehen oder mit den Pfeilen verschieben — langes Drücken auf einen Pfeil " +
+                        "setzt den Eintrag ganz nach oben bzw. unten."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1371,6 +1470,7 @@ val PlayOrder.icon: ImageVector
     }
 
 private const val CATEGORY_TARGET = "category"
+private const val IN_PLAYLIST_ORDER = "Wie in der Playlist"
 private const val ITEM_TARGET = "item"
 
 /** Bild mit kleinem Stift-Symbol: zeigt, dass ein Tipp das Bild ändert. */
@@ -1597,7 +1697,11 @@ fun MusicCatalogScreen(
 /** Zu jedem Katalog-Eintrag die Namen der Kategorien, in denen er steckt — in deren Reihenfolge. */
 private fun categoryNamesByKey(categories: List<CategoryWithMusic>): Map<String, List<String>> =
     categories
-        .flatMap { category -> category.items.map { it.catalogKey to category.category.name } }
+        .flatMap { category ->
+            // Die Playlist einer Playlist-Kategorie steckt auch darin — mit all ihren Alben
+            val playlist = category.category.playlistCatalogKey?.let { listOf(it to category.category.name) }.orEmpty()
+            category.items.map { it.catalogKey to category.category.name } + playlist
+        }
         .groupBy({ it.first }, { it.second })
         .mapValues { it.value.distinct() }
 
@@ -1925,6 +2029,133 @@ private fun PlaylistPreviewDialog(preview: PlaylistPreview, onDismiss: () -> Uni
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Schließen") }
+        }
+    )
+}
+
+// --- Kategorien aus einer Sonos-Playlist ------------------------------------
+
+/** Woher eine Playlist-Kategorie ihre Alben hat — mit „Jetzt abgleichen“ und „Andere Playlist“. */
+@Composable
+private fun PlaylistSourceCard(
+    playlistName: String,
+    refreshing: Boolean,
+    error: String?,
+    onRefresh: () -> Unit,
+    onChangePlaylist: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    "Alben aus der Sonos-Playlist „$playlistName“",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (refreshing) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Jedes Album der Playlist ist ein eigener Eintrag und spielt nur sich selbst. Neue Alben legst " +
+                    "du in der Sonos-App in die Playlist — die App übernimmt sie beim Öffnen der Musikauswahl " +
+                    "von selbst und markiert sie als neu; was du dort herausnimmst, verschwindet auch hier. " +
+                    "Abspielen klappt nur, wenn das Tablet im selben WLAN ist wie die Speaker.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (error != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+            Row {
+                TextButton(onClick = onRefresh, enabled = !refreshing) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Jetzt abgleichen")
+                }
+                TextButton(onClick = onChangePlaylist) { Text("Andere Playlist") }
+            }
+        }
+    }
+}
+
+/** Auswahl einer Sonos-Playlist für eine Playlist-Kategorie; [selectedPlaylistId] trägt einen Haken. */
+@Composable
+private fun PlaylistChooserDialog(
+    title: String,
+    state: CatalogState,
+    selectedPlaylistId: String?,
+    onReload: () -> Unit,
+    onChoose: (CatalogEntry) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null) },
+        title = { Text(title) },
+        text = {
+            Column {
+                Text(
+                    "Jedes Album der Playlist wird ein eigener Eintrag. Neue Alben legst du später nur noch in " +
+                        "der Sonos-App in die Playlist — die App übernimmt sie von selbst.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                when (state) {
+                    is CatalogState.Loading -> Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxWidth().padding(24.dp)
+                    ) { CircularProgressIndicator() }
+
+                    is CatalogState.Error -> Column {
+                        Text(state.message)
+                        TextButton(onClick = onReload) { Text("Nochmal versuchen") }
+                    }
+
+                    is CatalogState.Loaded -> {
+                        val playlists = state.entries.filter { it.source == MusicSource.PLAYLIST }
+                        if (playlists.isEmpty()) {
+                            Text("Keine Sonos-Playlisten gefunden. Lege in der Sonos-App eine an und füge dort Alben hinzu.")
+                        } else {
+                            LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                                items(playlists, key = { it.key }) { entry ->
+                                    val selected = entry.sonosId == selectedPlaylistId
+                                    ListItem(
+                                        leadingContent = { MusicCover(entry.imageUrl, entry.type, size = 48.dp) },
+                                        headlineContent = { Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                                        supportingContent = { Text(entry.description ?: entry.source.label) },
+                                        trailingContent = if (selected) {
+                                            {
+                                                Icon(
+                                                    Icons.Rounded.CheckCircle,
+                                                    contentDescription = "Ausgewählt",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        } else {
+                                            null
+                                        },
+                                        modifier = Modifier.clickable { onChoose(entry) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Abbrechen") }
         }
     )
 }

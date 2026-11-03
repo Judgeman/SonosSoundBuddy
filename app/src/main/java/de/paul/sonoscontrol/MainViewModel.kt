@@ -16,6 +16,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 sealed interface UiState {
     /** [reason] erklärt, warum neu angemeldet werden muss (z. B. Anmeldung abgelaufen). */
@@ -184,6 +186,14 @@ class MainViewModel(
     var playlistPreview: PlaylistPreview? by mutableStateOf(null)
         private set
 
+    /** Playlist-Kategorien, die gerade mit ihrer Sonos-Playlist abgeglichen werden. */
+    var refreshingPlaylistCategories: Set<Long> by mutableStateOf(emptySet())
+        private set
+
+    /** Warum der letzte Abgleich einer Playlist-Kategorie nicht geklappt hat, je Kategorie. */
+    var playlistCategoryErrors: Map<Long, String> by mutableStateOf(emptyMap())
+        private set
+
     /** Fehler beim Übernehmen eines eigenen Kategorie-Bilds, als Snackbar auf der Profil-Seite. */
     var imageImportError: String? by mutableStateOf(null)
         private set
@@ -224,6 +234,8 @@ class MainViewModel(
     private var volumeJob: Job? = null
     private var profilesLoaded = false
     private var catalogJob: Job? = null
+    private val playlistRefreshMutex = Mutex()
+    private var playlistsRefreshedAt = 0L
 
     /** Speaker, die auf dem Homescreen gewählt werden dürfen und gerade im Haushalt verfügbar sind. */
     val selectableSpeakers: List<SpeakerConfig>
@@ -358,7 +370,10 @@ class MainViewModel(
         uiState = UiState.LoadingSpeakers
         viewModelScope.launch {
             uiState = try {
-                UiState.SpeakerList(fetchAndSyncPlayers().players).also { refreshMusicImagesQuietly() }
+                UiState.SpeakerList(fetchAndSyncPlayers().players).also {
+                    refreshMusicImagesQuietly()
+                    refreshPlaylistCategoriesQuietly()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -507,6 +522,8 @@ class MainViewModel(
         }
         // Lag beim letzten Mal z. B. kein Netz an, beim Zurückkommen still neu versuchen
         if (uiState is UiState.Error && tokenStore.accessToken != null) loadSpeakers() else restartPolling()
+        // Inzwischen in der Sonos-App neue Alben in eine Playlist-Kategorie gelegt?
+        refreshPlaylistCategoriesQuietly()
     }
 
     private fun stopPolling() {
@@ -695,6 +712,11 @@ class MainViewModel(
                 }
             }
         ) {
+            // Nur ein Album aus einer Playlist — das kann nur der Speaker im Heimnetz
+            if (item.musicSource == MusicSource.PLAYLIST_ALBUM) {
+                playAlbumFromPlaylist(household, playerId, item, shuffle = useShuffle && item.hasMultipleTracks)
+                return@sendPlaybackCommand
+            }
             val group = findGroup(household, playerId)
             val type = item.musicType
             // Radio hat keine Warteschlange — dort gibt es keine Reihenfolge, also direkt starten
@@ -702,11 +724,13 @@ class MainViewModel(
             val sourceId = when (item.musicSource) {
                 MusicSource.FAVORITE -> resolveFavoriteId(household, item)
                 MusicSource.PLAYLIST -> resolvePlaylistId(household, item)
+                MusicSource.PLAYLIST_ALBUM -> error("Alben aus einer Playlist laufen über das Heimnetz")
             }
             val load: suspend (play: Boolean) -> Unit = { playNow ->
                 when (item.musicSource) {
                     MusicSource.FAVORITE -> apiClient.loadFavorite(group.id, sourceId, play = playNow)
                     MusicSource.PLAYLIST -> apiClient.loadPlaylist(group.id, sourceId, play = playNow)
+                    MusicSource.PLAYLIST_ALBUM -> error("Alben aus einer Playlist laufen über das Heimnetz")
                 }
             }
             if (!controlsOrder) {
@@ -806,6 +830,36 @@ class MainViewModel(
         return playlists.firstOrNull { it.id == item.sonosId && it.name == item.name }?.id
             ?: playlists.firstOrNull { it.name == item.name }?.id
             ?: throw SonosApiException("Die Playlist „${item.name}“ gibt es nicht mehr bei Sonos.")
+    }
+
+    /**
+     * Die Sonos-Playlist einer Playlist-Kategorie: wie bei [resolvePlaylistId] über Id und Namen, sonst
+     * den Namen — und sonst nur die Id, falls die Playlist in der Sonos-App umbenannt wurde.
+     */
+    private suspend fun findPlaylist(household: String, playlistId: String, name: String?): SonosPlaylist {
+        val playlists = apiClient.getPlaylists(household)
+        return playlists.firstOrNull { it.id == playlistId && it.name == name }
+            ?: name?.let { wanted -> playlists.firstOrNull { it.name == wanted } }
+            ?: playlists.firstOrNull { it.id == playlistId }
+            ?: throw SonosApiException("Die Playlist „${name ?: playlistId}“ gibt es nicht mehr bei Sonos.")
+    }
+
+    /**
+     * Spielt ein Album aus der Playlist seiner Kategorie — nur dieses, nicht die ganze Playlist. Die
+     * Control API kann das nicht, deshalb über den Speaker im Heimnetz ([LocalSonosClient.playAlbumFromPlaylist]).
+     */
+    private suspend fun playAlbumFromPlaylist(household: String, playerId: String, item: MusicItem, shuffle: Boolean) {
+        val category = repository.getCategory(item.categoryId)
+        val playlist = findPlaylist(household, category?.playlistId ?: item.sonosId, category?.playlistName)
+        localClient.playAlbumFromPlaylist(
+            playerId = playerId,
+            playerName = speakerConfigs.firstOrNull { it.playerId == playerId }?.name,
+            playlistId = playlist.id,
+            playlistName = playlist.name,
+            albumName = item.name,
+            shuffle = shuffle,
+            addressHint = nowPlaying?.imageUrl
+        )
     }
 
     /**
@@ -990,6 +1044,99 @@ class MainViewModel(
     fun openCategory(categoryId: Long) {
         editingCategoryId = categoryId
         screen = Screen.CategoryEditor
+        // Eine Playlist-Kategorie zeigt gleich den Stand ihrer Playlist
+        if (categories.any { it.category.id == categoryId && it.category.isPlaylistCategory }) {
+            refreshPlaylistCategoryNow(categoryId)
+        }
+    }
+
+    // --- Kategorien aus einer Sonos-Playlist -----------------------------
+
+    /** Die Sonos-Playlisten zur Auswahl für eine Playlist-Kategorie — aus dem Katalog. */
+    fun loadPlaylistChoices() {
+        if (catalogState !is CatalogState.Loaded) loadCatalog()
+    }
+
+    /** Legt eine Kategorie an, deren Einträge die Alben der Playlist sind, und öffnet sie. */
+    fun createPlaylistCategory(playlist: CatalogEntry) {
+        if (playlist.source != MusicSource.PLAYLIST) return
+        viewModelScope.launch {
+            val id = repository.createPlaylistCategory(playlist)
+            editingCategoryId = id
+            screen = Screen.CategoryEditor
+            refreshPlaylistCategory(id)
+        }
+    }
+
+    /** Hängt eine Playlist-Kategorie an eine andere Sonos-Playlist; deren Alben ersetzen die bisherigen. */
+    fun changeCategoryPlaylist(categoryId: Long, playlist: CatalogEntry) {
+        if (playlist.source != MusicSource.PLAYLIST) return
+        viewModelScope.launch {
+            repository.setCategoryPlaylist(categoryId, playlist.sonosId, playlist.name)
+            refreshPlaylistCategory(categoryId)
+        }
+    }
+
+    /** Gleicht eine Playlist-Kategorie sofort mit ihrer Playlist ab („Jetzt abgleichen“). */
+    fun refreshPlaylistCategoryNow(categoryId: Long) {
+        viewModelScope.launch { refreshPlaylistCategory(categoryId) }
+    }
+
+    /** Beim Öffnen der Musikauswahl auf dem Homescreen: neue Alben sollen gleich zu sehen sein. */
+    fun onMusicPickerOpened() = refreshPlaylistCategoriesQuietly()
+
+    /**
+     * Gleicht alle Playlist-Kategorien mit ihren Sonos-Playlisten ab — nach dem Laden der Speaker, beim
+     * Öffnen der Musikauswahl und wenn die App wieder in den Vordergrund kommt, aber höchstens alle
+     * [PLAYLIST_REFRESH_INTERVAL_MS]. Fehler stehen nur auf der Seite der Kategorie.
+     */
+    private fun refreshPlaylistCategoriesQuietly() {
+        if (tokenStore.accessToken == null) return
+        val ids = categories.filter { it.category.isPlaylistCategory }.map { it.category.id }
+        if (ids.isEmpty()) return
+        val now = SystemClock.elapsedRealtime()
+        if (playlistsRefreshedAt != 0L && now - playlistsRefreshedAt < PLAYLIST_REFRESH_INTERVAL_MS) return
+        playlistsRefreshedAt = now
+        viewModelScope.launch { ids.forEach { refreshPlaylistCategory(it) } }
+    }
+
+    /**
+     * Holt die Titel der Playlist einer Kategorie — vom Speaker im Heimnetz (mit Covern), sonst aus der
+     * Sonos-Cloud — und übernimmt ihre Alben als Einträge. Klappt das nicht, bleibt alles, wie es ist.
+     */
+    private suspend fun refreshPlaylistCategory(categoryId: Long) = playlistRefreshMutex.withLock {
+        val category = repository.getCategory(categoryId) ?: return@withLock
+        val playlistId = category.playlistId ?: return@withLock
+        refreshingPlaylistCategories = refreshingPlaylistCategories + categoryId
+        try {
+            val household = householdId ?: apiClient.getFirstHouseholdId().also { householdId = it }
+            val playlist = findPlaylist(household, playlistId, category.playlistName)
+            if (playlist.id != playlistId || playlist.name != category.playlistName) {
+                repository.setCategoryPlaylist(categoryId, playlist.id, playlist.name)
+            }
+            val expected = playlist.trackCount
+            // Der Speaker kennt auch die Cover; fehlen dort Titel, lieber die Liste aus der Cloud
+            val tracks = localClient.playlistTracks(playlist.id, addressHint = nowPlaying?.imageUrl)
+                ?.takeIf { expected == null || it.size >= expected }
+                ?: apiClient.getPlaylist(household, playlist.id).tracks
+                    .map { PlaylistTrackInfo(title = it.name, album = it.album, artist = it.artist) }
+            // Eine leere Antwort zu einer Playlist mit Titeln würde alle Einträge löschen
+            if (tracks.isEmpty() && expected != 0) {
+                throw SonosApiException("Die Titel der Playlist „${playlist.name}“ konnten nicht geladen werden.")
+            }
+            repository.updatePlaylistAlbums(categoryId, playlist.id, groupAlbums(tracks))
+            playlistCategoryErrors = playlistCategoryErrors - categoryId
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SessionExpiredException) {
+            handleSessionExpired(e)
+        } catch (e: Exception) {
+            Log.w(TAG, "Playlist-Kategorie $categoryId nicht abgeglichen", e)
+            playlistCategoryErrors = playlistCategoryErrors +
+                (categoryId to (e.message ?: "Die Playlist konnte nicht geladen werden."))
+        } finally {
+            refreshingPlaylistCategories = refreshingPlaylistCategories - categoryId
+        }
     }
 
     /** Neue Kategorien sind erst einmal für alle Profile sichtbar. */
@@ -1272,6 +1419,8 @@ class MainViewModel(
         private const val LOAD_RETRY_DELAY_MS = 1_500L
         /** So viele Einträge zeigt „Zuletzt gespielt“ in den Einstellungen. */
         private const val RECENT_PLAYS_SHOWN = 5
+        /** Playlist-Kategorien gleicht die App von selbst höchstens so oft mit Sonos ab. */
+        private const val PLAYLIST_REFRESH_INTERVAL_MS = 30_000L
     }
 }
 
