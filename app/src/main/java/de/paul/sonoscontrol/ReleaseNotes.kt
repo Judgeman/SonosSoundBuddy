@@ -43,6 +43,28 @@ data class ReleaseSection(val title: String, val items: List<String>)
  */
 val ReleaseHistory = listOf(
     Release(
+        version = "1.2.0",
+        date = "3. November 2026",
+        sections = listOf(
+            ReleaseSection(
+                "Kategorie aus einer Sonos-Playlist",
+                listOf(
+                    "Neue Art von Kategorie, z. B. für Hörbücher: Sie hängt an genau einer Sonos-Playlist, " +
+                        "und jedes Album darin ist ein eigener Eintrag – mit eigenem Cover.",
+                    "Ein Tipp spielt nur dieses eine Album, nicht die ganze Playlist.",
+                    "Neue Alben legst du nur noch in der Sonos-App in die Playlist: Die App übernimmt sie " +
+                        "beim Öffnen der Musikauswahl von selbst und lässt sie für die Kinder funkeln. Was du " +
+                        "aus der Playlist nimmst, verschwindet auch in der App.",
+                    "Anlegen in der Musikauswahl über „Kategorie aus Sonos-Playlist“.",
+                    "Abspielen klappt nur, wenn das Tablet im selben WLAN ist wie die Speaker. Alle Tablets " +
+                        "brauchen diese Version, sonst lassen sich die Alben dort nicht abspielen.",
+                    "Hat ein Tablet die Kategorie noch mit einer älteren Version übernommen, verbindet die " +
+                        "neue Version sie nach dem Update von selbst wieder mit ihrer Playlist."
+                )
+            )
+        )
+    ),
+    Release(
         version = "1.1.1",
         date = "25. Oktober 2026",
         sections = listOf(

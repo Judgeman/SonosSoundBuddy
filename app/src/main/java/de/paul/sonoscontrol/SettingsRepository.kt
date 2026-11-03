@@ -220,6 +220,116 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
             id
         }
 
+    /**
+     * Legt eine Kategorie an, die ihre Musik aus der Sonos-Playlist [playlist] bezieht — jedes Album
+     * darin wird ein Eintrag (siehe [updatePlaylistAlbums]). Name wie die Playlist, sichtbar für alle Profile.
+     */
+    suspend fun createPlaylistCategory(playlist: CatalogEntry): Long =
+        database.withTransaction {
+            val id = profileDao.insertCategory(
+                MusicCategory(
+                    name = playlist.name.trim(),
+                    position = profileDao.nextCategoryPosition(),
+                    coverAnimation = CoverAnimation.suggestedFor(playlist.name).name,
+                    playlistId = playlist.sonosId,
+                    playlistName = playlist.name
+                )
+            )
+            profileDao.insertAssignments(profileDao.getProfileIds().map { ProfileCategory(profileId = it, categoryId = id) })
+            id
+        }
+
+    suspend fun getCategory(categoryId: Long): MusicCategory? = profileDao.getCategory(categoryId)
+
+    /** Siehe [ProfileDao.restorePlaylistLinks] — beim App-Start. */
+    suspend fun restorePlaylistLinks(): Int = database.withTransaction { profileDao.restorePlaylistLinks() }
+
+    /** Merkt sich die Sonos-Playlist der Kategorie, z. B. nach dem Wechsel oder wenn Sonos die Id neu vergeben hat. */
+    suspend fun setCategoryPlaylist(categoryId: Long, playlistId: String, playlistName: String) =
+        profileDao.setCategoryPlaylist(categoryId, playlistId, playlistName)
+
+    /**
+     * Gleicht die Einträge einer Playlist-Kategorie mit den Alben der Playlist ab: Neue Alben kommen
+     * dazu (und sind damit für die Kinder neu), verschwundene werden entfernt, die übrigen behalten
+     * ihre eigenen Bilder und ihren Zeitpunkt. Die Reihenfolge ist die der Playlist — so sortiert die
+     * Kategorie bei „Wie in der Playlist“. Wiedererkannt wird ein Album am Namen ([albumKey]); der Name
+     * eines vorhandenen Eintrags bleibt, damit „schon gespielt“ daran hängen bleibt.
+     * true = es hat sich etwas geändert.
+     */
+    suspend fun updatePlaylistAlbums(categoryId: Long, playlistId: String, albums: List<PlaylistAlbum>): Boolean {
+        val coversToStore = mutableListOf<Pair<Long, String>>()
+        val imagesToDelete = mutableListOf<String>()
+        val changed = database.withTransaction {
+            if (profileDao.getCategory(categoryId) == null) return@withTransaction false
+            val existing = profileDao.getItemsOfCategory(categoryId)
+            val wanted = albums.associateBy { albumKey(it.name) }
+            // Je Album ein Eintrag; was nicht (mehr) in der Playlist steckt, kommt heraus
+            val kept = mutableMapOf<String, MusicItem>()
+            val removed = existing.filter { item ->
+                val key = albumKey(item.name)
+                val keep = item.musicSource == MusicSource.PLAYLIST_ALBUM && key in wanted && key !in kept
+                if (keep) kept[key] = item
+                !keep
+            }
+            removed.forEach { item ->
+                profileDao.deleteItem(item.id)
+                item.customImageKey?.let { imagesToDelete += it }
+            }
+            var modified = removed.isNotEmpty()
+            val orderedIds = albums.map { album ->
+                val imageUrl = joinImageUrls(album.imageUrls)
+                val item = kept[albumKey(album.name)]
+                if (item == null) {
+                    modified = true
+                    val id = profileDao.insertItem(
+                        MusicItem(
+                            categoryId = categoryId,
+                            source = MusicSource.PLAYLIST_ALBUM.name,
+                            sonosId = playlistId,
+                            name = album.name,
+                            description = album.description,
+                            imageUrl = imageUrl,
+                            type = MusicType.ALBUM.name,
+                            position = 0,
+                            trackCount = album.trackCount
+                        )
+                    )
+                    imageUrl?.let { coversToStore += id to it }
+                    id
+                } else {
+                    if (item.description != album.description || item.trackCount != album.trackCount) {
+                        modified = true
+                        profileDao.setItemDetails(item.id, album.description, album.trackCount)
+                    }
+                    // Cover nachtragen, solange noch keins auf dem Tablet gespeichert ist
+                    val hasStoredCover = imageUrlCandidates(item.imageUrl).any { it.startsWith("/") }
+                    if (!hasStoredCover && imageUrl != null) coversToStore += item.id to imageUrl
+                    item.id
+                }
+            }
+            // Nur schreiben, was sich verschoben hat — sonst lädt jede Abfrage die Auswahl neu
+            val positions = existing.associate { it.id to it.position }
+            orderedIds.forEachIndexed { index, id ->
+                if (positions[id] != index) {
+                    modified = true
+                    profileDao.setItemPosition(id, index)
+                }
+            }
+            modified
+        }
+        // Danach, damit die Auswahl nicht auf die Downloads wartet
+        coversToStore.forEach { (id, url) ->
+            if (!storeCover(id, url)) {
+                val item = profileDao.getItem(id)
+                if (item != null && item.imageUrl != url && imageUrlCandidates(item.imageUrl).none { it.startsWith("/") }) {
+                    profileDao.setItemImageUrl(id, url)
+                }
+            }
+        }
+        imagesToDelete.forEach { imageStore.delete(it) }
+        return changed
+    }
+
     /** Legt fest, ob das Profil die Kategorie sieht. */
     suspend fun setCategoryVisible(categoryId: Long, profileId: Long, visible: Boolean) {
         if (visible) {
@@ -371,7 +481,10 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         val stored = candidates.filter { it.startsWith("/") }
         val hasContainerCover = stored.any { CONTAINER_COVER_MARK in it }
         val others = candidates.filterNot { it.startsWith("/") }
-        if (containerUrl != null && !hasContainerCover && item.musicType != MusicType.TRACK) {
+        // Ein Album aus einer Playlist läuft aus der Warteschlange — deren Container ist nicht das Album,
+        // das Cover des Titels dagegen schon
+        val containerIsItem = item.musicType != MusicType.TRACK && item.musicSource != MusicSource.PLAYLIST_ALBUM
+        if (containerUrl != null && !hasContainerCover && containerIsItem) {
             val name = "cover-item-$itemId$CONTAINER_COVER_MARK"
             if (storeCover(itemId, joinImageUrls(listOf(containerUrl) + others), name)) return
         }
@@ -427,6 +540,28 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         /** So viele Abspielvorgänge merkt sich das Tablet für „Zuletzt gespielt“. */
         private const val PLAY_LOG_SIZE = 50
     }
+}
+
+/**
+ * Stellt die Verbindung von Playlist-Kategorien zu ihrer Sonos-Playlist wieder her, die beim Abgleich
+ * verloren gegangen ist: Eine App-Version ohne Playlist-Kategorien übernimmt deren Alben als
+ * normale Kategorie und lässt die Playlist weg — auch, wenn sie den Stand später weitergibt.
+ * Erkennbar ist so eine Kategorie daran, dass alle ihre Einträge Alben aus einer Playlist sind.
+ * Die Id der Playlist tragen die Einträge selbst (die des zuletzt hinzugefügten, falls Sonos sie
+ * inzwischen neu vergeben hat); den Namen trägt der nächste Abgleich mit der Playlist nach.
+ * Gibt zurück, wie viele Kategorien wieder verbunden wurden.
+ */
+internal suspend fun ProfileDao.restorePlaylistLinks(): Int {
+    val itemsByCategory = getItems().groupBy { it.categoryId }
+    var restored = 0
+    getCategories().filter { it.playlistId == null }.forEach { category ->
+        val items = itemsByCategory[category.id].orEmpty()
+        if (items.isEmpty() || items.any { it.musicSource != MusicSource.PLAYLIST_ALBUM }) return@forEach
+        val playlistId = items.maxWith(compareBy<MusicItem>({ it.addedAt }, { it.id })).sonosId
+        setCategoryPlaylist(category.id, playlistId, null)
+        restored++
+    }
+    return restored
 }
 
 /** Pfade aller gespeicherten Bilder, auf die Kategorien und Einträge verweisen. */

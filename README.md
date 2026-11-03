@@ -203,6 +203,29 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
       die in einem Durchgang an den Anfang kommen, stehen dort in der
       Reihenfolge des Antippens.
 
+    **Kategorie aus Sonos-Playlist** (Knopf unter „Kategorie hinzufügen“, z. B.
+    für Hörbücher): Die Kategorie hängt an genau einer Sonos-Playlist, und jedes
+    **Album** darin ist ein eigener Eintrag mit eigenem Cover — ein Tipp spielt
+    nur dieses Album, nicht die ganze Playlist. Neue Hörbücher legt man nur noch
+    in der Sonos-App in die Playlist; die App gleicht die Kategorie nach dem
+    Laden der Speaker, beim Öffnen der Musikauswahl und beim Zurückkommen in die
+    App ab (höchstens alle 30 Sekunden) sowie beim Öffnen ihrer Seite oder mit
+    „Jetzt abgleichen“. Neue Alben funkeln dann für die Kinder, Alben, die nicht
+    mehr in der Playlist stecken, verschwinden. Ein Album sind alle Titel mit
+    demselben Album-Namen (Groß-/Kleinschreibung und Leerzeichen egal), Titel
+    ohne Album stehen für sich. Die Sortierung „Manuell“ heißt dort „Wie in der
+    Playlist“; eigene Bilder, Neu-Markierung, Abspielreihenfolge und Tier am
+    Cover gehen wie bei jeder Kategorie. „Musik hinzufügen“ und das Entfernen
+    einzelner Einträge gibt es dort nicht — das passiert in der Sonos-App.
+    „Andere Playlist“ hängt die Kategorie an eine andere Playlist. Abspielen
+    geht nur im selben WLAN wie die Speaker (siehe „Alben aus einer Playlist
+    abspielen“). Eine ältere App-Version übernimmt so eine Kategorie beim
+    Abgleich als normale Kategorie mit den Alben (die sich dort nicht abspielen
+    lassen) und lässt die Playlist weg. Nach dem Update — und nach jedem
+    übernommenen Stand — verbindet die App jede Kategorie, deren Einträge alle
+    Alben aus einer Playlist sind, wieder mit dieser Playlist (Id aus den
+    Einträgen, den Namen trägt der nächste Abgleich nach).
+
     „Musik hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
     Sonos-Playlisten) mit Suche (auch nach Künstler) und Filter nach Songs,
     Playlisten, Alben und Radio; ein Tipp nimmt einen Eintrag in die
@@ -329,7 +352,25 @@ Die Control API kann keine Musikdienste durchsuchen, sondern nur
 für die Musikauswahl. Einzelne Songs, Alben, Spotify-Playlisten oder
 Radiosender kommen also über „Zu Sonos-Favoriten hinzufügen“ in der
 Sonos-App in die Auswahl. Einzelne Titel *aus* einer Sonos-Playlist lassen
-sich nicht gezielt starten.
+sich über die Control API nicht gezielt starten — Alben aus einer Playlist
+spielt die App deshalb über den Speaker im Heimnetz (siehe unten).
+
+**Alben aus einer Playlist abspielen** (`LocalSonosClient.playAlbumFromPlaylist`):
+Die App fragt einen Speaker im WLAN nach der Zonen-Topologie
+(`ZoneGroupTopology#GetZoneGroupState`) und schickt alles an den Koordinator der
+Gruppe, in der der gewählte Speaker spielt (`/MediaRenderer/AVTransport/Control`):
+Zufall vom letzten Mal aus (`GetTransportSettings`/`SetPlayMode`, Wiederholen
+bleibt), Warteschlange leeren (`RemoveAllTracksFromQueue`), die ganze Playlist
+einreihen (`AddURIToQueue` mit `file:///jffs/settings/savedqueues.rsq#<Id>`),
+die Warteschlange lesen (Browse `Q:0`, seitenweise) und alle Plätze, die nicht
+zum Album gehören, von hinten nach vorne entfernen (`RemoveTrackRangeFromQueue`).
+Dann die Warteschlange als Quelle setzen (`SetAVTransportURI`
+`x-rincon-queue:<Koordinator>#0`), Zufall nach Einstellung der Kategorie,
+`Seek` auf den ersten Titel (bei Zufall einen zufälligen) und `Play`. Die
+Titel der Playlist für die Alben kommen ebenfalls vom Speaker (Browse `SQ:<Id>`
+mit Album, Künstler und Cover), sonst aus der Cloud (`getPlaylist`, ohne
+Cover). Fehlen beim Speaker Titel oder kommt gar nichts zurück, bleibt die
+Kategorie, wie sie ist.
 
 **Cover aus dem Heimnetz:** Die Cloud-API liefert für Sonos-Playlisten nie
 ein Bild und für manche Favoriten keins, das sich laden lässt. Deshalb
@@ -505,7 +546,7 @@ liest die Datei auf dem anderen Tablet ein.
 
 ## Datenbank
 
-Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 14):
+Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 15):
 
 - `speaker_config` — playerId, Name, freigegeben, Icon-Schlüssel,
   maximale Lautstärke (Spalte seit Version 2, Migration `MIGRATION_1_2`)
@@ -524,12 +565,15 @@ Lokale Room-Datenbank `sound_buddy.db` (`AppDatabase.kt`, Version 14):
   Version 7 gehörte jede Kategorie genau einem Profil. Sortierung der
   Musik (`itemSort`, `itemSortDescending`, seit Version 10, Migration
   `MIGRATION_9_10`). Tier am Cover (`coverAnimation`, seit Version 11,
-  Migration `MIGRATION_10_11`; Hörbücher & Co. lesen gleich vor).
+  Migration `MIGRATION_10_11`; Hörbücher & Co. lesen gleich vor). Sonos-Playlist
+  einer Playlist-Kategorie (`playlistId`, `playlistName`, seit Version 15,
+  Migration `MIGRATION_14_15`; leer = normale Kategorie).
 - `profile_category` — welches Profil welche Kategorie sieht (seit
   Version 8, Migration `MIGRATION_7_8`: übernimmt die bisherige Zuordnung,
   entfernt die Profil-Spalte aus `music_category` und nummeriert die
   Reihenfolge profilweise hintereinander durch)
-- `music_item` — Kategorie, Quelle (Favorit/Playlist), Sonos-Id, Name,
+- `music_item` — Kategorie, Quelle (Favorit, Playlist oder `PLAYLIST_ALBUM` =
+  Album einer Playlist-Kategorie mit der Id der Playlist), Sonos-Id, Name,
   Beschreibung, Cover-URL, Art (Song, Album, …), Position, eigenes Bild
   (seit Version 6, Migration `MIGRATION_5_6`; sie setzt außerdem früher als
   Kategorie-Bild gewählte Cover zurück), Anzahl der Titel (seit Version 7,
@@ -583,7 +627,8 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `SpeakerIcons.kt`, `CharacterIcons.kt` | Icon-Katalog, Einhorn und Pikachu |
 | `ProfileIcons.kt`, `AnimalIcons.kt` | Profil-Icons, gezeichnete Tiere |
 | `SonosApiClient.kt`, `SonosModels.kt` | Sonos-API inkl. Token-Erneuerung |
-| `LocalSonosClient.kt` | Cover direkt vom Speaker im Heimnetz (mDNS + UPnP) |
+| `LocalSonosClient.kt` | Cover direkt vom Speaker im Heimnetz (mDNS + UPnP), Titel einer Playlist, Album aus einer Playlist abspielen |
+| `PlaylistAlbums.kt` | Kategorien aus einer Sonos-Playlist: Titel zu Alben zusammenfassen, Plätze der Warteschlange |
 | `SonosAuthManager.kt`, `TokenStore.kt`, `SonosConfig.kt` | Login und Tokens |
 | `AppDatabase.kt`, `SettingsRepository.kt`, `PasswordHasher.kt` | Datenbank und Einstellungen |
 | `SyncScreen.kt`, `SyncViewModel.kt` | Seite „Tablets abgleichen“ |

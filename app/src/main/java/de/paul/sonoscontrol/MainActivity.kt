@@ -163,7 +163,11 @@ private fun ScreenContent(viewModel: MainViewModel, syncViewModel: SyncViewModel
             onPlayMusic = { item, shuffle ->
                 viewModel.playMusic(item, shuffle, onNewMusicPlayed = syncViewModel::onNewMusicPlayed)
             },
-            onMusicPickerOpened = syncViewModel::onMusicPickerOpened,
+            onMusicPickerOpened = {
+                syncViewModel.onMusicPickerOpened()
+                // Neue Alben in einer Playlist-Kategorie gleich zeigen
+                viewModel.onMusicPickerOpened()
+            },
             controls = remember(viewModel) {
                 PlaybackControls(
                     onTogglePlayPause = viewModel::togglePlayPause,
@@ -263,6 +267,7 @@ private fun ScreenContent(viewModel: MainViewModel, syncViewModel: SyncViewModel
                 categories = viewModel.categories,
                 profiles = viewModel.profiles.map { it.profile },
                 imageError = viewModel.imageImportError,
+                catalogState = viewModel.catalogState,
                 actions = rememberMusicLibraryActions(viewModel)
             )
         }
@@ -278,6 +283,9 @@ private fun ScreenContent(viewModel: MainViewModel, syncViewModel: SyncViewModel
                     playedMusic = viewModel.playedMusic.orEmpty(),
                     addMusicAtStart = viewModel.settings.addMusicAtStart,
                     imageError = viewModel.imageImportError,
+                    catalogState = viewModel.catalogState,
+                    refreshingPlaylist = category.category.id in viewModel.refreshingPlaylistCategories,
+                    playlistError = viewModel.playlistCategoryErrors[category.category.id],
                     actions = rememberMusicLibraryActions(viewModel)
                 )
             }
@@ -329,7 +337,11 @@ private fun rememberMusicLibraryActions(viewModel: MainViewModel): MusicLibraryA
         onCoverAnimationChange = viewModel::setCategoryCoverAnimation,
         onMoveMusicItem = viewModel::moveMusicItem,
         onReorderMusicItems = viewModel::reorderMusicItems,
-        onDismissImageError = viewModel::dismissImageImportError
+        onDismissImageError = viewModel::dismissImageImportError,
+        onLoadPlaylists = viewModel::loadPlaylistChoices,
+        onCreatePlaylistCategory = viewModel::createPlaylistCategory,
+        onChangeCategoryPlaylist = viewModel::changeCategoryPlaylist,
+        onRefreshPlaylistCategory = viewModel::refreshPlaylistCategoryNow
     )
 }
 

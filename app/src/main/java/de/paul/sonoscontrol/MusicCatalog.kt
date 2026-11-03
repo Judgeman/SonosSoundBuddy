@@ -4,10 +4,14 @@ package de.paul.sonoscontrol
  * Woher ein Musik-Eintrag kommt. Die Sonos Control API kann nur Sonos-Favoriten
  * und Sonos-Playlisten abspielen — beides zusammen ist der Katalog, aus dem die
  * Musikauswahl der Profile zusammengestellt wird. Der Enum-Name steht in der Datenbank.
+ *
+ * [PLAYLIST_ALBUM] steht nicht im Katalog: Das sind die Alben einer Sonos-Playlist, aus der eine
+ * Kategorie ihre Musik bezieht ([MusicCategory.playlistId]); die Sonos-Id ist die der Playlist.
  */
 enum class MusicSource(val label: String) {
     FAVORITE("Sonos-Favorit"),
-    PLAYLIST("Sonos-Playlist");
+    PLAYLIST("Sonos-Playlist"),
+    PLAYLIST_ALBUM("Album aus Sonos-Playlist");
 
     companion object {
         fun fromKey(key: String?): MusicSource = entries.firstOrNull { it.name == key } ?: FAVORITE
@@ -88,6 +92,12 @@ data class CatalogEntry(
 }
 
 val MusicItem.catalogKey: String get() = "$source:$sonosId"
+
+/** Die Kategorie bezieht ihre Musik aus einer Sonos-Playlist: jedes Album darin ein Eintrag. */
+val MusicCategory.isPlaylistCategory: Boolean get() = playlistId != null
+
+/** Schlüssel der Sonos-Playlist einer solchen Kategorie im Katalog ([CatalogEntry.key]). */
+val MusicCategory.playlistCatalogKey: String? get() = playlistId?.let { "${MusicSource.PLAYLIST.name}:$it" }
 
 /**
  * Woran alle Tablets erkennen, dass diese Musik schon gespielt wurde — die Ids von Sonos

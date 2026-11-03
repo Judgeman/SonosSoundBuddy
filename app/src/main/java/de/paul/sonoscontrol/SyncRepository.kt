@@ -69,7 +69,9 @@ class SyncRepository(
                         addedAt = item.addedAt
                     )
                 },
-                profileSyncIds = profilesByCategory[category.id].orEmpty().mapNotNull { syncIdOf[it] }.sorted()
+                profileSyncIds = profilesByCategory[category.id].orEmpty().mapNotNull { syncIdOf[it] }.sorted(),
+                playlistId = category.playlistId,
+                playlistName = category.playlistName
             )
         }
         val speakers = speakerDao.getAll().sortedBy { it.name.lowercase() }.map {
@@ -162,7 +164,11 @@ class SyncRepository(
 
         try {
             database.withTransaction {
-                categories?.let { replaceLibrary(snapshot.profiles.orEmpty(), it) }
+                categories?.let {
+                    replaceLibrary(snapshot.profiles.orEmpty(), it)
+                    // Stand von einer älteren App-Version: Playlist-Kategorien ohne ihre Playlist
+                    profileDao.restorePlaylistLinks()
+                }
                 // Mit der Musik zusammen, damit sie nicht kurz als neu erscheint. Was hier schon
                 // gespielt wurde, bleibt es
                 if (SyncScope.PROFILES in applied) snapshot.playedMusic?.let { mergePlayed(it) }
@@ -210,7 +216,9 @@ class SyncRepository(
                     itemSort = category.itemSort,
                     itemSortDescending = category.itemSortDescending,
                     coverAnimation = category.coverAnimation
-                        ?: CoverAnimation.suggestedFor(category.name, category.imageKey).name
+                        ?: CoverAnimation.suggestedFor(category.name, category.imageKey).name,
+                    playlistId = category.playlistId,
+                    playlistName = category.playlistName
                 )
             )
             profileDao.insertAssignments(
