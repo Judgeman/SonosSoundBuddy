@@ -335,6 +335,12 @@ class MainViewModel(
             runCatching { repository.deleteUnusedImages() }
                 .onFailure { Log.w(TAG, "Aufräumen der Bilder fehlgeschlagen", it) }
         }
+        viewModelScope.launch {
+            // Hat dieses Tablet eine Playlist-Kategorie noch mit einer älteren Version übernommen?
+            runCatching { repository.restorePlaylistLinks() }
+                .onSuccess { if (it > 0) Log.d(TAG, "$it Playlist-Kategorie(n) wieder mit ihrer Playlist verbunden") }
+                .onFailure { Log.w(TAG, "Playlist-Kategorien nicht geprüft", it) }
+        }
     }
 
     /** Wird aus MainActivity.handleIntent() mit der sonoscontrol://callback-Uri aufgerufen. */

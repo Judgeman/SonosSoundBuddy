@@ -241,6 +241,9 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
 
     suspend fun getCategory(categoryId: Long): MusicCategory? = profileDao.getCategory(categoryId)
 
+    /** Siehe [ProfileDao.restorePlaylistLinks] — beim App-Start. */
+    suspend fun restorePlaylistLinks(): Int = database.withTransaction { profileDao.restorePlaylistLinks() }
+
     /** Merkt sich die Sonos-Playlist der Kategorie, z. B. nach dem Wechsel oder wenn Sonos die Id neu vergeben hat. */
     suspend fun setCategoryPlaylist(categoryId: Long, playlistId: String, playlistName: String) =
         profileDao.setCategoryPlaylist(categoryId, playlistId, playlistName)
@@ -537,6 +540,28 @@ class SettingsRepository(private val database: AppDatabase, private val imageSto
         /** So viele Abspielvorgänge merkt sich das Tablet für „Zuletzt gespielt“. */
         private const val PLAY_LOG_SIZE = 50
     }
+}
+
+/**
+ * Stellt die Verbindung von Playlist-Kategorien zu ihrer Sonos-Playlist wieder her, die beim Abgleich
+ * verloren gegangen ist: Eine App-Version ohne Playlist-Kategorien übernimmt deren Alben als
+ * normale Kategorie und lässt die Playlist weg — auch, wenn sie den Stand später weitergibt.
+ * Erkennbar ist so eine Kategorie daran, dass alle ihre Einträge Alben aus einer Playlist sind.
+ * Die Id der Playlist tragen die Einträge selbst (die des zuletzt hinzugefügten, falls Sonos sie
+ * inzwischen neu vergeben hat); den Namen trägt der nächste Abgleich mit der Playlist nach.
+ * Gibt zurück, wie viele Kategorien wieder verbunden wurden.
+ */
+internal suspend fun ProfileDao.restorePlaylistLinks(): Int {
+    val itemsByCategory = getItems().groupBy { it.categoryId }
+    var restored = 0
+    getCategories().filter { it.playlistId == null }.forEach { category ->
+        val items = itemsByCategory[category.id].orEmpty()
+        if (items.isEmpty() || items.any { it.musicSource != MusicSource.PLAYLIST_ALBUM }) return@forEach
+        val playlistId = items.maxWith(compareBy<MusicItem>({ it.addedAt }, { it.id })).sonosId
+        setCategoryPlaylist(category.id, playlistId, null)
+        restored++
+    }
+    return restored
 }
 
 /** Pfade aller gespeicherten Bilder, auf die Kategorien und Einträge verweisen. */

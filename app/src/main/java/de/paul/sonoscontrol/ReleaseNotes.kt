@@ -57,7 +57,9 @@ val ReleaseHistory = listOf(
                         "aus der Playlist nimmst, verschwindet auch in der App.",
                     "Anlegen in der Musikauswahl über „Kategorie aus Sonos-Playlist“.",
                     "Abspielen klappt nur, wenn das Tablet im selben WLAN ist wie die Speaker. Alle Tablets " +
-                        "brauchen diese Version, sonst lassen sich die Alben dort nicht abspielen."
+                        "brauchen diese Version, sonst lassen sich die Alben dort nicht abspielen.",
+                    "Hat ein Tablet die Kategorie noch mit einer älteren Version übernommen, verbindet die " +
+                        "neue Version sie nach dem Update von selbst wieder mit ihrer Playlist."
                 )
             )
         )

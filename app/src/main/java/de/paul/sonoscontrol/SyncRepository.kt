@@ -164,7 +164,11 @@ class SyncRepository(
 
         try {
             database.withTransaction {
-                categories?.let { replaceLibrary(snapshot.profiles.orEmpty(), it) }
+                categories?.let {
+                    replaceLibrary(snapshot.profiles.orEmpty(), it)
+                    // Stand von einer älteren App-Version: Playlist-Kategorien ohne ihre Playlist
+                    profileDao.restorePlaylistLinks()
+                }
                 // Mit der Musik zusammen, damit sie nicht kurz als neu erscheint. Was hier schon
                 // gespielt wurde, bleibt es
                 if (SyncScope.PROFILES in applied) snapshot.playedMusic?.let { mergePlayed(it) }

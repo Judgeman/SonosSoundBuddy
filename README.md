@@ -219,7 +219,12 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     einzelner Einträge gibt es dort nicht — das passiert in der Sonos-App.
     „Andere Playlist“ hängt die Kategorie an eine andere Playlist. Abspielen
     geht nur im selben WLAN wie die Speaker (siehe „Alben aus einer Playlist
-    abspielen“).
+    abspielen“). Eine ältere App-Version übernimmt so eine Kategorie beim
+    Abgleich als normale Kategorie mit den Alben (die sich dort nicht abspielen
+    lassen) und lässt die Playlist weg. Nach dem Update — und nach jedem
+    übernommenen Stand — verbindet die App jede Kategorie, deren Einträge alle
+    Alben aus einer Playlist sind, wieder mit dieser Playlist (Id aus den
+    Einträgen, den Namen trägt der nächste Abgleich nach).
 
     „Musik hinzufügen“ öffnet den **Sonos-Katalog** (alle Sonos-Favoriten und
     Sonos-Playlisten) mit Suche (auch nach Künstler) und Filter nach Songs,
