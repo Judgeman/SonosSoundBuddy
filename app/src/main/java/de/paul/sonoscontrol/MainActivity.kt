@@ -339,6 +339,7 @@ private fun rememberMusicLibraryActions(viewModel: MainViewModel): MusicLibraryA
         onReorderMusicItems = viewModel::reorderMusicItems,
         onDismissImageError = viewModel::dismissImageImportError,
         onLoadPlaylists = viewModel::loadPlaylistChoices,
+        onReloadPlaylists = viewModel::loadCatalog,
         onCreatePlaylistCategory = viewModel::createPlaylistCategory,
         onChangeCategoryPlaylist = viewModel::changeCategoryPlaylist,
         onRefreshPlaylistCategory = viewModel::refreshPlaylistCategoryNow

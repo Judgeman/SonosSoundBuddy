@@ -55,7 +55,9 @@ val ReleaseHistory = listOf(
                     "Neue Alben legst du nur noch in der Sonos-App in die Playlist: Die App übernimmt sie " +
                         "beim Öffnen der Musikauswahl von selbst und lässt sie für die Kinder funkeln. Was du " +
                         "aus der Playlist nimmst, verschwindet auch in der App.",
-                    "Anlegen in der Musikauswahl über „Kategorie aus Sonos-Playlist“.",
+                    "Anlegen in der Musikauswahl über „Kategorie aus Sonos-Playlist“. „Neu laden“ in der " +
+                        "Auswahl holt die Playlisten frisch von Sonos – etwa nach dem Anlegen einer neuen " +
+                        "Playlist in der Sonos-App.",
                     "Abspielen klappt nur, wenn das Tablet im selben WLAN ist wie die Speaker. Alle Tablets " +
                         "brauchen diese Version, sonst lassen sich die Alben dort nicht abspielen.",
                     "Hat ein Tablet die Kategorie noch mit einer älteren Version übernommen, verbindet die " +

@@ -472,8 +472,10 @@ class MusicLibraryActions(
     /** Kategorie-Id, Ids ihrer Musik in der neuen Reihenfolge (nach Drag & Drop). */
     val onReorderMusicItems: (Long, List<Long>) -> Unit,
     val onDismissImageError: () -> Unit,
-    /** Lädt die Sonos-Playlisten zur Auswahl für eine Playlist-Kategorie. */
+    /** Lädt die Sonos-Playlisten zur Auswahl für eine Playlist-Kategorie, falls noch nicht geschehen. */
     val onLoadPlaylists: () -> Unit,
+    /** Holt die Sonos-Playlisten neu — z. B. nach dem Anlegen einer Playlist in der Sonos-App. */
+    val onReloadPlaylists: () -> Unit,
     /** Legt eine Kategorie an, deren Einträge die Alben der Playlist sind. */
     val onCreatePlaylistCategory: (CatalogEntry) -> Unit,
     /** Kategorie-Id, neue Playlist. */
@@ -599,7 +601,7 @@ fun MusicLibraryScreen(
             title = "Kategorie aus Sonos-Playlist",
             state = catalogState,
             selectedPlaylistId = null,
-            onReload = actions.onLoadPlaylists,
+            onReload = actions.onReloadPlaylists,
             onChoose = {
                 showNewPlaylistCategory = false
                 actions.onCreatePlaylistCategory(it)
@@ -910,7 +912,7 @@ fun CategoryEditorScreen(
             title = "Andere Sonos-Playlist",
             state = catalogState,
             selectedPlaylistId = category.category.playlistId,
-            onReload = actions.onLoadPlaylists,
+            onReload = actions.onReloadPlaylists,
             onChoose = {
                 showPlaylistChooser = false
                 if (it.sonosId != category.category.playlistId) actions.onChangeCategoryPlaylist(id, it)
@@ -2125,7 +2127,10 @@ private fun PlaylistChooserDialog(
                     is CatalogState.Loaded -> {
                         val playlists = state.entries.filter { it.source == MusicSource.PLAYLIST }
                         if (playlists.isEmpty()) {
-                            Text("Keine Sonos-Playlisten gefunden. Lege in der Sonos-App eine an und füge dort Alben hinzu.")
+                            Text(
+                                "Keine Sonos-Playlisten gefunden. Lege in der Sonos-App eine an, füge dort Alben " +
+                                    "hinzu und tippe dann auf „Neu laden“."
+                            )
                         } else {
                             LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
                                 items(playlists, key = { it.key }) { entry ->
@@ -2156,6 +2161,15 @@ private fun PlaylistChooserDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Abbrechen") }
+        },
+        // Die Liste stammt aus dem zuletzt geladenen Katalog — eine eben in der Sonos-App angelegte
+        // Playlist fehlt darin noch
+        dismissButton = {
+            TextButton(onClick = onReload, enabled = state !is CatalogState.Loading) {
+                Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Neu laden")
+            }
         }
     )
 }

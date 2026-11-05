@@ -204,7 +204,8 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
       Reihenfolge des Antippens.
 
     **Kategorie aus Sonos-Playlist** (Knopf unter „Kategorie hinzufügen“, z. B.
-    für Hörbücher): Die Kategorie hängt an genau einer Sonos-Playlist, und jedes
+    für Hörbücher; „Neu laden“ in der Playlist-Auswahl holt die Playlisten frisch
+    von Sonos): Die Kategorie hängt an genau einer Sonos-Playlist, und jedes
     **Album** darin ist ein eigener Eintrag mit eigenem Cover — ein Tipp spielt
     nur dieses Album, nicht die ganze Playlist. Neue Hörbücher legt man nur noch
     in der Sonos-App in die Playlist; die App gleicht die Kategorie nach dem
