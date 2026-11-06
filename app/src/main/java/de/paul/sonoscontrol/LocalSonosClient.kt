@@ -198,12 +198,11 @@ class LocalSonosClient(context: Context) {
         suspend fun transport(action: String, vararg arguments: Pair<String, String>): String =
             soap(base, AV_TRANSPORT_PATH, "AVTransport", action, "InstanceID" to "0", *arguments)
 
-        // Zufall vom letzten Mal vorher aus, damit die Warteschlange in der Reihenfolge der Playlist bleibt.
-        // Ob Wiederholen an ist, bleibt, wie es war.
+        // Zufall und Wiederholen vom letzten Mal vorher aus, damit die Warteschlange in der Reihenfolge
+        // der Playlist bleibt
         val previousMode = ignoringRefusal { textOf(transport("GetTransportSettings"), "PlayMode")?.trim() }
-        val repeat = repeatOf(previousMode)
-        if (previousMode != null && previousMode != playMode(shuffle = false, repeat)) {
-            ignoringRefusal { transport("SetPlayMode", "NewPlayMode" to playMode(shuffle = false, repeat)) }
+        if (previousMode != null && previousMode != PLAY_MODE_NORMAL) {
+            ignoringRefusal { transport("SetPlayMode", "NewPlayMode" to PLAY_MODE_NORMAL) }
         }
 
         transport("RemoveAllTracksFromQueue")
@@ -247,7 +246,8 @@ class LocalSonosClient(context: Context) {
         Log.d(TAG, "„$albumName“: ${keep.size} von $queueLength Titeln der Playlist „$playlistName“ in der Warteschlange")
 
         transport("SetAVTransportURI", "CurrentURI" to "x-rincon-queue:${coordinator.uuid}#0", "CurrentURIMetaData" to "")
-        ignoringRefusal { transport("SetPlayMode", "NewPlayMode" to playMode(shuffle, repeat)) }
+        // Wiederholen bleibt aus, sonst liefe das Album in Dauerschleife
+        ignoringRefusal { transport("SetPlayMode", "NewPlayMode" to if (shuffle) PLAY_MODE_SHUFFLE else PLAY_MODE_NORMAL) }
         // Im Zufallsmodus auch mit einem zufälligen Titel beginnen, sonst der Reihe nach von vorn
         val first = if (shuffle) Random.nextInt(keep.size) + 1 else 1
         transport("Seek", "Unit" to "TRACK_NR", "Target" to first.toString())
@@ -562,19 +562,10 @@ class LocalSonosClient(context: Context) {
         const val NO_SPEAKER_MESSAGE = "Kein Sonos-Speaker im WLAN gefunden. Alben aus einer Playlist lassen sich " +
             "nur abspielen, wenn das Tablet im selben WLAN ist wie die Speaker."
 
-        /** Wiederholen aus einem UPnP-Wiedergabemodus: "ALL", "ONE" oder null = aus. */
-        private fun repeatOf(playMode: String?): String? = when (playMode) {
-            "REPEAT_ALL", "SHUFFLE" -> "ALL"
-            "REPEAT_ONE", "SHUFFLE_REPEAT_ONE" -> "ONE"
-            else -> null
-        }
-
-        /** UPnP-Wiedergabemodus aus Zufall und Wiederholen ([repeatOf]). */
-        private fun playMode(shuffle: Boolean, repeat: String?): String = when (repeat) {
-            "ALL" -> if (shuffle) "SHUFFLE" else "REPEAT_ALL"
-            "ONE" -> if (shuffle) "SHUFFLE_REPEAT_ONE" else "REPEAT_ONE"
-            else -> if (shuffle) "SHUFFLE_NOREPEAT" else "NORMAL"
-        }
+        /** UPnP-Wiedergabemodus: der Reihe nach, ohne Wiederholen. */
+        private const val PLAY_MODE_NORMAL = "NORMAL"
+        /** UPnP-Wiedergabemodus: zufällig, ohne Wiederholen („SHUFFLE“ allein hieße bei Sonos: mit Wiederholen). */
+        private const val PLAY_MODE_SHUFFLE = "SHUFFLE_NOREPEAT"
         private val QUEUE_POSITION = Regex("^Q:0/(\\d+)$")
 
         private fun escapeXml(text: String): String = buildString(text.length) {

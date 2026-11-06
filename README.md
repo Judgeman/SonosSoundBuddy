@@ -188,7 +188,9 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
       „Hinzugefügt“ (älteste oder neueste zuerst).
     - die **Abspielreihenfolge**: „Der Reihe nach“, „Zufällig“ oder „Kinder
       entscheiden“. Gilt für Playlisten und Alben; Songs, Radio und
-      Sonos-Playlisten mit nur einem Titel laufen einfach los.
+      Sonos-Playlisten mit nur einem Titel laufen einfach los. Wiederholen
+      schaltet die App beim Start immer aus — auch wenn es in der Sonos-App
+      an war —, damit nichts in Dauerschleife läuft.
     - **Tier am Cover**: „Tanzen“ oder „Vorlesen“. Kategorien mit „Hörbuch“,
       „Hörspiel“, „Geschichte“ oder „Märchen“ im Namen (oder dem
       Hörbuch-Bild) lesen von Anfang an vor, alle anderen tanzen.
@@ -340,7 +342,7 @@ nach einer erfolgreichen Erneuerung „Access-Token erneuert“.
 | Sonos-Favoriten / -Playlisten | `GET /households/{id}/favorites`, `GET /households/{id}/playlists` |
 | Titel einer Playlist | `POST /households/{id}/playlists/getPlaylist` |
 | Musik abspielen | `POST /groups/{id}/favorites`, `POST /groups/{id}/playlists` (`action: REPLACE`) |
-| Zufall an/aus, Start | `POST /groups/{id}/playback/playMode` (`shuffle`), `POST /groups/{id}/playback/play` |
+| Zufall an/aus, Wiederholen aus, Start | `POST /groups/{id}/playback/playMode` (`shuffle` bzw. `repeat`/`repeatOne`), `POST /groups/{id}/playback/play` |
 
 Die Wiedergabe wird alle 5 s abgefragt, solange die App im Vordergrund ist;
 dazwischen läuft die Position lokal weiter. Das Cover wird aus `imageUrl`
@@ -360,13 +362,14 @@ spielt die App deshalb über den Speaker im Heimnetz (siehe unten).
 Die App fragt einen Speaker im WLAN nach der Zonen-Topologie
 (`ZoneGroupTopology#GetZoneGroupState`) und schickt alles an den Koordinator der
 Gruppe, in der der gewählte Speaker spielt (`/MediaRenderer/AVTransport/Control`):
-Zufall vom letzten Mal aus (`GetTransportSettings`/`SetPlayMode`, Wiederholen
-bleibt), Warteschlange leeren (`RemoveAllTracksFromQueue`), die ganze Playlist
+Zufall und Wiederholen vom letzten Mal aus (`GetTransportSettings`/`SetPlayMode`),
+Warteschlange leeren (`RemoveAllTracksFromQueue`), die ganze Playlist
 einreihen (`AddURIToQueue` mit `file:///jffs/settings/savedqueues.rsq#<Id>`),
 die Warteschlange lesen (Browse `Q:0`, seitenweise) und alle Plätze, die nicht
 zum Album gehören, von hinten nach vorne entfernen (`RemoveTrackRangeFromQueue`).
 Dann die Warteschlange als Quelle setzen (`SetAVTransportURI`
-`x-rincon-queue:<Koordinator>#0`), Zufall nach Einstellung der Kategorie,
+`x-rincon-queue:<Koordinator>#0`), Zufall nach Einstellung der Kategorie
+und ohne Wiederholen (`NORMAL` bzw. `SHUFFLE_NOREPEAT`),
 `Seek` auf den ersten Titel (bei Zufall einen zufälligen) und `Play`. Die
 Titel der Playlist für die Alben kommen ebenfalls vom Speaker (Browse `SQ:<Id>`
 mit Album, Künstler und Cover), sonst aus der Cloud (`getPlaylist`, ohne
@@ -441,9 +444,11 @@ die App beim Abspielen über den Namen.
 
 Für die Reihenfolge lädt die App die Musik erst, ohne sie zu starten, setzt
 dann den Zufallsmodus ausdrücklich an oder aus (sonst bliebe er vom letzten
-Mal an) und startet die Wiedergabe. Im Zufallsmodus springt sie vorher
-einen Titel weiter, damit nicht immer der erste Titel zuerst läuft. Radio
-wird ohne diese Schritte direkt gestartet.
+Mal an), schaltet Wiederholen aus (eigener Aufruf, damit eine Quelle ohne
+Wiederholen nicht auch den Zufall verhindert) und startet die Wiedergabe.
+Im Zufallsmodus springt sie vorher einen Titel weiter, damit nicht immer
+der erste Titel zuerst läuft. Radio wird ohne diese Schritte direkt
+gestartet.
 
 ## Mehrere Tablets abgleichen
 

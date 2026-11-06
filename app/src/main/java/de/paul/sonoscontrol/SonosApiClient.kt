@@ -167,6 +167,17 @@ class SonosApiClient(
         post("$baseUrl/groups/$groupId/playback/playMode", request.toString())
     }
 
+    /** Wiederholen der Gruppe ausschalten — alle Titel und den einzelnen Titel (setPlayModes). */
+    suspend fun setRepeatOff(groupId: String) {
+        val request = buildJsonObject {
+            put("playModes", buildJsonObject {
+                put("repeat", false)
+                put("repeatOne", false)
+            })
+        }
+        post("$baseUrl/groups/$groupId/playback/playMode", request.toString())
+    }
+
     suspend fun play(groupId: String) {
         post("$baseUrl/groups/$groupId/playback/play")
     }
