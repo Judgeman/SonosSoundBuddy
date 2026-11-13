@@ -163,6 +163,8 @@ private fun ScreenContent(viewModel: MainViewModel, syncViewModel: SyncViewModel
             onPlayMusic = { item, shuffle ->
                 viewModel.playMusic(item, shuffle, onNewMusicPlayed = syncViewModel::onNewMusicPlayed)
             },
+            movingMusic = viewModel.movingMusic,
+            onMoveMusic = viewModel::moveMusicTo,
             onMusicPickerOpened = {
                 syncViewModel.onMusicPickerOpened()
                 // Neue Alben in einer Playlist-Kategorie gleich zeigen

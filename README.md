@@ -41,6 +41,21 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
   - Ist in den Settings nur **ein** Speaker freigegeben, ist er immer
     automatisch gewählt (ohne Dropdown-Pfeil). Ansonsten wird beim Start
     der zuletzt gewählte Speaker wiederhergestellt.
+  - **Musik mitnehmen** (`MoveMusic.kt`): Rechts neben dem Speaker ein Knopf
+    mit Note und Pfeil, sobald mehr als ein Speaker auswählbar ist (ausgegraut,
+    solange nichts geladen ist). Er öffnet „Wo möchtest du weiterhören?“ mit
+    allen anderen auswählbaren Speakern als große Kacheln mit ihrem Icon — so
+    nehmen die Kinder z. B. die Hörgeschichte vom Kinderzimmer mit ins Bad.
+    Ein Tipp holt den Ziel-Speaker in die Gruppe und nimmt den bisherigen
+    heraus (`modifyGroupMembers`, ein Aufruf; Sonos nimmt erst auf, dann heraus,
+    ein anderer Player übernimmt die Gruppe). Die Musik läuft an derselben
+    Stelle weiter; spielte der bisherige Speaker mit weiteren zusammen, spielen
+    die weiter. Steht der Ziel-Speaker über seiner maximalen Lautstärke, wird er
+    vorher heruntergeregelt. Lief die Musik vorher und steht danach still,
+    startet die App sie einmal neu. Danach ist der Ziel-Speaker gewählt, und das
+    Tier am Cover übernimmt die Kategorie des bisherigen Speakers. Solange die
+    Musik umzieht, hüpfen in einem Popup Noten vom einen Raum in den anderen;
+    es fängt alle Berührungen und die Zurück-Taste ab.
   - Rechts daneben die **Profil-Auswahl**, die nur das Tier-Icon des
     gewählten Kinder-Profils zeigt. Gleiche Logik wie bei den Speakern: ein
     aktives Profil ist fest gewählt, bei mehreren wird das zuletzt gewählte
@@ -341,6 +356,7 @@ nach einer erfolgreichen Erneuerung „Access-Token erneuert“.
 | Titel einer Playlist | `POST /households/{id}/playlists/getPlaylist` |
 | Musik abspielen | `POST /groups/{id}/favorites`, `POST /groups/{id}/playlists` (`action: REPLACE`) |
 | Zufall an/aus, Start | `POST /groups/{id}/playback/playMode` (`shuffle`), `POST /groups/{id}/playback/play` |
+| Musik mitnehmen | `POST /groups/{id}/groups/modifyGroupMembers` (`playerIdsToAdd`, `playerIdsToRemove`) |
 
 Die Wiedergabe wird alle 5 s abgefragt, solange die App im Vordergrund ist;
 dazwischen läuft die Position lokal weiter. Das Cover wird aus `imageUrl`
@@ -613,6 +629,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich/Release Notes samt Seitenstand für „Zurück“, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
+| `MoveMusic.kt` | „Musik mitnehmen“: Knopf, Raum-Auswahl, Popup mit hüpfenden Noten während des Umzugs |
 | `ErrorBuddy.kt` | Animierter SoundBuddy für Fehlermeldungen |
 | `MusicPicker.kt`, `NewMusicIcon.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup, buntes Funkeln für neue Musik |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |

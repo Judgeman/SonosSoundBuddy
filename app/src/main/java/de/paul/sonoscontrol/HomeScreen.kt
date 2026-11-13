@@ -115,6 +115,10 @@ fun HomeScreen(
     playedMusic: Set<String>?,
     onSelectProfile: (Long) -> Unit,
     onPlayMusic: (MusicItem, Boolean?) -> Unit,
+    /** Die Musik zieht gerade auf einen anderen Speaker um — solange sperrt ein Popup den Bildschirm. */
+    movingMusic: MovingMusic?,
+    /** Die Musik des gewählten Speakers zu diesem Speaker mitnehmen. */
+    onMoveMusic: (playerId: String) -> Unit,
     /** Die Musikauswahl geht auf — Gelegenheit nachzusehen, was auf den anderen Tablets gespielt wurde. */
     onMusicPickerOpened: () -> Unit,
     controls: PlaybackControls,
@@ -127,7 +131,7 @@ fun HomeScreen(
     val visitors = remember { AnimalVisitorState() }
     // Tiere schauen nur vorbei, wenn die Kinder den Homescreen frei vor sich haben
     val visitorsActive = isInForeground && state is UiState.SpeakerList &&
-        startingMusic == null && visiblePlaybackError == null && !musicPickerOpen
+        startingMusic == null && movingMusic == null && visiblePlaybackError == null && !musicPickerOpen
     val showsPlayback = state is UiState.SpeakerList && selectedSpeaker != null
     val coverColors = rememberCoverColors(if (showsPlayback) nowPlaying?.imageUrl else null)
     LaunchedEffect(musicPickerOpen) { if (musicPickerOpen) onMusicPickerOpened() }
@@ -198,6 +202,7 @@ fun HomeScreen(
                             playedMusic = playedMusic,
                             onSelectProfile = onSelectProfile,
                             onPlayMusic = onPlayMusic,
+                            onMoveMusic = onMoveMusic,
                             onMusicPickerOpenChange = { musicPickerOpen = it },
                             coverAnimation = coverAnimation,
                             controls = controls
@@ -213,6 +218,8 @@ fun HomeScreen(
             )
 
             StartingMusicOverlay(item = startingMusic.takeIf { state is UiState.SpeakerList })
+
+            MovingMusicOverlay(moving = movingMusic.takeIf { state is UiState.SpeakerList })
 
             ErrorOverlay(
                 message = visiblePlaybackError.takeIf { state is UiState.SpeakerList },
@@ -401,12 +408,16 @@ private fun SpeakerHomeContent(
     playedMusic: Set<String>?,
     onSelectProfile: (Long) -> Unit,
     onPlayMusic: (MusicItem, Boolean?) -> Unit,
+    onMoveMusic: (playerId: String) -> Unit,
     onMusicPickerOpenChange: (Boolean) -> Unit,
     coverAnimation: CoverAnimation,
     controls: PlaybackControls
 ) {
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var showMusicPicker by remember { mutableStateOf(false) }
+    var showMoveMusic by remember { mutableStateOf(false) }
+    // Wohin die Musik mitkommen kann: alle anderen Speaker, die hier gewählt werden dürfen
+    val moveTargets = speakers.filter { it.playerId != selectedSpeaker?.playerId }
     // Je Profil, wo seine Musikauswahl zuletzt stand — nach dem Abspielen geht sie wieder dort auf
     val musicPickerPositions = remember { mutableMapOf<Long, MusicPickerPosition>() }
 
@@ -428,6 +439,14 @@ private fun SpeakerHomeContent(
                 onSelectSpeaker = onSelectSpeaker,
                 modifier = Modifier.weight(1f)
             )
+            if (selectedSpeaker != null && moveTargets.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(12.dp))
+                MoveMusicButton(
+                    // Nur wenn auch etwas geladen ist, das mitkommen kann
+                    enabled = nowPlaying?.title != null && !isStartingMusic,
+                    onClick = { showMoveMusic = true }
+                )
+            }
             if (profiles.isNotEmpty()) {
                 Spacer(modifier = Modifier.width(12.dp))
                 ProfileDropdown(
@@ -494,6 +513,20 @@ private fun SpeakerHomeContent(
                     onPlayMusic(item, shuffle)
                 },
                 onDismiss = { showMusicPicker = false }
+            )
+        }
+    }
+
+    if (showMoveMusic && selectedSpeaker != null && moveTargets.isNotEmpty()) {
+        SoundBuddyTheme {
+            MoveMusicDialog(
+                from = selectedSpeaker,
+                targets = moveTargets,
+                onMove = { playerId ->
+                    showMoveMusic = false
+                    onMoveMusic(playerId)
+                },
+                onDismiss = { showMoveMusic = false }
             )
         }
     }

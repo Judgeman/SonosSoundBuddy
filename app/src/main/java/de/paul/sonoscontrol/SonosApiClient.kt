@@ -11,6 +11,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.Call
@@ -169,6 +170,19 @@ class SonosApiClient(
 
     suspend fun play(groupId: String) {
         post("$baseUrl/groups/$groupId/playback/play")
+    }
+
+    /**
+     * Nimmt Player in die Gruppe auf und/oder aus ihr heraus. Sonos nimmt erst auf, dann heraus — so
+     * läuft die Musik ohne Pause weiter, auch wenn der bisherige Koordinator die Gruppe verlässt
+     * (ein anderer Player übernimmt). Die Gruppe kann danach eine neue Id haben.
+     */
+    suspend fun modifyGroupMembers(groupId: String, playerIdsToAdd: List<String>, playerIdsToRemove: List<String>) {
+        val request = buildJsonObject {
+            put("playerIdsToAdd", JsonArray(playerIdsToAdd.map { JsonPrimitive(it) }))
+            put("playerIdsToRemove", JsonArray(playerIdsToRemove.map { JsonPrimitive(it) }))
+        }
+        post("$baseUrl/groups/$groupId/groups/modifyGroupMembers", request.toString())
     }
 
     private suspend fun get(url: String): String =

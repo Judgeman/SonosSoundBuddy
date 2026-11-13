@@ -75,6 +75,9 @@ data class NowPlaying(
     }
 }
 
+/** Die Musik zieht gerade von [from] nach [to] um („Mitnehmen“). */
+data class MovingMusic(val from: SpeakerConfig, val to: SpeakerConfig)
+
 class MainViewModel(
     private val tokenStore: TokenStore,
     /** Gemeinsam mit dem Abgleich, damit Tokens nur an einer Stelle erneuert werden. */
@@ -203,6 +206,10 @@ class MainViewModel(
         private set
 
     val isStartingMusic: Boolean get() = startingMusic != null
+
+    /** Zieht die Musik gerade auf einen anderen Speaker um? Solange sperrt ein Popup den Homescreen. */
+    var movingMusic: MovingMusic? by mutableStateOf(null)
+        private set
 
     var showPasswordPrompt: Boolean by mutableStateOf(false)
         private set
@@ -539,6 +546,8 @@ class MainViewModel(
 
     private fun restartPolling() {
         stopPolling()
+        // Während die Musik umzieht, fragt der Umzug selbst ab und startet danach neu
+        if (movingMusic != null) return
         nowPlaying = null
         clearPlaybackError()
         val playerId = selectedPlayerId ?: return
@@ -904,6 +913,110 @@ class MainViewModel(
             } finally {
                 onFinished()
             }
+        }
+    }
+
+    // --- Musik mitnehmen -------------------------------------------------
+
+    /**
+     * Nimmt die Musik des gewählten Speakers zu [targetPlayerId] mit — etwa vom Kinderzimmer ins
+     * Bad zum Zähneputzen: Der Ziel-Speaker kommt in die Gruppe, der bisherige geht heraus, und die
+     * Musik läuft an derselben Stelle weiter. Danach ist der Ziel-Speaker gewählt. Spielt der
+     * bisherige mit weiteren Speakern zusammen, spielen die weiter.
+     */
+    fun moveMusicTo(targetPlayerId: String) {
+        val sourcePlayerId = selectedPlayerId ?: return
+        val household = householdId ?: return
+        if (targetPlayerId == sourcePlayerId || movingMusic != null || isStartingMusic) return
+        val from = speakerConfigs.firstOrNull { it.playerId == sourcePlayerId } ?: return
+        val to = speakerConfigs.firstOrNull { it.playerId == targetPlayerId } ?: return
+        val wasPlaying = nowPlaying?.let { it.isPlaying || it.playbackState == PlaybackStatus.STATE_BUFFERING } == true
+        movingMusic = MovingMusic(from, to)
+        // Der bisherige Speaker steht gleich still — das soll der Homescreen nicht zwischendurch zeigen
+        stopPolling()
+        volumeJob?.cancel()
+        lastCommandAtMillis = SystemClock.elapsedRealtime()
+        viewModelScope.launch {
+            var moved = false
+            var playing: NowPlaying? = null
+            var error: String? = null
+            try {
+                val group = findGroup(household, sourcePlayerId)
+                // Nicht lauter loslegen als erlaubt — sonst regelt erst die nächste Abfrage herunter
+                limitVolume(targetPlayerId)
+                apiClient.modifyGroupMembers(
+                    groupId = group.id,
+                    playerIdsToAdd = if (targetPlayerId in group.playerIds) emptyList() else listOf(targetPlayerId),
+                    playerIdsToRemove = listOf(sourcePlayerId)
+                )
+                moved = true
+                // Das Tier am Cover macht dort weiter, was es hier gemacht hat (vorlesen oder tanzen)
+                settings.lastStartedCategories[sourcePlayerId]?.let {
+                    repository.setLastStartedCategory(targetPlayerId, it)
+                }
+                playing = fetchMovedMusic(household, targetPlayerId, wasPlaying)
+            } catch (e: CancellationException) {
+                movingMusic = null
+                throw e
+            } catch (e: SessionExpiredException) {
+                movingMusic = null
+                handleSessionExpired(e)
+                return@launch
+            } catch (e: Exception) {
+                error = e.message ?: "Die Musik konnte nicht mitgenommen werden"
+            }
+            movingMusic = null
+            if (moved) {
+                selectedPlayerId = targetPlayerId
+                launch { repository.setLastSelectedPlayer(targetPlayerId) }
+            }
+            restartPolling()
+            // Gleich die Wiedergabe am neuen Ort zeigen statt eines Ladekreises bis zur ersten Abfrage
+            if (playing != null) nowPlaying = playing
+            error?.let { reportPlaybackError(it, userAction = true) }
+        }
+    }
+
+    /** Stellt [playerId] auf sein Maximum, falls er gerade lauter steht. Klappt das nicht, regelt die nächste Abfrage. */
+    private suspend fun limitVolume(playerId: String) {
+        val max = maxVolumeFor(playerId)
+        if (max >= 100) return
+        try {
+            if (apiClient.getPlayerVolume(playerId).volume > max) apiClient.setPlayerVolume(playerId, max)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SessionExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            Log.d(TAG, "Lautstärke von $playerId vor dem Mitnehmen nicht begrenzt: ${e.message}")
+        }
+    }
+
+    /**
+     * Wiedergabe auf dem Ziel-Speaker nach dem Umzug. Lief die Musik vorher und steht jetzt still,
+     * wird sie einmal angeschubst. null, wenn die Abfrage nicht klappt — die Musik ist trotzdem
+     * umgezogen, dann zeigt die nächste Abfrage sie.
+     */
+    private suspend fun fetchMovedMusic(household: String, playerId: String, wasPlaying: Boolean): NowPlaying? {
+        delay(MOVE_REFRESH_DELAY_MS)
+        return try {
+            var playing = fetchNowPlaying(household, playerId)
+            if (wasPlaying && !playing.isPlaying && playing.playbackState != PlaybackStatus.STATE_BUFFERING) {
+                Log.d(TAG, "Musik steht nach dem Mitnehmen still (${playing.playbackState}) — wieder starten")
+                val groupId = playing.groupId
+                runCatching { apiClient.play(groupId) }
+                    .onFailure { if (it is CancellationException || it is SessionExpiredException) throw it }
+                delay(COMMAND_REFRESH_DELAY_MS)
+                playing = fetchNowPlaying(household, playerId)
+            }
+            playing
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SessionExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Wiedergabe nach dem Mitnehmen nicht abgefragt", e)
+            null
         }
     }
 
@@ -1416,6 +1529,8 @@ class MainViewModel(
         private const val VOLUME_DEBOUNCE_MS = 150L
         /** Neue Musik zu laden dauert bei Sonos etwas länger als ein Skip. */
         private const val MUSIC_REFRESH_DELAY_MS = 1_500L
+        /** Bis die Gruppe nach dem Mitnehmen steht und die Musik am neuen Ort läuft. */
+        private const val MOVE_REFRESH_DELAY_MS = 1_500L
         private const val QUEUE_FILL_RETRY_MS = 400L
         private const val QUEUE_FILL_TIMEOUT_MS = 3_000L
         private const val SHUFFLE_OFF_POLL_MS = 300L
