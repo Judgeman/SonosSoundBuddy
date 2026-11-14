@@ -46,16 +46,24 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
     solange nichts geladen ist). Er öffnet „Wo möchtest du weiterhören?“ mit
     allen anderen auswählbaren Speakern als große Kacheln mit ihrem Icon — so
     nehmen die Kinder z. B. die Hörgeschichte vom Kinderzimmer mit ins Bad.
-    Ein Tipp holt den Ziel-Speaker in die Gruppe und nimmt den bisherigen
-    heraus (`modifyGroupMembers`, ein Aufruf; Sonos nimmt erst auf, dann heraus,
-    ein anderer Player übernimmt die Gruppe). Die Musik läuft an derselben
-    Stelle weiter; spielte der bisherige Speaker mit weiteren zusammen, spielen
-    die weiter. Steht der Ziel-Speaker über seiner maximalen Lautstärke, wird er
-    vorher heruntergeregelt. Lief die Musik vorher und steht danach still,
-    startet die App sie einmal neu. Danach ist der Ziel-Speaker gewählt, und das
-    Tier am Cover übernimmt die Kategorie des bisherigen Speakers. Solange die
-    Musik umzieht, hüpfen in einem Popup Noten vom einen Raum in den anderen;
-    es fängt alle Berührungen und die Zurück-Taste ab.
+    Ein Tipp holt den Ziel-Speaker in die Gruppe (`modifyGroupMembers`), er
+    spielt an derselben Stelle mit. Der bisherige Speaker spielt noch
+    **15 Sekunden** weiter (`MOVE_SOURCE_STOP_DELAY_MS`), damit die Kinder Zeit
+    haben, hinüberzugehen, dann geht er aus der Gruppe — hat er sie gesteuert,
+    übernimmt ein anderer Player. Spielte der bisherige mit weiteren Speakern
+    zusammen, spielen die weiter. Hat jemand inzwischen umgruppiert (der
+    Ziel-Speaker spielt nicht mehr mit), bleibt alles, wie es ist. Klappt das
+    Herausnehmen auch nach drei Versuchen nicht, zeigt die App eine Meldung.
+    Lief die Musik vorher und steht danach still, startet die App sie einmal
+    neu. Wird die Musik innerhalb der 15 Sekunden zurückgeholt, bleibt der
+    bisherige Speaker einfach dabei; startet dort neue Musik, geht er vorher
+    gleich aus der Gruppe, damit sie nicht auch im anderen Raum läuft. Steht der
+    Ziel-Speaker über seiner maximalen Lautstärke, wird er vorher
+    heruntergeregelt. Danach ist der Ziel-Speaker gewählt, und das Tier am Cover
+    übernimmt die Kategorie des bisherigen Speakers. Solange die Musik umzieht,
+    hüpfen in einem Popup Noten vom einen Raum in den anderen; es fängt alle
+    Berührungen und die Zurück-Taste ab. Die Wartezeit läuft in der App: Wird
+    die App vorher beendet, spielt der bisherige Speaker weiter.
   - Rechts daneben die **Profil-Auswahl**, die nur das Tier-Icon des
     gewählten Kinder-Profils zeigt. Gleiche Logik wie bei den Speakern: ein
     aktives Profil ist fest gewählt, bei mehreren wird das zuletzt gewählte

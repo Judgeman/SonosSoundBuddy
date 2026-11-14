@@ -53,9 +53,13 @@ val ReleaseHistory = listOf(
                         "einen anderen Raum mit – etwa vom Kinderzimmer ins Bad zum Zähneputzen.",
                     "Ein Tipp öffnet „Wo möchtest du weiterhören?“ mit allen anderen Speakern, die auf dem " +
                         "Tablet auswählbar sind, als große Kacheln mit ihrem Icon.",
-                    "Die Musik läuft im neuen Raum an derselben Stelle weiter, im alten hört sie auf. Danach " +
-                        "ist der neue Raum auf dem Tablet gewählt, und das Tier am Cover liest oder tanzt dort " +
-                        "weiter.",
+                    "Die Musik läuft im neuen Raum an derselben Stelle weiter. Der alte Raum spielt noch " +
+                        "15 Sekunden mit, damit die Kinder Zeit haben, hinüberzugehen, dann hört er auf.",
+                    "Holen die Kinder die Musik in diesen 15 Sekunden zurück, spielt der alte Raum einfach " +
+                        "weiter. Startet im alten Raum neue Musik, läuft sie nur dort – die mitgenommene spielt im " +
+                        "neuen Raum weiter.",
+                    "Danach ist der neue Raum auf dem Tablet gewählt, und das Tier am Cover liest oder tanzt " +
+                        "dort weiter.",
                     "Steht der neue Speaker lauter als seine maximale Lautstärke, wird er vorher " +
                         "heruntergeregelt.",
                     "Welche Räume zur Wahl stehen, bestimmt weiter „auf dem Homescreen auswählbar“ in den " +

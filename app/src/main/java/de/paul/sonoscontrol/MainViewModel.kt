@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -244,6 +245,12 @@ class MainViewModel(
     private val playlistRefreshMutex = Mutex()
     private var playlistsRefreshedAt = 0L
 
+    /** Ein Speaker, aus dem die Musik mitgenommen wurde und der gleich aus der Gruppe geht. */
+    private class PendingLeave(val targetPlayerId: String, val job: Job)
+
+    /** Je bisherigem Speaker ([SpeakerConfig.playerId]), wann und wohin er die Musik abgibt. */
+    private val pendingLeaves = mutableMapOf<String, PendingLeave>()
+
     /** Speaker, die auf dem Homescreen gewählt werden dürfen und gerade im Haushalt verfügbar sind. */
     val selectableSpeakers: List<SpeakerConfig>
         get() {
@@ -452,6 +459,10 @@ class MainViewModel(
         tokenStore.clear()
         stopPolling()
         volumeJob?.cancel()
+        // Erst leeren, dann abbrechen: Ein abgebrochener Auftrag räumt sonst gleich selbst in der Liste auf
+        val leaves = pendingLeaves.values.toList()
+        pendingLeaves.clear()
+        leaves.forEach { it.job.cancel() }
         householdId = null
         selectedPlayerId = null
         nowPlaying = null
@@ -727,6 +738,9 @@ class MainViewModel(
                 }
             }
         ) {
+            // Wurde die Musik hier gerade erst mitgenommen, erst ganz aus der Gruppe — die neue Musik
+            // soll nur hier laufen, nicht auch im anderen Raum
+            leaveNowIfPending(household, playerId)
             // Nur ein Album aus einer Playlist — das kann nur der Speaker im Heimnetz
             if (item.musicSource == MusicSource.PLAYLIST_ALBUM) {
                 playAlbumFromPlaylist(household, playerId, item, shuffle = useShuffle && item.hasMultipleTracks)
@@ -920,9 +934,10 @@ class MainViewModel(
 
     /**
      * Nimmt die Musik des gewählten Speakers zu [targetPlayerId] mit — etwa vom Kinderzimmer ins
-     * Bad zum Zähneputzen: Der Ziel-Speaker kommt in die Gruppe, der bisherige geht heraus, und die
-     * Musik läuft an derselben Stelle weiter. Danach ist der Ziel-Speaker gewählt. Spielt der
-     * bisherige mit weiteren Speakern zusammen, spielen die weiter.
+     * Bad zum Zähneputzen: Der Ziel-Speaker kommt in die Gruppe und spielt an derselben Stelle mit.
+     * Der bisherige spielt noch [MOVE_SOURCE_STOP_DELAY_MS] weiter, damit die Kinder Zeit haben,
+     * hinüberzugehen, dann geht er aus der Gruppe ([scheduleLeave]). Danach ist der Ziel-Speaker
+     * gewählt. Spielt der bisherige mit weiteren Speakern zusammen, spielen die weiter.
      */
     fun moveMusicTo(targetPlayerId: String) {
         val sourcePlayerId = selectedPlayerId ?: return
@@ -930,31 +945,30 @@ class MainViewModel(
         if (targetPlayerId == sourcePlayerId || movingMusic != null || isStartingMusic) return
         val from = speakerConfigs.firstOrNull { it.playerId == sourcePlayerId } ?: return
         val to = speakerConfigs.firstOrNull { it.playerId == targetPlayerId } ?: return
-        val wasPlaying = nowPlaying?.let { it.isPlaying || it.playbackState == PlaybackStatus.STATE_BUFFERING } == true
         movingMusic = MovingMusic(from, to)
-        // Der bisherige Speaker steht gleich still — das soll der Homescreen nicht zwischendurch zeigen
         stopPolling()
         volumeJob?.cancel()
         lastCommandAtMillis = SystemClock.elapsedRealtime()
+        // Geht die Musik dorthin zurück, wo sie gerade erst weggenommen wurde? Dann soll sie dort weiterspielen
+        val returningLeave = cancelPendingLeave(targetPlayerId)
         viewModelScope.launch {
             var moved = false
             var playing: NowPlaying? = null
             var error: String? = null
             try {
                 val group = findGroup(household, sourcePlayerId)
-                // Nicht lauter loslegen als erlaubt — sonst regelt erst die nächste Abfrage herunter
-                limitVolume(targetPlayerId)
-                apiClient.modifyGroupMembers(
-                    groupId = group.id,
-                    playerIdsToAdd = if (targetPlayerId in group.playerIds) emptyList() else listOf(targetPlayerId),
-                    playerIdsToRemove = listOf(sourcePlayerId)
-                )
+                if (targetPlayerId !in group.playerIds) {
+                    // Nicht lauter loslegen als erlaubt — sonst regelt erst die nächste Abfrage herunter
+                    limitVolume(targetPlayerId)
+                    apiClient.modifyGroupMembers(group.id, playerIdsToAdd = listOf(targetPlayerId), playerIdsToRemove = emptyList())
+                }
                 moved = true
+                scheduleLeave(household, sourcePlayerId, targetPlayerId)
                 // Das Tier am Cover macht dort weiter, was es hier gemacht hat (vorlesen oder tanzen)
                 settings.lastStartedCategories[sourcePlayerId]?.let {
                     repository.setLastStartedCategory(targetPlayerId, it)
                 }
-                playing = fetchMovedMusic(household, targetPlayerId, wasPlaying)
+                playing = fetchMovedMusic(household, targetPlayerId)
             } catch (e: CancellationException) {
                 movingMusic = null
                 throw e
@@ -965,6 +979,8 @@ class MainViewModel(
             } catch (e: Exception) {
                 error = e.message ?: "Die Musik konnte nicht mitgenommen werden"
             }
+            // Zurückholen hat nicht geklappt → der Ziel-Speaker geht doch noch aus der Gruppe, sonst spielten beide weiter
+            if (!moved && returningLeave != null) scheduleLeave(household, targetPlayerId, returningLeave.targetPlayerId)
             movingMusic = null
             if (moved) {
                 selectedPlayerId = targetPlayerId
@@ -993,23 +1009,13 @@ class MainViewModel(
     }
 
     /**
-     * Wiedergabe auf dem Ziel-Speaker nach dem Umzug. Lief die Musik vorher und steht jetzt still,
-     * wird sie einmal angeschubst. null, wenn die Abfrage nicht klappt — die Musik ist trotzdem
-     * umgezogen, dann zeigt die nächste Abfrage sie.
+     * Wiedergabe auf dem Ziel-Speaker, sobald er mitspielt. null, wenn die Abfrage nicht klappt — die
+     * Musik ist trotzdem mitgekommen, dann zeigt die nächste Abfrage sie.
      */
-    private suspend fun fetchMovedMusic(household: String, playerId: String, wasPlaying: Boolean): NowPlaying? {
+    private suspend fun fetchMovedMusic(household: String, playerId: String): NowPlaying? {
         delay(MOVE_REFRESH_DELAY_MS)
         return try {
-            var playing = fetchNowPlaying(household, playerId)
-            if (wasPlaying && !playing.isPlaying && playing.playbackState != PlaybackStatus.STATE_BUFFERING) {
-                Log.d(TAG, "Musik steht nach dem Mitnehmen still (${playing.playbackState}) — wieder starten")
-                val groupId = playing.groupId
-                runCatching { apiClient.play(groupId) }
-                    .onFailure { if (it is CancellationException || it is SessionExpiredException) throw it }
-                delay(COMMAND_REFRESH_DELAY_MS)
-                playing = fetchNowPlaying(household, playerId)
-            }
-            playing
+            fetchNowPlaying(household, playerId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SessionExpiredException) {
@@ -1019,6 +1025,97 @@ class MainViewModel(
             null
         }
     }
+
+    /**
+     * Nimmt [sourcePlayerId] nach [MOVE_SOURCE_STOP_DELAY_MS] aus der Gruppe — bis dahin spielen
+     * beide Speaker, damit die Kinder Zeit haben, in den anderen Raum zu gehen.
+     */
+    private fun scheduleLeave(household: String, sourcePlayerId: String, targetPlayerId: String) {
+        cancelPendingLeave(sourcePlayerId)
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                delay(MOVE_SOURCE_STOP_DELAY_MS)
+                leaveGroupRetrying(household, sourcePlayerId, targetPlayerId)
+            } finally {
+                // Nur den eigenen Eintrag entfernen, nicht einen inzwischen neu geplanten
+                if (pendingLeaves[sourcePlayerId]?.job === coroutineContext[Job]) pendingLeaves.remove(sourcePlayerId)
+            }
+        }
+        pendingLeaves[sourcePlayerId] = PendingLeave(targetPlayerId, job)
+        job.start()
+    }
+
+    /** [playerId] soll doch nicht aus der Gruppe gehen (die Musik wird gerade dorthin zurückgeholt). */
+    private fun cancelPendingLeave(playerId: String): PendingLeave? =
+        pendingLeaves.remove(playerId)?.also { it.job.cancel() }
+
+    /**
+     * Soll [playerId] gleich aus der Gruppe gehen, weil die Musik mitgenommen wurde, dann jetzt
+     * schon — etwa bevor er neue Musik spielt. Sonst liefe die neue Musik auch im anderen Raum, und
+     * hier hörte sie nach Ablauf der Zeit trotzdem auf.
+     */
+    private suspend fun leaveNowIfPending(household: String, playerId: String) {
+        val pending = pendingLeaves.remove(playerId) ?: return
+        pending.job.cancel()
+        leaveGroup(household, playerId, pending.targetPlayerId)
+    }
+
+    /**
+     * [leaveGroup] mit ein paar Versuchen — klappt es gar nicht, spielt der bisherige Speaker weiter.
+     * Dann eine Meldung, damit ein Erwachsener ihn ausmacht.
+     */
+    private suspend fun leaveGroupRetrying(household: String, sourcePlayerId: String, targetPlayerId: String) {
+        repeat(LEAVE_ATTEMPTS) { attempt ->
+            try {
+                leaveGroup(household, sourcePlayerId, targetPlayerId)
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "$sourcePlayerId nach dem Mitnehmen nicht aus der Gruppe genommen (Versuch ${attempt + 1})", e)
+                if (attempt == LEAVE_ATTEMPTS - 1) {
+                    val name = speakerConfigs.firstOrNull { it.playerId == sourcePlayerId }?.name ?: "Der Speaker"
+                    reportPlaybackError(
+                        "„$name“ spielt noch weiter: ${e.message ?: "Unbekannter Fehler"}",
+                        userAction = true
+                    )
+                } else {
+                    delay(LEAVE_RETRY_DELAY_MS)
+                }
+            }
+        }
+    }
+
+    /**
+     * Nimmt [sourcePlayerId] aus der Gruppe, in die die Musik mitgenommen wurde — aber nur, solange
+     * [targetPlayerId] noch mit ihm spielt. Hat inzwischen jemand umgruppiert, bleibt alles, wie es
+     * ist. Hat der bisherige Speaker die Gruppe gesteuert, übernimmt ein anderer; lief die Musik und
+     * steht danach still, wird sie einmal angeschubst.
+     */
+    private suspend fun leaveGroup(household: String, sourcePlayerId: String, targetPlayerId: String) {
+        val group = findGroup(household, sourcePlayerId)
+        if (targetPlayerId !in group.playerIds) return
+        val wasPlaying = currentlyPlaying(group.id)
+        apiClient.modifyGroupMembers(group.id, playerIdsToAdd = emptyList(), playerIdsToRemove = listOf(sourcePlayerId))
+        Log.d(TAG, "$sourcePlayerId hat die Musik an $targetPlayerId abgegeben")
+        if (wasPlaying != true) return
+        delay(MOVE_REFRESH_DELAY_MS)
+        val targetGroup = findGroup(household, targetPlayerId)
+        if (currentlyPlaying(targetGroup.id) == false) {
+            Log.d(TAG, "Musik steht nach dem Mitnehmen still — wieder starten")
+            apiClient.play(targetGroup.id)
+        }
+    }
+
+    /** Spielt die Gruppe gerade (oder lädt)? null, wenn Sonos nicht antwortet. */
+    private suspend fun currentlyPlaying(groupId: String): Boolean? =
+        runCatching { apiClient.getPlaybackStatus(groupId) }
+            .onFailure { if (it is CancellationException || it is SessionExpiredException) throw it }
+            .getOrNull()
+            ?.let { it.isPlaying || it.isBuffering }
 
     // --- Settings & Passwort ---------------------------------------------
 
@@ -1531,6 +1628,10 @@ class MainViewModel(
         private const val MUSIC_REFRESH_DELAY_MS = 1_500L
         /** Bis die Gruppe nach dem Mitnehmen steht und die Musik am neuen Ort läuft. */
         private const val MOVE_REFRESH_DELAY_MS = 1_500L
+        /** So lange spielt der bisherige Speaker nach dem Mitnehmen noch mit — Zeit zum Hinübergehen. */
+        private const val MOVE_SOURCE_STOP_DELAY_MS = 15_000L
+        private const val LEAVE_ATTEMPTS = 3
+        private const val LEAVE_RETRY_DELAY_MS = 5_000L
         private const val QUEUE_FILL_RETRY_MS = 400L
         private const val QUEUE_FILL_TIMEOUT_MS = 3_000L
         private const val SHUFFLE_OFF_POLL_MS = 300L
