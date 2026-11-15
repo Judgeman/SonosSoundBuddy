@@ -224,7 +224,7 @@ private fun ScreenContent(viewModel: MainViewModel, syncViewModel: SyncViewModel
                 preferCloud = viewModel.preferCloud,
                 onBack = viewModel::navigateBack,
                 onRefreshSpeakers = viewModel::refreshSpeakers,
-                onPreferCloudChange = viewModel::setPreferCloud,
+                onPreferCloudChange = viewModel::changePreferCloud,
                 onDeleteSpeaker = viewModel::deleteSpeaker,
                 onSpeakerEnabledChange = viewModel::setSpeakerEnabled,
                 onSpeakerIconChange = viewModel::setSpeakerIcon,

@@ -498,7 +498,7 @@ class MainViewModel(
     }
 
     /** In den Einstellungen: immer über die Sonos-Cloud steuern oder (wieder) direkt im WLAN. */
-    fun setPreferCloud(enabled: Boolean) {
+    fun changePreferCloud(enabled: Boolean) {
         if (enabled == preferCloud) return
         localClient.preferCloud = enabled
         preferCloud = enabled
