@@ -69,6 +69,21 @@ val ReleaseHistory = listOf(
         )
     ),
     Release(
+        version = "1.2.1",
+        date = "6. November 2026",
+        sections = listOf(
+            ReleaseSection(
+                "Musik abspielen",
+                listOf(
+                    "Wiederholen ist beim Start immer aus: Alben, Playlisten und Hörbücher laufen einmal " +
+                        "durch und hören dann auf.",
+                    "Bisher blieb Wiederholen an, wenn es in der Sonos-App eingeschaltet war – die Musik " +
+                        "lief dann in Dauerschleife, bei „Einen wiederholen“ sogar immer derselbe Titel."
+                )
+            )
+        )
+    ),
+    Release(
         version = "1.2.0",
         date = "3. November 2026",
         sections = listOf(
