@@ -22,6 +22,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.net.SocketTimeoutException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -211,13 +212,21 @@ class SonosApiClient(
 
     private suspend fun authorizedCall(url: String, withMethod: Request.Builder.() -> Request.Builder): String =
         withAccessToken { token ->
-            executeAsync(
-                Request.Builder()
-                    .url(url)
-                    .header("Authorization", "Bearer $token")
-                    .withMethod()
-                    .build()
-            )
+            try {
+                executeAsync(
+                    Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer $token")
+                        .withMethod()
+                        .build()
+                )
+            } catch (e: SocketTimeoutException) {
+                throw SonosApiException("Die Sonos-Cloud antwortet nicht (Zeitüberschreitung). Ist das Internet gerade stabil?")
+            } catch (e: IOException) {
+                // Abgebrochene Anfragen (Coroutine beendet) sind kein Netzfehler
+                if (e.message == "Canceled") throw e
+                throw SonosApiException("Die Sonos-Cloud ist nicht erreichbar (${e.message ?: e.javaClass.simpleName}). Hat das Tablet Internet?")
+            }
         }
 
     /**

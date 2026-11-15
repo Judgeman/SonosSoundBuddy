@@ -372,12 +372,16 @@ diese.
   `sonos_local`), sonst sucht sie gleichzeitig per mDNS (`_sonos._tcp`, alle
   gemeldeten Speaker der Reihe nach) und per SSDP (`M-SEARCH` nach
   `urn:schemas-upnp-org:device:ZonePlayer:1` an 239.255.255.250 und
-  255.255.255.255, Port 1900) — wer zuerst antwortet, gewinnt.
+  255.255.255.255, Port 1900) — wer zuerst antwortet, gewinnt. Findet die
+  Suche nichts (Gast-WLAN, Emulator), nimmt die App die Adressen, die die
+  Sonos-Cloud zu den Speakern nennt (`websocketUrl` in der Antwort von
+  `GET /households/{id}/groups`), und merkt sie sich für das nächste Mal.
 - **Rückfall während der Nutzung:** Scheitern im WLAN drei Abfragen
   hintereinander, verbindet die App still neu — unter neuer Adresse oder
   über die Cloud. Lief sie nur ersatzweise über die Cloud, versucht sie es
   beim Zurückkommen in den Vordergrund und sonst jede Minute wieder im WLAN.
-  Fehlermeldungen nennen dann auch, warum es im WLAN nicht ging.
+  Fehlermeldungen nennen dann auch, warum es im WLAN nicht ging. Ein einzelner
+  Aussetzer beim Abfragen zeigt noch keine Meldung, erst der zweite in Folge.
 - **Gruppe nicht mehr vorhanden:** Die Cloud lehnt eine Gruppen-Id ab, sobald
   sich die Gruppe geändert hat (HTTP 410, `ERROR_RESOURCE_GONE`) — etwa beim
   „Musik mitnehmen“. Die App holt dann die aktuelle Gruppe und wiederholt den

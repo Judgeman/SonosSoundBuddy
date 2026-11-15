@@ -214,8 +214,27 @@ class LocalSonosClient(context: Context) : SonosControl {
 
     // --- Steuerung (SonosControl) ------------------------------------------
 
-    override suspend fun getGroups(): GroupsResponse {
-        val all = zoneTopology(addressHint = null)
+    override suspend fun getGroups(): GroupsResponse = groupsOf(zoneTopology(addressHint = null))
+
+    /**
+     * Versucht es direkt unter [addresses] (`http://IP:1400`) — ohne Suche im WLAN. Die Sonos-Cloud
+     * nennt die Adressen der Speaker; damit klappt die Steuerung im WLAN auch dort, wo die Suche
+     * nichts findet. null, wenn unter keiner Adresse ein Speaker antwortet.
+     */
+    suspend fun connectTo(addresses: List<String>): GroupsResponse? {
+        for (base in addresses.distinct().take(MAX_PROBED_ADDRESSES)) {
+            try {
+                zoneMembers(base, probeHttp).takeIf { it.isNotEmpty() }?.let { return groupsOf(remember(base, it)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.d(TAG, "Speaker unter $base (Adresse aus der Cloud) antwortet nicht: ${e.message}")
+            }
+        }
+        return null
+    }
+
+    private fun groupsOf(all: List<ZoneMember>): GroupsResponse {
         val groups = all.groupBy { it.coordinatorUuid }.map { (coordinatorUuid, groupMembers) ->
             val coordinator = groupMembers.firstOrNull { it.uuid == coordinatorUuid } ?: groupMembers.first()
             SonosGroup(

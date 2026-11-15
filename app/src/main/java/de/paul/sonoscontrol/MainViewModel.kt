@@ -65,7 +65,9 @@ data class NowPlaying(
     val canSkip: Boolean,
     val canSkipBack: Boolean,
     /** SystemClock.elapsedRealtime() zum Zeitpunkt der Abfrage — für die Positions-Interpolation. */
-    val fetchedAtMillis: Long
+    val fetchedAtMillis: Long,
+    /** Über welchen Weg abgefragt wurde — [groupId] gilt nur dort. */
+    val path: ControlPath? = null
 ) {
     val isPlaying: Boolean get() = playbackState == PlaybackStatus.STATE_PLAYING
 
@@ -467,6 +469,21 @@ class MainViewModel(
                 "${localError.message} Auch über die Sonos-Cloud ging es nicht: ${e.message ?: "unbekannter Fehler"}"
             )
         }
+        // Die Cloud nennt die Adressen der Speaker im Heimnetz — damit geht es oft doch direkt
+        if (localError != null) {
+            val addresses = groups.players.mapNotNull { it.localBaseUrl }
+            try {
+                localClient.connectTo(addresses)?.let { local ->
+                    Log.d(TAG, "Speaker über die Adressen aus der Sonos-Cloud im WLAN erreicht")
+                    useControl(localClient, fallbackReason = null)
+                    return local
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Adressen aus der Sonos-Cloud nicht genutzt", e)
+            }
+        }
         useControl(cloudControl, fallbackReason = localError?.message)
         return groups
     }
@@ -480,7 +497,8 @@ class MainViewModel(
         localFailures = 0
         if (changed) {
             Log.d(TAG, "Steuerung jetzt ${newControl.path.label}")
-            restartPolling()
+            // Die Anzeige bleibt stehen, bis die erste Abfrage über den neuen Weg da ist
+            restartPolling(keepPlayback = true)
         }
     }
 
@@ -493,7 +511,8 @@ class MainViewModel(
         reconnectJob = viewModelScope.launch {
             try {
                 val players = fetchAndSyncPlayers().players
-                uiState = UiState.SpeakerList(players)
+                // Unverändert? Dann nichts anfassen, sonst zeichnet sich der Startbildschirm neu
+                if ((uiState as? UiState.SpeakerList)?.players != players) uiState = UiState.SpeakerList(players)
                 updateSelection()
             } catch (e: CancellationException) {
                 throw e
@@ -663,17 +682,19 @@ class MainViewModel(
         pollJob = null
     }
 
-    private fun restartPolling() {
+    /** [keepPlayback]: Die Anzeige bleibt, bis die nächste Abfrage da ist (derselbe Speaker, anderer Weg). */
+    private fun restartPolling(keepPlayback: Boolean = false) {
         stopPolling()
         // Während die Musik umzieht, fragt der Umzug selbst ab und startet danach neu
         if (movingMusic != null) return
-        nowPlaying = null
+        if (!keepPlayback) nowPlaying = null
         clearPlaybackError()
         val playerId = selectedPlayerId ?: return
         val c = control ?: return
         if (!isInForeground || screen != Screen.Home) return
 
         pollJob = viewModelScope.launch {
+            var failures = 0
             while (isActive) {
                 try {
                     val pollStartedAt = SystemClock.elapsedRealtime()
@@ -695,13 +716,20 @@ class MainViewModel(
                     }
                     clearPlaybackError()
                     localFailures = 0
+                    failures = 0
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: SessionExpiredException) {
                     handleSessionExpired(e)
                     return@launch
                 } catch (e: Exception) {
-                    reportPlaybackError(e.message ?: "Wiedergabe konnte nicht geladen werden")
+                    failures++
+                    Log.d(TAG, "Abfrage der Wiedergabe fehlgeschlagen ($failures-mal in Folge): ${e.message}")
+                    // Ein einzelner Aussetzer (wackliges Netz) soll nicht gleich eine Meldung aufpoppen
+                    // lassen — solange noch etwas zu sehen ist, erst ab dem zweiten in Folge
+                    if (nowPlaying == null || failures >= POLL_FAILURES_BEFORE_ERROR) {
+                        reportPlaybackError(e.message ?: "Wiedergabe konnte nicht geladen werden")
+                    }
                     // Im WLAN mehrmals nichts angekommen → neu verbinden: neue Adresse, sonst über die Cloud
                     if (c === localClient && ++localFailures >= LOCAL_FAILURES_BEFORE_RECONNECT) {
                         localFailures = 0
@@ -723,7 +751,12 @@ class MainViewModel(
     private fun reportPlaybackError(message: String, userAction: Boolean = false) {
         // Steuert die App nur ersatzweise über die Cloud, gehört der Grund dazu — meist ist er das eigentliche Problem
         val reason = controlFallbackReason?.takeIf { control === cloudControl }
-        val text = if (reason != null) "$message\n\nDirekt im WLAN ging es nicht: $reason" else message
+        val text = when {
+            reason != null -> "$message\n\nDirekt im WLAN ging es nicht: $reason"
+            control === cloudControl && preferCloud ->
+                "$message\n\nIn den Einstellungen ist „Über die Sonos-Cloud steuern“ eingeschaltet."
+            else -> message
+        }
         if (userAction || text != playbackError) playbackErrorDismissed = false
         playbackError = text
     }
@@ -797,7 +830,8 @@ class MainViewModel(
                 muted = playerVolume?.muted ?: false,
                 canSkip = actions?.canSkip ?: true,
                 canSkipBack = actions?.canSkipBack ?: true,
-                fetchedAtMillis = SystemClock.elapsedRealtime()
+                fetchedAtMillis = SystemClock.elapsedRealtime(),
+                path = c.path
             )
         }
 
@@ -831,8 +865,9 @@ class MainViewModel(
     private fun sendGroupCommand(current: NowPlaying, command: suspend (SonosControl, String) -> Unit) {
         val playerId = selectedPlayerId ?: return
         sendPlaybackCommand { c ->
-            if (c.path == ControlPath.LOCAL) {
-                command(c, findGroup(c, playerId).id)
+            // Im WLAN kostet die Abfrage kaum Zeit; und die Gruppen-Id vom anderen Weg gilt hier nicht
+            if (c.path == ControlPath.LOCAL || current.path != c.path) {
+                withGroup(c, playerId) { command(c, it.id) }
                 return@sendPlaybackCommand
             }
             try {
@@ -1727,6 +1762,8 @@ class MainViewModel(
         private const val LOCAL_MUSIC_REFRESH_DELAY_MS = 800L
         /** So viele Abfragen im WLAN dürfen hintereinander scheitern, bevor die App neu verbindet. */
         private const val LOCAL_FAILURES_BEFORE_RECONNECT = 3
+        /** Erst so viele gescheiterte Abfragen in Folge zeigen eine Meldung, solange noch etwas zu sehen ist. */
+        private const val POLL_FAILURES_BEFORE_ERROR = 2
         /** Steuert die App nur ersatzweise über die Cloud, versucht sie es so oft wieder im WLAN. */
         private const val LOCAL_RETRY_INTERVAL_MS = 60_000L
         /** So oft versucht die App einen Befehl, wenn Sonos die Gruppe als nicht mehr vorhanden meldet. */
