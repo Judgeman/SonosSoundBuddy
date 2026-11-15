@@ -8,6 +8,8 @@ import android.util.Log
 import android.util.Xml
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -36,14 +38,37 @@ data class LocalEntry(
     val freshArtUrl: String? = null,
     val artists: List<String> = emptyList(),
     /** Album eines Titels (`upnp:album`). */
-    val album: String? = null
+    val album: String? = null,
+    /** Abspiel-Adresse (`res`), z. B. `x-rincon-cpcontainer:…` — damit startet der Speaker den Inhalt. */
+    val res: String? = null,
+    /** Metadaten zur Abspiel-Adresse (bei Favoriten das eingebettete DIDL aus `r:resMD`). */
+    val resMetaData: String? = null,
+    /** Art des Inhalts (`upnp:class`), bei Favoriten die des eigentlichen Inhalts. */
+    val upnpClass: String? = null,
+    /** Beschreibung, bei Favoriten z. B. „Apple Music-Playlist“ (`r:description`). */
+    val description: String? = null
 )
 
-/** Ein Befehl an den Speaker im Heimnetz wurde abgelehnt; [errorCode] ist der UPnP-Fehler, falls genannt. */
-class LocalSonosException(message: String, val errorCode: String? = null) : IOException(message)
+/**
+ * Ein Befehl an den Speaker im Heimnetz wurde abgelehnt oder der Speaker antwortet nicht — mit
+ * verständlicher Meldung. [errorCode] ist der UPnP-Fehler, falls der Speaker einen genannt hat.
+ */
+open class LocalSonosException(message: String, val errorCode: String? = null) : IOException(message)
 
-/** Speaker im Heimnetz laut Zonen-Topologie: Kennung (wie die Player-Id der Control API), Raum, Adresse. */
-private data class ZoneMember(val uuid: String, val name: String?, val baseUrl: String, val coordinatorUuid: String)
+/** Im WLAN antwortet gar kein Sonos-Speaker — dann steuert die App über die Sonos-Cloud. */
+class NoSpeakerInWifiException : LocalSonosException(LocalSonosClient.NO_SPEAKER_MESSAGE)
+
+/**
+ * Speaker im Heimnetz laut Zonen-Topologie: Kennung (wie die Player-Id der Control API), Raum, Adresse,
+ * Koordinator seiner Gruppe. [invisible]: zweiter Speaker eines Stereopaars o. Ä., spielt nicht selbst.
+ */
+private data class ZoneMember(
+    val uuid: String,
+    val name: String?,
+    val baseUrl: String,
+    val coordinatorUuid: String,
+    val invisible: Boolean = false
+)
 
 /** Cover und Künstler aus dem Heimnetz, nach Sonos-Id und nach Name. */
 class LocalCovers(
@@ -59,43 +84,425 @@ class LocalCovers(
     /** Künstler laut Speaker — bei Sonos-Playlisten die ihrer Titel, die häufigsten zuerst. */
     fun artistsFor(entry: CatalogEntry): List<String> = find(entry)?.artists.orEmpty()
 
+    /**
+     * Der Katalog allein aus dem Heimnetz — falls die Sonos-Cloud nicht antwortet. Ids wie in der
+     * Control API ("FV:2/13" → "13", "SQ:13" → "13"); Cover ergänzt [coversFor].
+     */
+    fun catalogEntries(): List<CatalogEntry> =
+        favorites.filter { it.id.startsWith(FAVORITE_PREFIX) }.map { favorite ->
+            CatalogEntry(
+                source = MusicSource.FAVORITE,
+                sonosId = favorite.id.removePrefix(FAVORITE_PREFIX),
+                name = favorite.title,
+                description = favorite.description,
+                imageUrl = null,
+                type = musicTypeOf(favorite),
+                artists = favorite.artists,
+                rawData = favorite.resMetaData ?: favorite.res
+            )
+        } + playlists.filter { it.id.startsWith(PLAYLIST_PREFIX) }.map { playlist ->
+            CatalogEntry(
+                source = MusicSource.PLAYLIST,
+                sonosId = playlist.id.removePrefix(PLAYLIST_PREFIX),
+                name = playlist.title,
+                description = null,
+                imageUrl = null,
+                type = MusicType.PLAYLIST,
+                artists = playlist.artists
+            )
+        }
+
+    private fun musicTypeOf(favorite: LocalEntry): MusicType {
+        val type = favorite.upnpClass.orEmpty()
+        val uri = favorite.res.orEmpty()
+        return when {
+            type.contains("audioBroadcast") || LocalSonosClient.isRadioUri(uri) -> MusicType.RADIO
+            type.contains("playlistContainer") -> MusicType.PLAYLIST
+            type.contains("album", ignoreCase = true) -> MusicType.ALBUM
+            type.startsWith("object.item.audioItem") -> MusicType.TRACK
+            else -> MusicType.OTHER
+        }
+    }
+
     /** Control-API-Id "13" entspricht lokal "FV:2/13" bzw. "SQ:13" — sonst über den Namen. */
     private fun find(entry: CatalogEntry): LocalEntry? {
         val (list, localId) = when (entry.source) {
-            MusicSource.FAVORITE -> favorites to "FV:2/${entry.sonosId}"
-            MusicSource.PLAYLIST -> playlists to "SQ:${entry.sonosId}"
+            MusicSource.FAVORITE -> favorites to "$FAVORITE_PREFIX${entry.sonosId}"
+            MusicSource.PLAYLIST -> playlists to "$PLAYLIST_PREFIX${entry.sonosId}"
             // Steht nicht im Katalog
             MusicSource.PLAYLIST_ALBUM -> return null
         }
         return list.firstOrNull { it.id == localId && it.title.equals(entry.name, ignoreCase = true) }
             ?: list.firstOrNull { it.title.trim().equals(entry.name.trim(), ignoreCase = true) }
     }
+
+    private companion object {
+        const val FAVORITE_PREFIX = "FV:2/"
+        const val PLAYLIST_PREFIX = "SQ:"
+    }
 }
 
 /**
- * Fragt einen Sonos-Speaker direkt im Heimnetz (UPnP, Port 1400) nach Covern und Künstlern.
- * Die Cloud-API liefert für Sonos-Playlisten nie ein Bild und für manche
- * Favoriten auch nicht — die Speaker selbst kennen sie aber, genau wie die Sonos-App.
- * Den Speaker findet die App per mDNS (`_sonos._tcp`).
+ * Steuert die Sonos-Speaker direkt im Heimnetz (UPnP, Port 1400) — so wie die Sonos-App, ohne den
+ * Umweg über die Sonos-Cloud: Speaker und Gruppen, Wiedergabe, Lautstärke, Musik starten, Gruppieren.
+ * Außerdem kennen die Speaker Cover und Künstler, die die Cloud-API nicht liefert (für
+ * Sonos-Playlisten nie ein Bild, für manche Favoriten auch nicht).
+ *
+ * Den ersten Speaker findet die App unter den zuletzt bekannten Adressen, sonst per mDNS
+ * (`_sonos._tcp`); alle weiteren nennt die Zonen-Topologie. Gruppen-Ids sind hier die Kennung des
+ * Gruppen-Koordinators — er nimmt alle Befehle zur Wiedergabe der Gruppe an.
  */
-class LocalSonosClient(context: Context) {
+class LocalSonosClient(context: Context) : SonosControl {
+
+    override val path = ControlPath.LOCAL
 
     private val nsdManager = context.getSystemService(NsdManager::class.java)
+    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val http = OkHttpClient.Builder()
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
+        .build()
+
+    /** Für gemerkte Adressen: Ist dort niemand mehr (neue IP vom Router), nicht lange warten. */
+    private val probeHttp = http.newBuilder()
+        .connectTimeout(PROBE_CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .build()
 
     /** z. B. "http://192.168.1.23:1400" — einmal gefunden, wird sie wiederverwendet. */
     @Volatile
     private var speakerBaseUrl: String? = null
 
+    /** Alle Speaker laut letzter Zonen-Topologie — für die Adressen; null = beim nächsten Mal neu holen. */
+    @Volatile
+    private var members: List<ZoneMember>? = null
+
+    /**
+     * In den Einstellungen gewählt: immer über die Sonos-Cloud steuern, auch wenn die Speaker
+     * im WLAN erreichbar sind. Gilt nur für dieses Tablet.
+     */
+    var preferCloud: Boolean
+        get() = prefs.getBoolean(KEY_PREFER_CLOUD, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_PREFER_CLOUD, value).apply()
+        }
+
+    /** Adressen der Speaker vom letzten Mal — so geht es beim App-Start ohne mDNS-Suche. */
+    private var knownAddresses: List<String>
+        get() = prefs.getString(KEY_ADDRESSES, null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
+        set(value) {
+            prefs.edit().putString(KEY_ADDRESSES, value.joinToString("\n")).apply()
+        }
+
+    // --- Steuerung (SonosControl) ------------------------------------------
+
+    override suspend fun getGroups(): GroupsResponse {
+        val all = zoneTopology(addressHint = null)
+        val groups = all.groupBy { it.coordinatorUuid }.map { (coordinatorUuid, groupMembers) ->
+            val coordinator = groupMembers.firstOrNull { it.uuid == coordinatorUuid } ?: groupMembers.first()
+            SonosGroup(
+                id = coordinatorUuid,
+                name = coordinator.name.orEmpty(),
+                coordinatorId = coordinatorUuid,
+                playerIds = groupMembers.filterNot { it.invisible }.map { it.uuid }
+            )
+        }
+        val players = all.filterNot { it.invisible }.map { SonosPlayer(id = it.uuid, name = it.name ?: it.uuid) }
+        return GroupsResponse(groups = groups, players = players)
+    }
+
+    override suspend fun getPlayback(groupId: String): Playback = onSpeaker(groupId) { coordinator ->
+        val base = coordinator.baseUrl
+        coroutineScope {
+            val info = async { transport(base, "GetTransportInfo") }
+            val settings = async { ignoringRefusal { transport(base, "GetTransportSettings") } }
+            val position = async { transport(base, "GetPositionInfo") }
+            val media = async { ignoringRefusal { transport(base, "GetMediaInfo") } }
+            val actions = async { ignoringRefusal { transport(base, "GetCurrentTransportActions") } }
+            val positionInfo = position.await()
+            val status = PlaybackStatus(
+                playbackState = playbackState(textOf(info.await(), "CurrentTransportState")),
+                positionMillis = parseDuration(textOf(positionInfo, "RelTime")) ?: 0L,
+                availablePlaybackActions = actions.await()?.let { textOf(it, "Actions") }?.let { text ->
+                    val available = text.split(',').map { it.trim() }
+                    PlaybackActions(canSkip = "Next" in available, canSkipBack = "Previous" in available)
+                },
+                playModes = settings.await()?.let { textOf(it, "PlayMode") }
+                    ?.let { PlayModes(shuffle = it.trim().startsWith("SHUFFLE")) }
+            )
+            Playback(status, playbackMetadata(base, positionInfo, media.await()))
+        }
+    }
+
+    override suspend fun getPlaybackStatus(groupId: String): PlaybackStatus = onSpeaker(groupId) { coordinator ->
+        PlaybackStatus(playbackState = playbackState(textOf(transport(coordinator.baseUrl, "GetTransportInfo"), "CurrentTransportState")))
+    }
+
+    override suspend fun getPlayerVolume(playerId: String): PlayerVolume = onSpeaker(playerId) { player ->
+        coroutineScope {
+            val volume = async { rendering(player.baseUrl, "GetVolume", "Channel" to "Master") }
+            val mute = async { ignoringRefusal { rendering(player.baseUrl, "GetMute", "Channel" to "Master") } }
+            PlayerVolume(
+                volume = textOf(volume.await(), "CurrentVolume")?.trim()?.toIntOrNull() ?: 0,
+                muted = mute.await()?.let { textOf(it, "CurrentMute")?.trim() == "1" } ?: false
+            )
+        }
+    }
+
+    override suspend fun setPlayerVolume(playerId: String, volume: Int) = onSpeaker<Unit>(playerId) { player ->
+        rendering(player.baseUrl, "SetVolume", "Channel" to "Master", "DesiredVolume" to volume.coerceIn(0, 100).toString())
+    }
+
+    override suspend fun togglePlayPause(groupId: String) = onSpeaker<Unit>(groupId) { coordinator ->
+        val base = coordinator.baseUrl
+        val state = textOf(transport(base, "GetTransportInfo"), "CurrentTransportState")?.trim()
+        if (state == "PLAYING" || state == "TRANSITIONING") {
+            try {
+                transport(base, "Pause")
+            } catch (e: LocalSonosException) {
+                // Manche Radiosender lassen sich nicht pausieren, nur anhalten
+                Log.d(TAG, "Pause abgelehnt, stattdessen anhalten: ${e.message}")
+                transport(base, "Stop")
+            }
+        } else {
+            transport(base, "Play", "Speed" to "1")
+        }
+    }
+
+    override suspend fun skipToNextTrack(groupId: String) = onSpeaker<Unit>(groupId) { transport(it.baseUrl, "Next") }
+
+    override suspend fun skipToPreviousTrack(groupId: String) = onSpeaker<Unit>(groupId) { transport(it.baseUrl, "Previous") }
+
+    override suspend fun play(groupId: String) = onSpeaker<Unit>(groupId) { transport(it.baseUrl, "Play", "Speed" to "1") }
+
+    /** Der Speaker folgt ab jetzt dem Koordinator der Gruppe ([groupId] ist dessen Kennung). */
+    override suspend fun addToGroup(groupId: String, playerId: String) = onSpeaker<Unit>(playerId) { player ->
+        transport(player.baseUrl, "SetAVTransportURI", "CurrentURI" to "x-rincon:$groupId", "CurrentURIMetaData" to "")
+    }
+
+    /**
+     * Ein Mitspieler geht einfach allein weiter. Geht der Koordinator, gibt er die Gruppe samt Musik
+     * erst an einen anderen Speaker ab (DelegateGroupCoordinationTo) — klappt das nicht, geht er
+     * trotzdem, und Sonos bestimmt selbst einen neuen Koordinator.
+     */
+    override suspend fun removeFromGroup(groupId: String, playerId: String) {
+        if (playerId != groupId) {
+            onSpeaker<Unit>(playerId) { transport(it.baseUrl, "BecomeCoordinatorOfStandaloneGroup") }
+            return
+        }
+        val successor = zoneTopology(addressHint = null)
+            .firstOrNull { it.coordinatorUuid == groupId && it.uuid != playerId && !it.invisible }
+        onSpeaker<Unit>(playerId) { coordinator ->
+            if (successor != null) {
+                try {
+                    transport(
+                        coordinator.baseUrl, "DelegateGroupCoordinationTo",
+                        "NewCoordinator" to successor.uuid,
+                        "RejoinGroup" to "0"
+                    )
+                    return@onSpeaker
+                } catch (e: LocalSonosException) {
+                    Log.d(TAG, "Gruppe nicht an ${successor.name} übergeben: ${e.message}")
+                }
+            }
+            transport(coordinator.baseUrl, "BecomeCoordinatorOfStandaloneGroup")
+        }
+    }
+
+    override suspend fun getPlaylists(): List<SonosPlaylist> = onAnySpeaker { base ->
+        browse(base, "SQ:").filter { it.id.startsWith("SQ:") }
+            .map { SonosPlaylist(id = it.id.removePrefix("SQ:"), name = it.title) }
+    }
+
+    override suspend fun getPlaylistTracks(playlistId: String): List<PlaylistTrackInfo> = onAnySpeaker { base ->
+        browseAll(base, "SQ:$playlistId").first.map { trackInfo(it) }
+    }
+
+    /**
+     * Ein Favorit startet so, wie die Sonos-App ihn startet: Radiosender und andere Streams direkt
+     * (SetAVTransportURI), alles andere über die Warteschlange. Eine Sonos-Playlist liegt auf dem
+     * Speaker selbst und kommt als Ganzes in die Warteschlange.
+     */
+    override suspend fun startMusic(groupId: String, item: MusicItem, shuffle: Boolean) {
+        when (item.musicSource) {
+            MusicSource.FAVORITE -> {
+                val favorites = onSpeaker(groupId) { browse(it.baseUrl, "FV:2") }
+                val favorite = favorites.firstOrNull { it.id == "FV:2/${item.sonosId}" && it.title == item.name }
+                    ?: favorites.firstOrNull { it.title == item.name }
+                    ?: favorites.firstOrNull { it.title.trim().equals(item.name.trim(), ignoreCase = true) }
+                    ?: throw LocalSonosException("„${item.name}“ gibt es nicht mehr in den Sonos-Favoriten.")
+                val uri = favorite.res
+                    ?: throw LocalSonosException("Den Favoriten „${item.name}“ kann der Speaker nicht abspielen.")
+                val metadata = favorite.resMetaData.orEmpty()
+                onSpeaker<Unit>(groupId) { coordinator ->
+                    if (DIRECT_PLAY_PREFIXES.any { uri.startsWith(it) }) {
+                        transport(coordinator.baseUrl, "SetAVTransportURI", "CurrentURI" to uri, "CurrentURIMetaData" to metadata)
+                        transport(coordinator.baseUrl, "Play", "Speed" to "1")
+                    } else {
+                        playFromQueue(coordinator, item.name, shuffle) { enqueue(coordinator.baseUrl, uri, metadata) }
+                    }
+                }
+            }
+            MusicSource.PLAYLIST -> {
+                val playlists = getPlaylists()
+                val playlist = playlists.firstOrNull { it.id == item.sonosId && it.name == item.name }
+                    ?: playlists.firstOrNull { it.name == item.name }
+                    ?: throw LocalSonosException("Die Playlist „${item.name}“ gibt es nicht mehr bei Sonos.")
+                onSpeaker<Unit>(groupId) { coordinator ->
+                    playFromQueue(coordinator, item.name, shuffle) {
+                        enqueuePlaylist(coordinator.baseUrl, playlist.id, playlist.name)
+                    }
+                }
+            }
+            MusicSource.PLAYLIST_ALBUM -> error("Alben aus einer Playlist startet playAlbumFromPlaylist")
+        }
+    }
+
+    /**
+     * Ersetzt die Warteschlange des Koordinators durch das, was [enqueue] einreiht (gibt die neue Länge
+     * zurück, falls bekannt), und spielt sie ab — der Reihe nach oder zufällig, Wiederholen immer aus.
+     */
+    private suspend fun playFromQueue(coordinator: ZoneMember, name: String, shuffle: Boolean, enqueue: suspend () -> Int?) {
+        val base = coordinator.baseUrl
+        // Zufall vom letzten Mal vorher aus, damit die Warteschlange in ihrer Reihenfolge bleibt
+        ignoringRefusal { transport(base, "SetPlayMode", "NewPlayMode" to PLAY_MODE_NORMAL) }
+        transport(base, "RemoveAllTracksFromQueue")
+        val length = enqueue()
+        if (length == 0) throw LocalSonosException("Sonos hat für „$name“ keine Titel eingereiht.")
+        transport(base, "SetAVTransportURI", "CurrentURI" to "x-rincon-queue:${coordinator.uuid}#0", "CurrentURIMetaData" to "")
+        // Wiederholen bleibt aus, sonst liefe die Auswahl in Dauerschleife
+        ignoringRefusal { transport(base, "SetPlayMode", "NewPlayMode" to if (shuffle) PLAY_MODE_SHUFFLE else PLAY_MODE_NORMAL) }
+        // Im Zufallsmodus auch mit einem zufälligen Titel beginnen, sonst der Reihe nach von vorn
+        val first = if (shuffle && length != null && length > 1) Random.nextInt(length) + 1 else 1
+        ignoringRefusal { transport(base, "Seek", "Unit" to "TRACK_NR", "Target" to first.toString()) }
+        transport(base, "Play", "Speed" to "1")
+    }
+
+    /** Reiht [uri] am Ende der Warteschlange ein; Ergebnis: ihre neue Länge, falls genannt. */
+    private suspend fun enqueue(base: String, uri: String, metadata: String): Int? {
+        val added = transport(
+            base, "AddURIToQueue",
+            "EnqueuedURI" to uri,
+            "EnqueuedURIMetaData" to metadata,
+            "DesiredFirstTrackNumberEnqueued" to "0",
+            "EnqueueAsNext" to "0"
+        )
+        return textOf(added, "NewQueueLength")?.trim()?.toIntOrNull()
+    }
+
+    /** Reiht eine Sonos-Playlist ein, die auf dem Speaker liegt. */
+    private suspend fun enqueuePlaylist(base: String, playlistId: String, playlistName: String): Int? =
+        try {
+            enqueue(base, "file:///jffs/settings/savedqueues.rsq#$playlistId", playlistDidl(playlistId, playlistName))
+        } catch (e: LocalSonosException) {
+            if (e.errorCode == ERROR_NO_SUCH_OBJECT) {
+                throw LocalSonosException("Die Playlist „$playlistName“ gibt es bei Sonos nicht mehr.", e.errorCode)
+            }
+            throw e
+        }
+
+    /**
+     * Führt [block] mit dem Speaker [uuid] aus. Antwortet er nicht (z. B. neue IP vom Router), wird
+     * die Topologie beim nächsten Mal neu geholt, und es kommt eine verständliche Meldung.
+     */
+    private suspend fun <T> onSpeaker(uuid: String, block: suspend (ZoneMember) -> T): T {
+        val speaker = member(uuid)
+        return try {
+            block(speaker)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: LocalSonosException) {
+            throw e
+        } catch (e: IOException) {
+            Log.w(TAG, "Speaker ${speaker.name} unter ${speaker.baseUrl} nicht erreichbar", e)
+            forgetAddresses(speaker.baseUrl)
+            throw LocalSonosException("Der Speaker „${speaker.name ?: uuid}“ ist im WLAN gerade nicht erreichbar.")
+        }
+    }
+
+    /** Für Abfragen, die jeder Speaker des Haushalts beantworten kann (Favoriten, Playlisten). */
+    private suspend fun <T> onAnySpeaker(block: suspend (base: String) -> T): T {
+        val base = speakerBaseUrl ?: run {
+            zoneTopology(addressHint = null)
+            speakerBaseUrl
+        } ?: throw NoSpeakerInWifiException()
+        return try {
+            block(base)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: LocalSonosException) {
+            throw e
+        } catch (e: IOException) {
+            Log.w(TAG, "Speaker unter $base nicht erreichbar", e)
+            forgetAddresses(base)
+            throw LocalSonosException("Der Sonos-Speaker im WLAN antwortet gerade nicht.")
+        }
+    }
+
+    /** Ein Speaker laut Topologie — aus der gemerkten, sonst frisch geholt. */
+    private suspend fun member(uuid: String): ZoneMember =
+        members?.firstOrNull { it.uuid == uuid }
+            ?: zoneTopology(addressHint = null).firstOrNull { it.uuid == uuid }
+            ?: throw LocalSonosException("Den Speaker gibt es gerade nicht im WLAN.")
+
+    /** Unter [base] antwortet niemand mehr → beim nächsten Mal Topologie und Speaker neu suchen. */
+    private fun forgetAddresses(base: String) {
+        members = null
+        if (speakerBaseUrl == base) speakerBaseUrl = null
+    }
+
+    private suspend fun transport(base: String, action: String, vararg arguments: Pair<String, String>): String =
+        soap(base, AV_TRANSPORT_PATH, "AVTransport", action, "InstanceID" to "0", *arguments)
+
+    private suspend fun rendering(base: String, action: String, vararg arguments: Pair<String, String>): String =
+        soap(base, RENDERING_CONTROL_PATH, "RenderingControl", action, "InstanceID" to "0", *arguments)
+
+    /**
+     * Was gerade läuft, aus GetPositionInfo (der Titel) und GetMediaInfo (die Quelle, z. B. der
+     * Radiosender). Bei Radio steht der Sender als Container da und der laufende Titel als [PlaybackMetadata.streamInfo].
+     */
+    private fun playbackMetadata(base: String, positionInfo: String, mediaInfo: String?): PlaybackMetadata {
+        val trackUri = textOf(positionInfo, "TrackURI").orEmpty()
+        val track = didlFields(textOf(positionInfo, "TrackMetaData"))
+        val mediaUri = mediaInfo?.let { textOf(it, "CurrentURI") }.orEmpty()
+        val media = didlFields(mediaInfo?.let { textOf(it, "CurrentURIMetaData") })
+        val trackArt = track["albumArtURI"]?.let { absoluteUrl(base, it) }
+        val mediaArt = media["albumArtURI"]?.let { absoluteUrl(base, it) }
+        val isLiveStream = LIVE_STREAM_PREFIXES.any { mediaUri.startsWith(it) || trackUri.startsWith(it) } ||
+            track["class"].orEmpty().contains("audioBroadcast")
+        if (isLiveStream) {
+            val station = media["title"] ?: track["title"]?.takeUnless { looksLikeUri(it) }
+            return PlaybackMetadata(
+                container = MetadataContainer(name = station, type = "station", imageUrl = trackArt ?: mediaArt),
+                // ZPSTR_CONNECTING, ZPSTR_BUFFERING …: Zwischenstände, keine Titel
+                streamInfo = track["streamContent"]?.takeUnless { it.startsWith("ZPSTR_") }
+            )
+        }
+        val title = track["title"]?.takeUnless { looksLikeUri(it) }
+        val item = if (title != null || trackArt != null) {
+            MetadataItem(
+                Track(
+                    name = title,
+                    imageUrl = trackArt,
+                    durationMillis = parseDuration(textOf(positionInfo, "TrackDuration")),
+                    artist = (track["creator"] ?: track["artist"] ?: track["albumArtist"])?.let { NamedItem(it) },
+                    album = track["album"]?.let { NamedItem(it) }
+                )
+            )
+        } else {
+            null
+        }
+        val container = media["title"]?.takeUnless { looksLikeUri(it) }?.let { MetadataContainer(name = it, imageUrl = mediaArt) }
+        return PlaybackMetadata(container = container, currentItem = item)
+    }
+
+    // --- Cover, Playlisten, Alben ------------------------------------------
+
     /**
      * Lädt Favoriten und Sonos-Playlisten samt Covern und Künstlern vom Speaker.
      * [addressHint]: eine Cover-URL der Wiedergabe (http://IP:1400/…), falls bekannt.
      */
     suspend fun loadCovers(addressHint: String?): LocalCovers? {
-        val base = speakerBaseUrl ?: baseUrlFrom(addressHint) ?: discoverSpeaker() ?: run {
+        val base = speakerBaseUrl ?: baseUrlFrom(addressHint) ?: knownAddresses.firstOrNull() ?: discoverSpeaker() ?: run {
             Log.d(TAG, "Kein Sonos-Speaker im Heimnetz gefunden")
             return null
         }
@@ -127,20 +534,13 @@ class LocalSonosClient(context: Context) {
      * kein Speaker im Heimnetz antwortet oder die Playlist dort fehlt.
      */
     suspend fun playlistTracks(playlistId: String, addressHint: String?): List<PlaylistTrackInfo>? {
-        val base = speakerBaseUrl ?: baseUrlFrom(addressHint) ?: discoverSpeaker() ?: run {
+        val base = speakerBaseUrl ?: baseUrlFrom(addressHint) ?: knownAddresses.firstOrNull() ?: discoverSpeaker() ?: run {
             Log.d(TAG, "Kein Sonos-Speaker im Heimnetz gefunden")
             return null
         }
         return try {
             browseAll(base, "SQ:$playlistId").first
-                .map { track ->
-                    PlaylistTrackInfo(
-                        title = track.title.takeIf { it.isNotBlank() },
-                        album = track.album,
-                        artist = track.artists.firstOrNull(),
-                        imageUrls = listOfNotNull(track.artUrl, track.freshArtUrl)
-                    )
-                }
+                .map { trackInfo(it) }
                 .also { speakerBaseUrl = base }
         } catch (e: CancellationException) {
             throw e
@@ -151,6 +551,13 @@ class LocalSonosClient(context: Context) {
             null
         }
     }
+
+    private fun trackInfo(track: LocalEntry) = PlaylistTrackInfo(
+        title = track.title.takeIf { it.isNotBlank() },
+        album = track.album,
+        artist = track.artists.firstOrNull(),
+        imageUrls = listOfNotNull(track.artUrl, track.freshArtUrl)
+    )
 
     /**
      * Spielt nur ein Album aus einer Sonos-Playlist auf der Gruppe von [playerId] — die Control API
@@ -195,32 +602,16 @@ class LocalSonosClient(context: Context) {
         shuffle: Boolean
     ) {
         val base = coordinator.baseUrl
-        suspend fun transport(action: String, vararg arguments: Pair<String, String>): String =
-            soap(base, AV_TRANSPORT_PATH, "AVTransport", action, "InstanceID" to "0", *arguments)
 
         // Zufall und Wiederholen vom letzten Mal vorher aus, damit die Warteschlange in der Reihenfolge
         // der Playlist bleibt
-        val previousMode = ignoringRefusal { textOf(transport("GetTransportSettings"), "PlayMode")?.trim() }
+        val previousMode = ignoringRefusal { textOf(transport(base, "GetTransportSettings"), "PlayMode")?.trim() }
         if (previousMode != null && previousMode != PLAY_MODE_NORMAL) {
-            ignoringRefusal { transport("SetPlayMode", "NewPlayMode" to PLAY_MODE_NORMAL) }
+            ignoringRefusal { transport(base, "SetPlayMode", "NewPlayMode" to PLAY_MODE_NORMAL) }
         }
 
-        transport("RemoveAllTracksFromQueue")
-        val added = try {
-            transport(
-                "AddURIToQueue",
-                "EnqueuedURI" to "file:///jffs/settings/savedqueues.rsq#$playlistId",
-                "EnqueuedURIMetaData" to playlistDidl(playlistId, playlistName),
-                "DesiredFirstTrackNumberEnqueued" to "0",
-                "EnqueueAsNext" to "0"
-            )
-        } catch (e: LocalSonosException) {
-            if (e.errorCode == ERROR_NO_SUCH_OBJECT) {
-                throw LocalSonosException("Die Playlist „$playlistName“ gibt es bei Sonos nicht mehr.", e.errorCode)
-            }
-            throw e
-        }
-        val expectedLength = textOf(added, "NewQueueLength")?.trim()?.toIntOrNull()
+        transport(base, "RemoveAllTracksFromQueue")
+        val expectedLength = enqueuePlaylist(base, playlistId, playlistName)
 
         // Welche Plätze der Warteschlange zum Album gehören — so, wie der Speaker sie jetzt hat
         val (queue, queueLength) = queueWhenFilled(base, expectedLength)
@@ -232,12 +623,12 @@ class LocalSonosClient(context: Context) {
         }.toSet()
         if (keep.isEmpty()) {
             // Nicht die ganze Playlist in der Warteschlange lassen — der Play-Knopf würde sie sonst starten
-            ignoringRefusal { transport("RemoveAllTracksFromQueue") }
+            ignoringRefusal { transport(base, "RemoveAllTracksFromQueue") }
             throw LocalSonosException("„$albumName“ steckt nicht mehr in der Playlist „$playlistName“.")
         }
         rangesToRemove(keep, queueLength).forEach { (start, count) ->
             transport(
-                "RemoveTrackRangeFromQueue",
+                base, "RemoveTrackRangeFromQueue",
                 "UpdateID" to "0",
                 "StartingIndex" to start.toString(),
                 "NumberOfTracks" to count.toString()
@@ -245,26 +636,26 @@ class LocalSonosClient(context: Context) {
         }
         Log.d(TAG, "„$albumName“: ${keep.size} von $queueLength Titeln der Playlist „$playlistName“ in der Warteschlange")
 
-        transport("SetAVTransportURI", "CurrentURI" to "x-rincon-queue:${coordinator.uuid}#0", "CurrentURIMetaData" to "")
+        transport(base, "SetAVTransportURI", "CurrentURI" to "x-rincon-queue:${coordinator.uuid}#0", "CurrentURIMetaData" to "")
         // Wiederholen bleibt aus, sonst liefe das Album in Dauerschleife
-        ignoringRefusal { transport("SetPlayMode", "NewPlayMode" to if (shuffle) PLAY_MODE_SHUFFLE else PLAY_MODE_NORMAL) }
+        ignoringRefusal { transport(base, "SetPlayMode", "NewPlayMode" to if (shuffle) PLAY_MODE_SHUFFLE else PLAY_MODE_NORMAL) }
         // Im Zufallsmodus auch mit einem zufälligen Titel beginnen, sonst der Reihe nach von vorn
         val first = if (shuffle) Random.nextInt(keep.size) + 1 else 1
-        transport("Seek", "Unit" to "TRACK_NR", "Target" to first.toString())
-        transport("Play", "Speed" to "1")
+        transport(base, "Seek", "Unit" to "TRACK_NR", "Target" to first.toString())
+        transport(base, "Play", "Speed" to "1")
     }
 
     /**
      * Speaker im Heimnetz mit ihren Gruppen — gefragt beim zuletzt benutzten Speaker, bei dem aus
-     * [addressHint] oder einem per mDNS gefundenen.
+     * [addressHint], unter den Adressen vom letzten Mal oder bei einem per mDNS gefundenen.
+     * Wirft [NoSpeakerInWifiException], wenn keiner antwortet.
      */
     private suspend fun zoneTopology(addressHint: String?): List<ZoneMember> {
-        for (base in listOfNotNull(speakerBaseUrl, baseUrlFrom(addressHint)).distinct()) {
+        val remembered = knownAddresses.take(MAX_PROBED_ADDRESSES)
+        val candidates = (listOfNotNull(speakerBaseUrl, baseUrlFrom(addressHint)) + remembered).distinct()
+        for (base in candidates) {
             try {
-                zoneMembers(base).takeIf { it.isNotEmpty() }?.let {
-                    speakerBaseUrl = base
-                    return it
-                }
+                zoneMembers(base, probeHttp).takeIf { it.isNotEmpty() }?.let { return remember(base, it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
@@ -272,23 +663,31 @@ class LocalSonosClient(context: Context) {
             }
             if (speakerBaseUrl == base) speakerBaseUrl = null
         }
-        val found = discoverSpeaker() ?: throw LocalSonosException(NO_SPEAKER_MESSAGE)
+        val found = discoverSpeaker() ?: throw NoSpeakerInWifiException()
         val members = try {
-            zoneMembers(found)
+            zoneMembers(found, http)
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
             Log.w(TAG, "Zonen-Topologie von $found nicht geladen", e)
-            throw LocalSonosException(NO_SPEAKER_MESSAGE)
+            throw NoSpeakerInWifiException()
         }
-        if (members.isEmpty()) throw LocalSonosException(NO_SPEAKER_MESSAGE)
-        speakerBaseUrl = found
-        return members
+        if (members.isEmpty()) throw NoSpeakerInWifiException()
+        return remember(found, members)
+    }
+
+    /** Merkt sich Topologie und Adressen — auch über einen Neustart der App hinweg. */
+    private fun remember(base: String, found: List<ZoneMember>): List<ZoneMember> {
+        speakerBaseUrl = base
+        members = found
+        val addresses = (listOf(base) + found.filterNot { it.invisible }.map { it.baseUrl }).distinct()
+        if (addresses != knownAddresses) knownAddresses = addresses
+        return found
     }
 
     /** Alle Speaker samt Koordinator ihrer Gruppe, laut ZoneGroupTopology. */
-    private suspend fun zoneMembers(base: String): List<ZoneMember> {
-        val response = soap(base, ZONE_TOPOLOGY_PATH, "ZoneGroupTopology", "GetZoneGroupState")
+    private suspend fun zoneMembers(base: String, client: OkHttpClient): List<ZoneMember> {
+        val response = soap(base, ZONE_TOPOLOGY_PATH, "ZoneGroupTopology", "GetZoneGroupState", client = client)
         val state = textOf(response, "ZoneGroupState") ?: return emptyList()
         val parser = Xml.newPullParser().apply { setInput(StringReader(state)) }
         val members = mutableListOf<ZoneMember>()
@@ -302,7 +701,13 @@ class LocalSonosClient(context: Context) {
                     val uuid = parser.getAttributeValue(null, "UUID") ?: continue
                     val location = parser.getAttributeValue(null, "Location") ?: continue
                     val memberBase = Regex("^(https?://[^/]+)").find(location)?.groupValues?.get(1) ?: continue
-                    members += ZoneMember(uuid, parser.getAttributeValue(null, "ZoneName"), memberBase, coordinator ?: uuid)
+                    members += ZoneMember(
+                        uuid = uuid,
+                        name = parser.getAttributeValue(null, "ZoneName"),
+                        baseUrl = memberBase,
+                        coordinatorUuid = coordinator ?: uuid,
+                        invisible = parser.getAttributeValue(null, "Invisible") == "1"
+                    )
                 }
             }
         }
@@ -450,7 +855,8 @@ class LocalSonosClient(context: Context) {
         path: String,
         service: String,
         action: String,
-        vararg arguments: Pair<String, String>
+        vararg arguments: Pair<String, String>,
+        client: OkHttpClient = http
     ): String = withContext(Dispatchers.IO) {
         val args = arguments.joinToString("") { (name, value) -> "<$name>${escapeXml(value)}</$name>" }
         val body = """<?xml version="1.0" encoding="utf-8"?>""" +
@@ -461,7 +867,7 @@ class LocalSonosClient(context: Context) {
             .header("SOAPACTION", "\"urn:schemas-upnp-org:service:$service:1#$action\"")
             .post(body.toRequestBody("text/xml; charset=\"utf-8\"".toMediaType()))
             .build()
-        http.newCall(request).execute().use { response ->
+        client.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 val code = runCatching { textOf(text, "errorCode")?.trim() }.getOrNull()
@@ -494,6 +900,32 @@ class LocalSonosClient(context: Context) {
         null
     }.getOrNull()
 
+    /**
+     * Die ersten Werte der bekannten Felder ([DIDL_FIELDS]) in einem DIDL, ohne Namespace-Präfix —
+     * z. B. „title“, „creator“, „albumArtURI“, „streamContent“. Leer bei leerem oder kaputtem DIDL.
+     */
+    private fun didlFields(didl: String?): Map<String, String> {
+        if (didl.isNullOrBlank() || didl == "NOT_IMPLEMENTED") return emptyMap()
+        return runCatching {
+            val parser = Xml.newPullParser().apply { setInput(StringReader(didl)) }
+            val fields = mutableMapOf<String, String>()
+            while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                if (parser.eventType != XmlPullParser.START_TAG) continue
+                val name = parser.name.substringAfter(':')
+                if (name in DIDL_FIELDS && name !in fields) {
+                    parser.nextText().trim().takeIf { it.isNotEmpty() }?.let { fields[name] = it }
+                }
+            }
+            fields
+        }.getOrElse {
+            Log.d(TAG, "DIDL nicht lesbar: ${it.message}")
+            emptyMap()
+        }
+    }
+
+    /** Art des Inhalts (`upnp:class`) in einem eingebetteten DIDL, etwa dem eines Favoriten. */
+    private fun classInDidl(didl: String): String? = didlFields(didl)["class"]
+
     private fun parseDidl(didl: String, base: String, keepUntitled: Boolean = false): List<LocalEntry> {
         val parser = Xml.newPullParser().apply { setInput(StringReader(didl)) }
         val entries = mutableListOf<LocalEntry>()
@@ -503,6 +935,9 @@ class LocalSonosClient(context: Context) {
         var res: String? = null
         var artist: String? = null
         var album: String? = null
+        var resMd: String? = null
+        var itemClass: String? = null
+        var description: String? = null
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
             val name = parser.name?.substringAfter(':')
             when (parser.eventType) {
@@ -514,6 +949,9 @@ class LocalSonosClient(context: Context) {
                         res = null
                         artist = null
                         album = null
+                        resMd = null
+                        itemClass = null
+                        description = null
                     }
                     // Abspiel-Adresse des Inhalts, z. B. x-rincon-cpcontainer:…?sid=204&…
                     "res" -> if (res == null) res = parser.nextText().trim().takeIf { it.isNotEmpty() }
@@ -522,7 +960,13 @@ class LocalSonosClient(context: Context) {
                     // dc:creator, upnp:artist oder upnp:albumArtist — bei Titeln und manchen Alben
                     in ARTIST_TAGS -> if (artist == null) artist = parser.nextText().trim().takeIf { it.isNotEmpty() }
                     // Favoriten tragen die Daten des eigentlichen Inhalts als eingebettetes DIDL mit
-                    "resMD" -> if (artist == null) artist = artistInDidl(parser.nextText())
+                    "resMD" -> {
+                        val md = parser.nextText().trim().takeIf { it.isNotEmpty() }
+                        resMd = md
+                        if (artist == null && md != null) artist = artistInDidl(md)
+                    }
+                    "class" -> if (itemClass == null) itemClass = parser.nextText().trim().takeIf { it.isNotEmpty() }
+                    "description" -> if (description == null) description = parser.nextText().trim().takeIf { it.isNotEmpty() }
                     // Erstes Bild nehmen; relative Pfade (/getaa?…) liefert der Speaker selbst
                     "albumArtURI" -> if (art == null) {
                         art = parser.nextText().trim().let { if (it.startsWith("/")) base + it else it }
@@ -534,7 +978,19 @@ class LocalSonosClient(context: Context) {
                     val entryTitle = title ?: "".takeIf { keepUntitled }
                     val fresh = res?.let { "$base/getaa?s=1&u=" + java.net.URLEncoder.encode(it, "UTF-8") }
                     if (entryId != null && entryTitle != null) {
-                        entries += LocalEntry(entryId, entryTitle, art, fresh, listOfNotNull(artist), album)
+                        entries += LocalEntry(
+                            id = entryId,
+                            title = entryTitle,
+                            artUrl = art,
+                            freshArtUrl = fresh,
+                            artists = listOfNotNull(artist),
+                            album = album,
+                            res = res,
+                            resMetaData = resMd,
+                            // Bei Favoriten zählt die Art des eigentlichen Inhalts, nicht „Favorit“
+                            upnpClass = resMd?.let { classInDidl(it) } ?: itemClass,
+                            description = description
+                        )
                     }
                     id = null
                 }
@@ -547,6 +1003,57 @@ class LocalSonosClient(context: Context) {
         private const val TAG = "SonosLocal"
         private const val SERVICE_TYPE = "_sonos._tcp."
         private const val DISCOVERY_TIMEOUT_MS = 6_000L
+        private const val PREFS_NAME = "sonos_local"
+        private const val KEY_PREFER_CLOUD = "prefer_cloud"
+        private const val KEY_ADDRESSES = "speaker_addresses"
+        /** So lange wartet die App höchstens auf eine gemerkte Adresse, bevor sie die nächste probiert. */
+        private const val PROBE_CONNECT_TIMEOUT_MS = 1_200L
+        private const val MAX_PROBED_ADDRESSES = 3
+        private const val RENDERING_CONTROL_PATH = "/MediaRenderer/RenderingControl/Control"
+        private val DIDL_FIELDS = setOf("title", "creator", "artist", "albumArtist", "album", "albumArtURI", "streamContent", "class")
+
+        /**
+         * Abspiel-Adressen, die ohne Warteschlange direkt laufen (Radio, Line-in, TV) — so entscheidet
+         * es auch die Sonos-App beim Starten eines Favoriten. Alles andere kommt in die Warteschlange.
+         */
+        private val DIRECT_PLAY_PREFIXES = listOf(
+            "x-sonosapi-stream:", "x-sonosapi-radio:", "x-sonosapi-hls:", "x-sonosprog-http:",
+            "x-rincon-mp3radio:", "x-rincon-stream:", "x-sonos-htastream:", "pndrradio:", "aac:", "hls-radio:"
+        )
+
+        /** Live-Sender ohne Titelliste: Anzeige mit Sendername und dem, was gerade läuft. */
+        private val LIVE_STREAM_PREFIXES = listOf(
+            "x-sonosapi-stream:", "x-sonosapi-hls:", "x-rincon-mp3radio:", "x-rincon-stream:",
+            "x-sonos-htastream:", "aac:", "hls-radio:"
+        )
+
+        /** Ist das die Adresse eines Radiosenders oder Radio-Programms? */
+        fun isRadioUri(uri: String): Boolean =
+            uri.startsWith("x-sonosapi-stream:") || uri.startsWith("x-sonosapi-radio:") ||
+                uri.startsWith("x-rincon-mp3radio:") || uri.startsWith("x-sonosapi-hls:") ||
+                uri.startsWith("aac:") || uri.startsWith("hls-radio:")
+
+        private fun looksLikeUri(text: String): Boolean = text.contains("://") || text.startsWith("x-")
+
+        private fun absoluteUrl(base: String, raw: String): String? =
+            normalizeImageUrl(if (raw.startsWith("/")) base + raw else raw)
+
+        /** UPnP-Zustand → Zustand wie in der Control API. */
+        private fun playbackState(transportState: String?): String = when (transportState?.trim()) {
+            "PLAYING" -> PlaybackStatus.STATE_PLAYING
+            "TRANSITIONING" -> PlaybackStatus.STATE_BUFFERING
+            "PAUSED_PLAYBACK" -> PlaybackStatus.STATE_PAUSED
+            else -> PlaybackStatus.STATE_IDLE
+        }
+
+        /** "0:03:12" (auch "0:03:12.345") → Millisekunden; null bei "NOT_IMPLEMENTED" o. Ä. */
+        private fun parseDuration(text: String?): Long? {
+            val parts = text?.trim()?.split(':')?.takeIf { it.size == 3 } ?: return null
+            val hours = parts[0].toLongOrNull() ?: return null
+            val minutes = parts[1].toLongOrNull() ?: return null
+            val seconds = parts[2].substringBefore('.').toLongOrNull() ?: return null
+            return ((hours * 60 + minutes) * 60 + seconds) * 1000
+        }
         private val ARTIST_TAGS = setOf("creator", "artist", "albumArtist")
         private const val CONTENT_DIRECTORY_PATH = "/MediaServer/ContentDirectory/Control"
         private const val AV_TRANSPORT_PATH = "/MediaRenderer/AVTransport/Control"
@@ -559,8 +1066,7 @@ class LocalSonosClient(context: Context) {
         private const val QUEUE_FILL_POLL_MS = 300L
         /** UPnP-Fehler „No such object“: Die Playlist gibt es auf dem Speaker nicht (mehr). */
         private const val ERROR_NO_SUCH_OBJECT = "701"
-        const val NO_SPEAKER_MESSAGE = "Kein Sonos-Speaker im WLAN gefunden. Alben aus einer Playlist lassen sich " +
-            "nur abspielen, wenn das Tablet im selben WLAN ist wie die Speaker."
+        const val NO_SPEAKER_MESSAGE = "Kein Sonos-Speaker im WLAN gefunden. Ist das Tablet im selben WLAN wie die Speaker?"
 
         /** UPnP-Wiedergabemodus: der Reihe nach, ohne Wiederholen. */
         private const val PLAY_MODE_NORMAL = "NORMAL"

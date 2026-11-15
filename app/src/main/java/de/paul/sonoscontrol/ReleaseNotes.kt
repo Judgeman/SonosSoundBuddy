@@ -43,6 +43,32 @@ data class ReleaseSection(val title: String, val items: List<String>)
  */
 val ReleaseHistory = listOf(
     Release(
+        version = "1.4.0",
+        date = "15. November 2026",
+        sections = listOf(
+            ReleaseSection(
+                "Steuerung direkt im WLAN",
+                listOf(
+                    "Die App steuert die Speaker jetzt direkt im WLAN, so wie die Sonos-App – ohne Umweg über " +
+                        "die Sonos-Cloud. Knöpfe, Lautstärke und das Starten von Musik reagieren dadurch deutlich schneller.",
+                    "Hakt die Verbindung der Speaker zur Sonos-Cloud (etwa „Kein Household im Sonos-Account " +
+                        "gefunden“ oder Timeouts), funktioniert die App trotzdem.",
+                    "Was gerade läuft, fragt die App alle 2 statt alle 5 Sekunden ab.",
+                    "Findet das Tablet im WLAN keinen Speaker, steuert die App wie bisher über die Sonos-Cloud. " +
+                        "Kommt sie wieder in den Vordergrund, versucht sie es erneut im WLAN."
+                )
+            ),
+            ReleaseSection(
+                "Einstellungen",
+                listOf(
+                    "Unter Speaker steht, wie die App gerade steuert. Mit „Über die Sonos-Cloud steuern“ lässt " +
+                        "sich auf diesem Tablet auf den bisherigen Weg zurückschalten, falls im WLAN etwas nicht klappt.",
+                    "Antwortet die Sonos-Cloud nicht, lädt der Musik-Katalog seine Einträge direkt von den Speakern im WLAN."
+                )
+            )
+        )
+    ),
+    Release(
         version = "1.3.0",
         date = "13. November 2026",
         sections = listOf(

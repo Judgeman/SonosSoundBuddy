@@ -60,6 +60,8 @@ data class PlaybackStatus(
         const val STATE_PLAYING = "PLAYBACK_STATE_PLAYING"
         const val STATE_BUFFERING = "PLAYBACK_STATE_BUFFERING"
         const val STATE_PAUSED = "PLAYBACK_STATE_PAUSED"
+        /** Gestoppt oder nichts geladen. */
+        const val STATE_IDLE = "PLAYBACK_STATE_IDLE"
     }
 }
 
