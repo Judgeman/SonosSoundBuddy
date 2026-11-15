@@ -753,6 +753,10 @@ class MainViewModel(
             val shuffled = wantsShuffle &&
                 runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, true) } }.isSuccess
             if (!shuffled) runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, false) } }
+            // Wiederholen ebenso ausdrücklich aus, sonst läuft die Auswahl in Dauerschleife, wenn es noch
+            // vom letzten Mal oder aus der Sonos-App an ist. Eigener Aufruf, damit eine Quelle, die
+            // Wiederholen nicht erlaubt, nicht auch den Zufall verhindert. Klappt es nicht, trotzdem abspielen.
+            runCatching { retryWhileQueueFills { apiClient.setRepeatOff(group.id) } }
             // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
             if (shuffled) runCatching { retryWhileQueueFills { apiClient.skipToNextTrack(group.id) } }
             retryWhileQueueFills { apiClient.play(group.id) }
