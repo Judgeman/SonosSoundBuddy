@@ -772,17 +772,40 @@ class MainViewModel(
             positionMillis = current.currentPositionMillis(),
             fetchedAtMillis = SystemClock.elapsedRealtime()
         )
-        sendPlaybackCommand { it.togglePlayPause(current.groupId) }
+        sendGroupCommand(current) { c, groupId -> c.togglePlayPause(groupId) }
     }
 
     fun skipToNext() {
         val current = nowPlaying ?: return
-        sendPlaybackCommand { it.skipToNextTrack(current.groupId) }
+        sendGroupCommand(current) { c, groupId -> c.skipToNextTrack(groupId) }
     }
 
     fun skipToPrevious() {
         val current = nowPlaying ?: return
-        sendPlaybackCommand { it.skipToPreviousTrack(current.groupId) }
+        sendGroupCommand(current) { c, groupId -> c.skipToPreviousTrack(groupId) }
+    }
+
+    /**
+     * Ein Befehl an die Gruppe, in der der gewählte Speaker spielt. Die Gruppe aus der letzten Abfrage
+     * kann inzwischen eine andere sein (Musik mitgenommen, in der Sonos-App umgruppiert): Im WLAN wird
+     * sie deshalb frisch geholt (kostet kaum Zeit), über die Cloud erst, wenn Sonos die alte Id als
+     * nicht mehr vorhanden ablehnt (HTTP 410, ERROR_RESOURCE_GONE) — dann einmal mit der aktuellen.
+     */
+    private fun sendGroupCommand(current: NowPlaying, command: suspend (SonosControl, String) -> Unit) {
+        val playerId = selectedPlayerId ?: return
+        sendPlaybackCommand { c ->
+            if (c.path == ControlPath.LOCAL) {
+                command(c, findGroup(c, playerId).id)
+                return@sendPlaybackCommand
+            }
+            try {
+                command(c, current.groupId)
+            } catch (e: SonosApiException) {
+                if (!e.isGroupGone) throw e
+                Log.d(TAG, "Gruppe ${current.groupId} gibt es nicht mehr — Befehl an die aktuelle Gruppe")
+                command(c, findGroup(c, playerId).id)
+            }
+        }
     }
 
     /**
@@ -915,7 +938,8 @@ class MainViewModel(
                 onSent()
                 // Sonos braucht einen Moment, bis Track und Status aktualisiert sind
                 delay(if (isMusicStart) musicRefreshDelay(c) else commandRefreshDelay(c))
-                if (selectedPlayerId == playerId) {
+                // Inzwischen auf den anderen Weg gewechselt? Dann gilt die Gruppen-Id dieser Abfrage dort nicht
+                if (selectedPlayerId == playerId && control === c) {
                     nowPlaying = fetchNowPlaying(c, playerId).also(onPlaying)
                     // Abfragen, die noch während des Befehls begonnen haben, sind damit überholt
                     lastCommandAtMillis = SystemClock.elapsedRealtime()
@@ -991,7 +1015,7 @@ class MainViewModel(
             }
             restartPolling()
             // Gleich die Wiedergabe am neuen Ort zeigen statt eines Ladekreises bis zur ersten Abfrage
-            if (playing != null) nowPlaying = playing
+            if (playing != null && control === c) nowPlaying = playing
             error?.let { reportPlaybackError(it, userAction = true) }
         }
     }

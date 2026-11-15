@@ -34,6 +34,13 @@ class SonosApiException(message: String, val httpCode: Int? = null) : Exception(
 val SonosApiException.isNoContent: Boolean
     get() = message?.contains("ERROR_PLAYBACK_NO_CONTENT") == true
 
+/**
+ * HTTP 410 ERROR_RESOURCE_GONE: Die Gruppe gibt es nicht mehr — Sonos vergibt neue Gruppen-Ids,
+ * sobald sich eine Gruppe ändert (Speaker dazu oder weg, neuer Koordinator).
+ */
+val SonosApiException.isGroupGone: Boolean
+    get() = httpCode == 410 || message?.contains("ERROR_RESOURCE_GONE") == true
+
 /** Die Anmeldung lässt sich nicht mehr erneuern (Refresh-Token ungültig/widerrufen). */
 class SessionExpiredException :
     Exception("Die Anmeldung bei Sonos ist abgelaufen. Bitte einmal neu anmelden.")
