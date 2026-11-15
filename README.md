@@ -41,6 +41,29 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
   - Ist in den Settings nur **ein** Speaker freigegeben, ist er immer
     automatisch gewählt (ohne Dropdown-Pfeil). Ansonsten wird beim Start
     der zuletzt gewählte Speaker wiederhergestellt.
+  - **Musik mitnehmen** (`MoveMusic.kt`): Rechts neben dem Speaker ein Knopf
+    mit Note und Pfeil, sobald mehr als ein Speaker auswählbar ist (ausgegraut,
+    solange nichts geladen ist). Er öffnet „Wo möchtest du weiterhören?“ mit
+    allen anderen auswählbaren Speakern als große Kacheln mit ihrem Icon — so
+    nehmen die Kinder z. B. die Hörgeschichte vom Kinderzimmer mit ins Bad.
+    Ein Tipp holt den Ziel-Speaker in die Gruppe (`modifyGroupMembers`), er
+    spielt an derselben Stelle mit. Der bisherige Speaker spielt noch
+    **15 Sekunden** weiter (`MOVE_SOURCE_STOP_DELAY_MS`), damit die Kinder Zeit
+    haben, hinüberzugehen, dann geht er aus der Gruppe — hat er sie gesteuert,
+    übernimmt ein anderer Player. Spielte der bisherige mit weiteren Speakern
+    zusammen, spielen die weiter. Hat jemand inzwischen umgruppiert (der
+    Ziel-Speaker spielt nicht mehr mit), bleibt alles, wie es ist. Klappt das
+    Herausnehmen auch nach drei Versuchen nicht, zeigt die App eine Meldung.
+    Lief die Musik vorher und steht danach still, startet die App sie einmal
+    neu. Wird die Musik innerhalb der 15 Sekunden zurückgeholt, bleibt der
+    bisherige Speaker einfach dabei; startet dort neue Musik, geht er vorher
+    gleich aus der Gruppe, damit sie nicht auch im anderen Raum läuft. Steht der
+    Ziel-Speaker über seiner maximalen Lautstärke, wird er vorher
+    heruntergeregelt. Danach ist der Ziel-Speaker gewählt, und das Tier am Cover
+    übernimmt die Kategorie des bisherigen Speakers. Solange die Musik umzieht,
+    hüpfen in einem Popup Noten vom einen Raum in den anderen; es fängt alle
+    Berührungen und die Zurück-Taste ab. Die Wartezeit läuft in der App: Wird
+    die App vorher beendet, spielt der bisherige Speaker weiter.
   - Rechts daneben die **Profil-Auswahl**, die nur das Tier-Icon des
     gewählten Kinder-Profils zeigt. Gleiche Logik wie bei den Speakern: ein
     aktives Profil ist fest gewählt, bei mehreren wird das zuletzt gewählte
@@ -343,6 +366,7 @@ nach einer erfolgreichen Erneuerung „Access-Token erneuert“.
 | Titel einer Playlist | `POST /households/{id}/playlists/getPlaylist` |
 | Musik abspielen | `POST /groups/{id}/favorites`, `POST /groups/{id}/playlists` (`action: REPLACE`) |
 | Zufall an/aus, Wiederholen aus, Start | `POST /groups/{id}/playback/playMode` (`shuffle` bzw. `repeat`/`repeatOne`), `POST /groups/{id}/playback/play` |
+| Musik mitnehmen | `POST /groups/{id}/groups/modifyGroupMembers` (`playerIdsToAdd`, `playerIdsToRemove`) |
 
 Die Wiedergabe wird alle 5 s abgefragt, solange die App im Vordergrund ist;
 dazwischen läuft die Position lokal weiter. Das Cover wird aus `imageUrl`
@@ -618,6 +642,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich/Release Notes samt Seitenstand für „Zurück“, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
+| `MoveMusic.kt` | „Musik mitnehmen“: Knopf, Raum-Auswahl, Popup mit hüpfenden Noten während des Umzugs |
 | `ErrorBuddy.kt` | Animierter SoundBuddy für Fehlermeldungen |
 | `MusicPicker.kt`, `NewMusicIcon.kt` | Profil-Dropdown, „Musik aussuchen“-Knopf und -Popup, buntes Funkeln für neue Musik |
 | `VolumeBar.kt` | Stufen-Lautstärke-Leiste |

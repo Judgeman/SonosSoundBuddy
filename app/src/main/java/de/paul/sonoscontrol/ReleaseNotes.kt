@@ -43,6 +43,32 @@ data class ReleaseSection(val title: String, val items: List<String>)
  */
 val ReleaseHistory = listOf(
     Release(
+        version = "1.3.0",
+        date = "13. November 2026",
+        sections = listOf(
+            ReleaseSection(
+                "Musik mitnehmen",
+                listOf(
+                    "Neuer Knopf neben dem Speaker (Note mit Pfeil): Die Kinder nehmen die Musik selbst in " +
+                        "einen anderen Raum mit – etwa vom Kinderzimmer ins Bad zum Zähneputzen.",
+                    "Ein Tipp öffnet „Wo möchtest du weiterhören?“ mit allen anderen Speakern, die auf dem " +
+                        "Tablet auswählbar sind, als große Kacheln mit ihrem Icon.",
+                    "Die Musik läuft im neuen Raum an derselben Stelle weiter. Der alte Raum spielt noch " +
+                        "15 Sekunden mit, damit die Kinder Zeit haben, hinüberzugehen, dann hört er auf.",
+                    "Holen die Kinder die Musik in diesen 15 Sekunden zurück, spielt der alte Raum einfach " +
+                        "weiter. Startet im alten Raum neue Musik, läuft sie nur dort – die mitgenommene spielt im " +
+                        "neuen Raum weiter.",
+                    "Danach ist der neue Raum auf dem Tablet gewählt, und das Tier am Cover liest oder tanzt " +
+                        "dort weiter.",
+                    "Steht der neue Speaker lauter als seine maximale Lautstärke, wird er vorher " +
+                        "heruntergeregelt.",
+                    "Welche Räume zur Wahl stehen, bestimmt weiter „auf dem Homescreen auswählbar“ in den " +
+                        "Speaker-Einstellungen. Ist nur ein Speaker auswählbar, gibt es den Knopf nicht."
+                )
+            )
+        )
+    ),
+    Release(
         version = "1.2.1",
         date = "6. November 2026",
         sections = listOf(
