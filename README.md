@@ -369,11 +369,19 @@ diese.
   Sonos-Cloud steuern“ eingeschaltet ist — wie bisher über die Control API
   (`CloudSonosControl`). Den ersten Speaker findet die App unter den
   Adressen vom letzten Mal (gespeichert in den SharedPreferences
-  `sonos_local`), sonst per mDNS (`_sonos._tcp`).
+  `sonos_local`), sonst sucht sie gleichzeitig per mDNS (`_sonos._tcp`, alle
+  gemeldeten Speaker der Reihe nach) und per SSDP (`M-SEARCH` nach
+  `urn:schemas-upnp-org:device:ZonePlayer:1` an 239.255.255.250 und
+  255.255.255.255, Port 1900) — wer zuerst antwortet, gewinnt.
 - **Rückfall während der Nutzung:** Scheitern im WLAN drei Abfragen
   hintereinander, verbindet die App still neu — unter neuer Adresse oder
   über die Cloud. Lief sie nur ersatzweise über die Cloud, versucht sie es
-  beim Zurückkommen in den Vordergrund wieder im WLAN.
+  beim Zurückkommen in den Vordergrund und sonst jede Minute wieder im WLAN.
+  Fehlermeldungen nennen dann auch, warum es im WLAN nicht ging.
+- **Gruppe nicht mehr vorhanden:** Die Cloud lehnt eine Gruppen-Id ab, sobald
+  sich die Gruppe geändert hat (HTTP 410, `ERROR_RESOURCE_GONE`) — etwa beim
+  „Musik mitnehmen“. Die App holt dann die aktuelle Gruppe und wiederholt den
+  Schritt bis zu dreimal (`MainViewModel.withGroup`).
 - **Gruppen-Ids** gelten je Weg: im WLAN ist es die Kennung des
   Gruppen-Koordinators (`RINCON_…`), der alle Befehle zur Wiedergabe annimmt.
   Player-Ids sind auf beiden Wegen gleich.

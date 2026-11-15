@@ -288,7 +288,7 @@ class SonosApiClient(
                             // Für die Fehlersuche: welcher Aufruf genau abgelehnt wurde
                             Log.w(TAG, "${request.method} ${request.url.encodedPath} → HTTP ${it.code}: $bodyString")
                             continuation.resumeWithException(
-                                SonosApiException("HTTP ${it.code}: $bodyString", it.code)
+                                SonosApiException(describeError(request, it.code, bodyString), it.code)
                             )
                         } else {
                             continuation.resume(bodyString)
@@ -297,6 +297,19 @@ class SonosApiClient(
                 }
             })
         }
+
+    /**
+     * Fehlermeldung zu einer abgelehnten Anfrage: Fehlercode von Sonos, falls genannt, und welcher
+     * Aufruf es war (z. B. „POST modifyGroupMembers“) — das hilft bei der Fehlersuche.
+     */
+    private fun describeError(request: Request, httpCode: Int, body: String): String {
+        val call = "${request.method} ${request.url.pathSegments.lastOrNull { it.isNotBlank() }.orEmpty()}".trim()
+        val error = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+        val errorCode = (error?.get("errorCode") as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?: return "Sonos-Cloud: HTTP $httpCode bei $call: $body"
+        val reason = (error["reason"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+        return "Sonos-Cloud: $errorCode" + (reason?.let { " – $it" } ?: "") + " (HTTP $httpCode bei $call)"
+    }
 
     companion object {
         private const val TAG = "SonosApi"

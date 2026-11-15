@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -21,7 +23,12 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
 import java.io.StringReader
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.Inet4Address
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.random.Random
@@ -172,6 +179,10 @@ class LocalSonosClient(context: Context) : SonosControl {
     @Volatile
     private var speakerBaseUrl: String? = null
 
+    /** Adresse eines Speakers aus einer Cover-Adresse der Wiedergabe — ein Tipp für die nächste Suche. */
+    @Volatile
+    private var hintedBaseUrl: String? = null
+
     /** Alle Speaker laut letzter Zonen-Topologie — für die Adressen; null = beim nächsten Mal neu holen. */
     @Volatile
     private var members: List<ZoneMember>? = null
@@ -192,6 +203,14 @@ class LocalSonosClient(context: Context) : SonosControl {
         set(value) {
             prefs.edit().putString(KEY_ADDRESSES, value.joinToString("\n")).apply()
         }
+
+    /**
+     * Eine Cover-Adresse der Wiedergabe (`http://IP:1400/…`) verrät, wo ein Speaker steht — auch wenn
+     * die App gerade über die Cloud steuert. Die nächste Suche im WLAN fragt dort zuerst.
+     */
+    fun noteAddress(url: String?) {
+        baseUrlFrom(url)?.let { hintedBaseUrl = it }
+    }
 
     // --- Steuerung (SonosControl) ------------------------------------------
 
@@ -518,7 +537,7 @@ class LocalSonosClient(context: Context) : SonosControl {
                 val artists = playlist.artists.ifEmpty { rankArtists(tracks.flatMap { it.artists }) }
                 playlist.copy(artUrl = art, freshArtUrl = null, artists = artists)
             }
-            speakerBaseUrl = base
+            rememberAddress(base)
             Log.d(TAG, "Lokal ${favorites.size} Favoriten, ${playlists.size} Playlisten von $base")
             LocalCovers(favorites, playlists)
         } catch (e: Exception) {
@@ -541,7 +560,7 @@ class LocalSonosClient(context: Context) : SonosControl {
         return try {
             browseAll(base, "SQ:$playlistId").first
                 .map { trackInfo(it) }
-                .also { speakerBaseUrl = base }
+                .also { rememberAddress(base) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -652,7 +671,7 @@ class LocalSonosClient(context: Context) : SonosControl {
      */
     private suspend fun zoneTopology(addressHint: String?): List<ZoneMember> {
         val remembered = knownAddresses.take(MAX_PROBED_ADDRESSES)
-        val candidates = (listOfNotNull(speakerBaseUrl, baseUrlFrom(addressHint)) + remembered).distinct()
+        val candidates = (listOfNotNull(speakerBaseUrl, baseUrlFrom(addressHint), hintedBaseUrl) + remembered).distinct()
         for (base in candidates) {
             try {
                 zoneMembers(base, probeHttp).takeIf { it.isNotEmpty() }?.let { return remember(base, it) }
@@ -674,6 +693,13 @@ class LocalSonosClient(context: Context) : SonosControl {
         }
         if (members.isEmpty()) throw NoSpeakerInWifiException()
         return remember(found, members)
+    }
+
+    /** Unter [base] hat ein Speaker geantwortet → für das nächste Mal merken, auch über einen Neustart hinweg. */
+    private fun rememberAddress(base: String) {
+        speakerBaseUrl = base
+        val known = knownAddresses
+        if (base !in known) knownAddresses = listOf(base) + known
     }
 
     /** Merkt sich Topologie und Adressen — auch über einen Neustart der App hinweg. */
@@ -743,52 +769,141 @@ class LocalSonosClient(context: Context) : SonosControl {
         return "http://${match.groupValues[1]}:1400"
     }
 
+    /**
+     * Sucht einen Speaker im WLAN — gleichzeitig per mDNS (`_sonos._tcp`) und per SSDP (so findet auch
+     * die Sonos-App ihre Speaker). Wer zuerst einen findet, gewinnt; null, wenn beide nichts finden.
+     */
     private suspend fun discoverSpeaker(): String? = withTimeoutOrNull(DISCOVERY_TIMEOUT_MS) {
-        suspendCancellableCoroutine { continuation ->
-            var resolving = false
-            lateinit var discovery: NsdManager.DiscoveryListener
-
-            fun finish(result: String?) {
-                if (!continuation.isActive) return
-                runCatching { nsdManager.stopServiceDiscovery(discovery) }
-                continuation.resume(result)
+        coroutineScope {
+            val mdns = async { discoverByMdns() }
+            val ssdp = async { discoverBySsdp() }
+            val (fromMdns, first) = select<Pair<Boolean, String?>> {
+                mdns.onAwait { true to it }
+                ssdp.onAwait { false to it }
             }
+            val found = first ?: if (fromMdns) ssdp.await() else mdns.await()
+            mdns.cancel()
+            ssdp.cancel()
+            found?.also { Log.d(TAG, "Speaker im WLAN gefunden: $it") }
+        }
+    }
 
-            discovery = object : NsdManager.DiscoveryListener {
-                override fun onDiscoveryStarted(serviceType: String) = Unit
-                override fun onDiscoveryStopped(serviceType: String) = Unit
-                override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-                    Log.w(TAG, "mDNS-Suche nicht gestartet ($errorCode)")
-                    if (continuation.isActive) continuation.resume(null)
+    /**
+     * SSDP: eine Suchanfrage an alle Geräte im WLAN (UDP-Multicast und -Broadcast, Port 1900); jeder
+     * Sonos-Speaker antwortet direkt mit seiner Adresse. Braucht keine Hilfe von Android und klappt
+     * deshalb auch auf Tablets, deren mDNS-Suche hakt.
+     */
+    private suspend fun discoverBySsdp(): String? = withContext(Dispatchers.IO) {
+        try {
+            DatagramSocket().use { socket ->
+                socket.soTimeout = SSDP_RECEIVE_TIMEOUT_MS
+                socket.broadcast = true
+                val request = SSDP_SEARCH.toByteArray(Charsets.US_ASCII)
+                val targets = listOf("239.255.255.250", "255.255.255.255")
+                    .map { InetSocketAddress(InetAddress.getByName(it), SSDP_PORT) }
+                val buffer = ByteArray(2048)
+                val deadline = SystemClock.elapsedRealtime() + SSDP_TIMEOUT_MS
+                var sentAt = 0L
+                while (SystemClock.elapsedRealtime() < deadline) {
+                    ensureActive()
+                    val now = SystemClock.elapsedRealtime()
+                    // UDP kann verloren gehen — die Anfrage deshalb ein paarmal schicken
+                    if (sentAt == 0L || now - sentAt >= SSDP_RESEND_MS) {
+                        targets.forEach { target ->
+                            runCatching { socket.send(DatagramPacket(request, request.size, target)) }
+                                .onFailure { Log.d(TAG, "SSDP-Anfrage an ${target.hostString} nicht gesendet: ${it.message}") }
+                        }
+                        sentAt = now
+                    }
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    try {
+                        socket.receive(packet)
+                    } catch (e: SocketTimeoutException) {
+                        continue
+                    }
+                    ssdpSpeakerAddress(String(packet.data, 0, packet.length, Charsets.UTF_8))?.let { return@withContext it }
                 }
-                override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-                override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
+                null
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.d(TAG, "SSDP-Suche fehlgeschlagen: ${e.message}")
+            null
+        }
+    }
 
-                override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                    // Es reicht ein Speaker; Android erlaubt nur eine Auflösung gleichzeitig
-                    if (resolving) return
-                    resolving = true
+    /**
+     * mDNS über Android: alle gemeldeten Speaker der Reihe nach auflösen, bis einer eine IPv4-Adresse
+     * nennt. Android erlaubt nur eine Auflösung gleichzeitig, deshalb warten die übrigen in [pending].
+     * Endet erst mit einem Fund (oder wenn die Suche gar nicht startet) — die Zeit begrenzt [discoverSpeaker].
+     */
+    private suspend fun discoverByMdns(): String? = suspendCancellableCoroutine { continuation ->
+        val lock = Any()
+        val pending = ArrayDeque<NsdServiceInfo>()
+        var resolving = false
+        lateinit var discovery: NsdManager.DiscoveryListener
+
+        fun finish(result: String?) {
+            if (!continuation.isActive) return
+            runCatching { nsdManager.stopServiceDiscovery(discovery) }
+            continuation.resume(result)
+        }
+
+        fun resolveNext() {
+            val next = synchronized(lock) {
+                if (resolving) null else pending.removeFirstOrNull()?.also { resolving = true }
+            } ?: return
+            val listener = object : NsdManager.ResolveListener {
+                override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                    Log.d(TAG, "mDNS: Speaker nicht aufgelöst ($errorCode), nächster")
+                    synchronized(lock) { resolving = false }
+                    resolveNext()
+                }
+
+                override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
                     @Suppress("DEPRECATION")
-                    nsdManager.resolveService(serviceInfo, object : NsdManager.ResolveListener {
-                        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                            resolving = false
-                        }
-
-                        override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                            @Suppress("DEPRECATION")
-                            val host = serviceInfo.host
-                            if (host is Inet4Address) {
-                                finish("http://${host.hostAddress}:1400")
-                            } else {
-                                resolving = false
-                            }
-                        }
-                    })
+                    val host = serviceInfo.host
+                    if (host is Inet4Address) {
+                        finish("http://${host.hostAddress}:1400")
+                    } else {
+                        synchronized(lock) { resolving = false }
+                        resolveNext()
+                    }
                 }
             }
+            try {
+                @Suppress("DEPRECATION")
+                nsdManager.resolveService(next, listener)
+            } catch (e: Exception) {
+                Log.d(TAG, "mDNS: Auflösen nicht gestartet: ${e.message}")
+                synchronized(lock) { resolving = false }
+                resolveNext()
+            }
+        }
 
-            continuation.invokeOnCancellation { runCatching { nsdManager.stopServiceDiscovery(discovery) } }
+        discovery = object : NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(serviceType: String) = Unit
+            override fun onDiscoveryStopped(serviceType: String) = Unit
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+                Log.w(TAG, "mDNS-Suche nicht gestartet ($errorCode)")
+                if (continuation.isActive) continuation.resume(null)
+            }
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
+            override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
+
+            override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                synchronized(lock) { pending.addLast(serviceInfo) }
+                resolveNext()
+            }
+        }
+
+        continuation.invokeOnCancellation { runCatching { nsdManager.stopServiceDiscovery(discovery) } }
+        try {
             nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discovery)
+        } catch (e: Exception) {
+            Log.w(TAG, "mDNS-Suche nicht gestartet: ${e.message}")
+            if (continuation.isActive) continuation.resume(null)
         }
     }
 
@@ -1003,6 +1118,22 @@ class LocalSonosClient(context: Context) : SonosControl {
         private const val TAG = "SonosLocal"
         private const val SERVICE_TYPE = "_sonos._tcp."
         private const val DISCOVERY_TIMEOUT_MS = 6_000L
+        private const val SSDP_PORT = 1900
+        private const val SSDP_TIMEOUT_MS = 3_500L
+        private const val SSDP_RESEND_MS = 800L
+        private const val SSDP_RECEIVE_TIMEOUT_MS = 300
+        private const val SSDP_SEARCH = "M-SEARCH * HTTP/1.1\r\n" +
+            "HOST: 239.255.255.250:1900\r\n" +
+            "MAN: \"ssdp:discover\"\r\n" +
+            "MX: 1\r\n" +
+            "ST: urn:schemas-upnp-org:device:ZonePlayer:1\r\n\r\n"
+        private val SSDP_LOCATION = Regex("^LOCATION:\\s*(http://[0-9.]+:1400)/", setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE))
+
+        /** Adresse aus der SSDP-Antwort eines Sonos-Speakers (`LOCATION: http://IP:1400/xml/…`), sonst null. */
+        internal fun ssdpSpeakerAddress(response: String): String? {
+            if (!response.contains("Sonos", ignoreCase = true) && !response.contains("ZonePlayer", ignoreCase = true)) return null
+            return SSDP_LOCATION.find(response)?.groupValues?.get(1)
+        }
         private const val PREFS_NAME = "sonos_local"
         private const val KEY_PREFER_CLOUD = "prefer_cloud"
         private const val KEY_ADDRESSES = "speaker_addresses"

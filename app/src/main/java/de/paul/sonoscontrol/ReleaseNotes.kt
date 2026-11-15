@@ -54,8 +54,10 @@ val ReleaseHistory = listOf(
                     "Hakt die Verbindung der Speaker zur Sonos-Cloud (etwa „Kein Household im Sonos-Account " +
                         "gefunden“ oder Timeouts), funktioniert die App trotzdem.",
                     "Was gerade läuft, fragt die App alle 2 statt alle 5 Sekunden ab.",
-                    "Findet das Tablet im WLAN keinen Speaker, steuert die App wie bisher über die Sonos-Cloud. " +
-                        "Kommt sie wieder in den Vordergrund, versucht sie es erneut im WLAN."
+                    "Findet das Tablet im WLAN keinen Speaker, steuert die App wie bisher über die Sonos-Cloud " +
+                        "und versucht es jede Minute erneut im WLAN. Fehlermeldungen nennen dann auch den Grund.",
+                    "Über die Sonos-Cloud: Ändert sich die Gruppe der Speaker, etwa beim „Musik mitnehmen“, " +
+                        "wiederholt die App den Schritt, statt „ERROR_RESOURCE_GONE“ zu melden."
                 )
             ),
             ReleaseSection(
