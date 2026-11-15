@@ -43,6 +43,37 @@ data class ReleaseSection(val title: String, val items: List<String>)
  */
 val ReleaseHistory = listOf(
     Release(
+        version = "1.4.0",
+        date = "15. November 2026",
+        sections = listOf(
+            ReleaseSection(
+                "Steuerung direkt im WLAN",
+                listOf(
+                    "Die App steuert die Speaker jetzt direkt im WLAN, so wie die Sonos-App – ohne Umweg über " +
+                        "die Sonos-Cloud. Knöpfe, Lautstärke und das Starten von Musik reagieren dadurch deutlich schneller.",
+                    "Hakt die Verbindung der Speaker zur Sonos-Cloud (etwa „Kein Household im Sonos-Account " +
+                        "gefunden“ oder Timeouts), funktioniert die App trotzdem.",
+                    "Was gerade läuft, fragt die App alle 2 statt alle 5 Sekunden ab.",
+                    "Findet das Tablet im WLAN keinen Speaker, steuert die App wie bisher über die Sonos-Cloud " +
+                        "und versucht es jede Minute erneut im WLAN. Fehlermeldungen nennen dann auch den Grund.",
+                    "Findet die Suche im WLAN keinen Speaker, nutzt die App die Adressen, die die Sonos-Cloud zu " +
+                        "den Speakern nennt, und merkt sie sich.",
+                    "Ein einzelner Aussetzer bei wackligem Netz lässt nicht mehr gleich eine Meldung aufpoppen.",
+                    "Über die Sonos-Cloud: Ändert sich die Gruppe der Speaker, etwa beim „Musik mitnehmen“, " +
+                        "wiederholt die App den Schritt, statt „ERROR_RESOURCE_GONE“ zu melden."
+                )
+            ),
+            ReleaseSection(
+                "Einstellungen",
+                listOf(
+                    "Unter Speaker steht, wie die App gerade steuert. Mit „Über die Sonos-Cloud steuern“ lässt " +
+                        "sich auf diesem Tablet auf den bisherigen Weg zurückschalten, falls im WLAN etwas nicht klappt.",
+                    "Antwortet die Sonos-Cloud nicht, lädt der Musik-Katalog seine Einträge direkt von den Speakern im WLAN."
+                )
+            )
+        )
+    ),
+    Release(
         version = "1.3.0",
         date = "13. November 2026",
         sections = listOf(

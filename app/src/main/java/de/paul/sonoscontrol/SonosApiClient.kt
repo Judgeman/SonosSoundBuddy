@@ -22,6 +22,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.net.SocketTimeoutException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -33,6 +34,13 @@ class SonosApiException(message: String, val httpCode: Int? = null) : Exception(
  */
 val SonosApiException.isNoContent: Boolean
     get() = message?.contains("ERROR_PLAYBACK_NO_CONTENT") == true
+
+/**
+ * HTTP 410 ERROR_RESOURCE_GONE: Die Gruppe gibt es nicht mehr — Sonos vergibt neue Gruppen-Ids,
+ * sobald sich eine Gruppe ändert (Speaker dazu oder weg, neuer Koordinator).
+ */
+val SonosApiException.isGroupGone: Boolean
+    get() = httpCode == 410 || message?.contains("ERROR_RESOURCE_GONE") == true
 
 /** Die Anmeldung lässt sich nicht mehr erneuern (Refresh-Token ungültig/widerrufen). */
 class SessionExpiredException :
@@ -204,13 +212,21 @@ class SonosApiClient(
 
     private suspend fun authorizedCall(url: String, withMethod: Request.Builder.() -> Request.Builder): String =
         withAccessToken { token ->
-            executeAsync(
-                Request.Builder()
-                    .url(url)
-                    .header("Authorization", "Bearer $token")
-                    .withMethod()
-                    .build()
-            )
+            try {
+                executeAsync(
+                    Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer $token")
+                        .withMethod()
+                        .build()
+                )
+            } catch (e: SocketTimeoutException) {
+                throw SonosApiException("Die Sonos-Cloud antwortet nicht (Zeitüberschreitung). Ist das Internet gerade stabil?")
+            } catch (e: IOException) {
+                // Abgebrochene Anfragen (Coroutine beendet) sind kein Netzfehler
+                if (e.message == "Canceled") throw e
+                throw SonosApiException("Die Sonos-Cloud ist nicht erreichbar (${e.message ?: e.javaClass.simpleName}). Hat das Tablet Internet?")
+            }
         }
 
     /**
@@ -281,7 +297,7 @@ class SonosApiClient(
                             // Für die Fehlersuche: welcher Aufruf genau abgelehnt wurde
                             Log.w(TAG, "${request.method} ${request.url.encodedPath} → HTTP ${it.code}: $bodyString")
                             continuation.resumeWithException(
-                                SonosApiException("HTTP ${it.code}: $bodyString", it.code)
+                                SonosApiException(describeError(request, it.code, bodyString), it.code)
                             )
                         } else {
                             continuation.resume(bodyString)
@@ -290,6 +306,19 @@ class SonosApiClient(
                 }
             })
         }
+
+    /**
+     * Fehlermeldung zu einer abgelehnten Anfrage: Fehlercode von Sonos, falls genannt, und welcher
+     * Aufruf es war (z. B. „POST modifyGroupMembers“) — das hilft bei der Fehlersuche.
+     */
+    private fun describeError(request: Request, httpCode: Int, body: String): String {
+        val call = "${request.method} ${request.url.pathSegments.lastOrNull { it.isNotBlank() }.orEmpty()}".trim()
+        val error = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+        val errorCode = (error?.get("errorCode") as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?: return "Sonos-Cloud: HTTP $httpCode bei $call: $body"
+        val reason = (error["reason"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+        return "Sonos-Cloud: $errorCode" + (reason?.let { " – $it" } ?: "") + " (HTTP $httpCode bei $call)"
+    }
 
     companion object {
         private const val TAG = "SonosApi"

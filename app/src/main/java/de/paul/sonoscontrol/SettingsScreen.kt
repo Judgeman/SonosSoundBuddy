@@ -277,8 +277,12 @@ fun SpeakerSettingsScreen(
     isLoggedIn: Boolean,
     isRefreshingSpeakers: Boolean,
     speakerRefreshMessage: String?,
+    controlPath: ControlPath?,
+    controlFallbackReason: String?,
+    preferCloud: Boolean,
     onBack: () -> Unit,
     onRefreshSpeakers: () -> Unit,
+    onPreferCloudChange: (Boolean) -> Unit,
     onDeleteSpeaker: (String) -> Unit,
     onSpeakerEnabledChange: (String, Boolean) -> Unit,
     onSpeakerIconChange: (String, SpeakerIcon) -> Unit,
@@ -330,6 +334,13 @@ fun SpeakerSettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Speaker-Liste aktualisieren")
                     }
+                    ControlPathSetting(
+                        controlPath = controlPath,
+                        fallbackReason = controlFallbackReason,
+                        preferCloud = preferCloud,
+                        enabled = !isRefreshingSpeakers,
+                        onPreferCloudChange = onPreferCloudChange
+                    )
                 }
             }
             if (speakers.isEmpty()) {
@@ -672,6 +683,39 @@ fun PasswordPromptDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Abbrechen") }
+        }
+    )
+}
+
+/**
+ * Wie die App die Speaker steuert: normalerweise direkt im WLAN, ersatzweise oder auf Wunsch über
+ * die Sonos-Cloud. Der Schalter ist ein Sicherheitsnetz, falls im WLAN etwas nicht klappt.
+ */
+@Composable
+private fun ControlPathSetting(
+    controlPath: ControlPath?,
+    fallbackReason: String?,
+    preferCloud: Boolean,
+    enabled: Boolean,
+    onPreferCloudChange: (Boolean) -> Unit
+) {
+    val status = when {
+        controlPath == null -> "Noch nicht verbunden."
+        controlPath == ControlPath.LOCAL -> "Gerade: direkt im WLAN — schnell und ohne Umweg über die Cloud."
+        preferCloud -> "Gerade: über die Sonos-Cloud, wie eingestellt."
+        else -> "Gerade: ersatzweise über die Sonos-Cloud, weil im WLAN kein Speaker geantwortet hat" +
+            (fallbackReason?.let { " ($it)" } ?: "") + "."
+    }
+    ListItem(
+        headlineContent = { Text("Über die Sonos-Cloud steuern") },
+        supportingContent = {
+            Text(
+                "Normalerweise steuert die App die Speaker direkt im WLAN und nimmt die Cloud nur, wenn " +
+                    "sie dort keinen findet. Einschalten, falls im WLAN etwas nicht klappt. $status"
+            )
+        },
+        trailingContent = {
+            Switch(checked = preferCloud, enabled = enabled, onCheckedChange = onPreferCloudChange)
         }
     )
 }

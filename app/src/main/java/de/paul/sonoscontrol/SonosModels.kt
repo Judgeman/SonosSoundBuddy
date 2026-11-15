@@ -25,8 +25,15 @@ data class SonosPlayer(
     val id: String,
     val name: String,
     val icon: String? = null,
-    val capabilities: List<String>? = null
-)
+    val capabilities: List<String>? = null,
+    /** Nur aus der Cloud: Adresse des Speakers im Heimnetz, z. B. `wss://192.168.1.23:1443/websocket/api`. */
+    val websocketUrl: String? = null
+) {
+    /** Adresse für die Steuerung im WLAN (`http://IP:1400`), falls die Cloud die IP des Speakers nennt. */
+    val localBaseUrl: String?
+        get() = websocketUrl?.let { Regex("^wss?://([0-9]{1,3}(?:\\.[0-9]{1,3}){3})[:/]").find(it) }
+            ?.let { "http://${it.groupValues[1]}:1400" }
+}
 
 @Serializable
 data class SonosGroup(
@@ -60,6 +67,8 @@ data class PlaybackStatus(
         const val STATE_PLAYING = "PLAYBACK_STATE_PLAYING"
         const val STATE_BUFFERING = "PLAYBACK_STATE_BUFFERING"
         const val STATE_PAUSED = "PLAYBACK_STATE_PAUSED"
+        /** Gestoppt oder nichts geladen. */
+        const val STATE_IDLE = "PLAYBACK_STATE_IDLE"
     }
 }
 

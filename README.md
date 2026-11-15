@@ -1,7 +1,8 @@
 # SoundBuddy
 
 Native Android-App (Kotlin, Jetpack Compose) zum kindgerechten Steuern von
-Sonos-Speakern über die offizielle Sonos Control API. Gedacht für ein
+Sonos-Speakern — direkt im WLAN wie die Sonos-App, ersatzweise über die
+offizielle Sonos Control API. Gedacht für ein
 Tablet, das von Kindern bedient wird: große Knöpfe, bunte Icons, eine
 Lautstärke-Leiste mit Obergrenze und passwortgeschützte Einstellungen für
 die Eltern.
@@ -352,7 +353,63 @@ Netz- oder Worker-Fehlern bleibt die Anmeldung erhalten; beim nächsten
 Öffnen versucht die App es still erneut. Im Logcat (Tag `SonosApi`) steht
 nach einer erfolgreichen Erneuerung „Access-Token erneuert“.
 
-## Verwendete Sonos-API-Aufrufe
+## Steuerung: direkt im WLAN, Sonos-Cloud als Rückfall
+
+Seit Version 1.4 steuert die App die Speaker direkt im WLAN — so wie die
+Sonos-App, über UPnP auf Port 1400 (`LocalSonosClient.kt`). Das ist deutlich
+schneller als der Weg über die Sonos-Cloud und funktioniert auch, wenn die
+Verbindung der Speaker zur Sonos-Cloud hakt („Kein Household im
+Sonos-Account gefunden“, Timeouts). Beide Wege stecken hinter der
+Schnittstelle `SonosControl` (`SonosControl.kt`); `MainViewModel` kennt nur
+diese.
+
+- **Verbinden** (`MainViewModel.connect`, beim Laden der Speaker und bei
+  „Speaker-Liste aktualisieren“): Antwortet im WLAN ein Speaker, steuert die
+  App dort. Sonst — oder wenn in den Einstellungen unter Speaker „Über die
+  Sonos-Cloud steuern“ eingeschaltet ist — wie bisher über die Control API
+  (`CloudSonosControl`). Den ersten Speaker findet die App unter den
+  Adressen vom letzten Mal (gespeichert in den SharedPreferences
+  `sonos_local`), sonst sucht sie gleichzeitig per mDNS (`_sonos._tcp`, alle
+  gemeldeten Speaker der Reihe nach) und per SSDP (`M-SEARCH` nach
+  `urn:schemas-upnp-org:device:ZonePlayer:1` an 239.255.255.250 und
+  255.255.255.255, Port 1900) — wer zuerst antwortet, gewinnt. Findet die
+  Suche nichts (Gast-WLAN, Emulator), nimmt die App die Adressen, die die
+  Sonos-Cloud zu den Speakern nennt (`websocketUrl` in der Antwort von
+  `GET /households/{id}/groups`), und merkt sie sich für das nächste Mal.
+- **Rückfall während der Nutzung:** Scheitern im WLAN drei Abfragen
+  hintereinander, verbindet die App still neu — unter neuer Adresse oder
+  über die Cloud. Lief sie nur ersatzweise über die Cloud, versucht sie es
+  beim Zurückkommen in den Vordergrund und sonst jede Minute wieder im WLAN.
+  Fehlermeldungen nennen dann auch, warum es im WLAN nicht ging. Ein einzelner
+  Aussetzer beim Abfragen zeigt noch keine Meldung, erst der zweite in Folge.
+- **Gruppe nicht mehr vorhanden:** Die Cloud lehnt eine Gruppen-Id ab, sobald
+  sich die Gruppe geändert hat (HTTP 410, `ERROR_RESOURCE_GONE`) — etwa beim
+  „Musik mitnehmen“. Die App holt dann die aktuelle Gruppe und wiederholt den
+  Schritt bis zu dreimal (`MainViewModel.withGroup`).
+- **Gruppen-Ids** gelten je Weg: im WLAN ist es die Kennung des
+  Gruppen-Koordinators (`RINCON_…`), der alle Befehle zur Wiedergabe annimmt.
+  Player-Ids sind auf beiden Wegen gleich.
+- **Die Sonos-Anmeldung bleibt nötig** — für den Abgleich zwischen Tablets
+  (der Worker prüft den Haushalt über den Token) und für den Rückfall.
+
+| Zweck | Im WLAN (UPnP) |
+|---|---|
+| Speaker und Gruppen | `ZoneGroupTopology#GetZoneGroupState` (Stereopaar-Partner und Satelliten ausgeblendet) |
+| Status, Position, Zufall, Skip möglich | `AVTransport#GetTransportInfo`, `GetPositionInfo`, `GetTransportSettings`, `GetCurrentTransportActions` |
+| Titel, Interpret, Cover, Radiosender | `GetPositionInfo` (`TrackMetaData`), `GetMediaInfo` (`CurrentURIMetaData`, `r:streamContent`) |
+| Lautstärke lesen / setzen | `RenderingControl#GetVolume`, `GetMute`, `SetVolume` (je Speaker) |
+| Play/Pause, Skip | `Play`/`Pause` (Radio ohne Pause: `Stop`), `Next`, `Previous` am Koordinator |
+| Favorit abspielen | Browse `FV:2`, dann Radio/Streams direkt (`SetAVTransportURI` mit `res` und `r:resMD`), alles andere über die Warteschlange (`RemoveAllTracksFromQueue`, `AddURIToQueue`, `SetAVTransportURI x-rincon-queue:…#0`) |
+| Sonos-Playlist abspielen | `AddURIToQueue` mit `file:///jffs/settings/savedqueues.rsq#<Id>` |
+| Zufall, Wiederholen aus | `SetPlayMode` `NORMAL` bzw. `SHUFFLE_NOREPEAT`, bei Zufall `Seek` auf einen zufälligen ersten Titel |
+| Musik mitnehmen | Ziel: `SetAVTransportURI x-rincon:<Koordinator>`; bisheriger Speaker: `BecomeCoordinatorOfStandaloneGroup`, als Koordinator erst `DelegateGroupCoordinationTo` |
+
+Im WLAN fragt die App die Wiedergabe alle 2 s ab, über die Cloud alle 5 s.
+Der Musik-Katalog kommt weiter aus der Cloud (mit Covern vom Speaker);
+antwortet die Cloud nicht, baut die App ihn allein aus dem Heimnetz
+(`LocalCovers.catalogEntries`, Art des Inhalts aus `upnp:class` im `r:resMD`).
+
+## Verwendete Sonos-API-Aufrufe (Rückfall über die Cloud)
 
 | Zweck | Aufruf |
 |---|---|
@@ -658,7 +715,8 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `SpeakerIcons.kt`, `CharacterIcons.kt` | Icon-Katalog, Einhorn und Pikachu |
 | `ProfileIcons.kt`, `AnimalIcons.kt` | Profil-Icons, gezeichnete Tiere |
 | `SonosApiClient.kt`, `SonosModels.kt` | Sonos-API inkl. Token-Erneuerung |
-| `LocalSonosClient.kt` | Cover direkt vom Speaker im Heimnetz (mDNS + UPnP), Titel einer Playlist, Album aus einer Playlist abspielen |
+| `SonosControl.kt` | Schnittstelle zum Steuern, `CloudSonosControl` (Rückfall über die Control API) |
+| `LocalSonosClient.kt` | Steuerung direkt im WLAN (mDNS + UPnP): Speaker, Wiedergabe, Lautstärke, Musik starten, Gruppen; Cover und Titel einer Playlist, Album aus einer Playlist abspielen |
 | `PlaylistAlbums.kt` | Kategorien aus einer Sonos-Playlist: Titel zu Alben zusammenfassen, Plätze der Warteschlange |
 | `SonosAuthManager.kt`, `TokenStore.kt`, `SonosConfig.kt` | Login und Tokens |
 | `AppDatabase.kt`, `SettingsRepository.kt`, `PasswordHasher.kt` | Datenbank und Einstellungen |

@@ -65,7 +65,9 @@ data class NowPlaying(
     val canSkip: Boolean,
     val canSkipBack: Boolean,
     /** SystemClock.elapsedRealtime() zum Zeitpunkt der Abfrage — für die Positions-Interpolation. */
-    val fetchedAtMillis: Long
+    val fetchedAtMillis: Long,
+    /** Über welchen Weg abgefragt wurde — [groupId] gilt nur dort. */
+    val path: ControlPath? = null
 ) {
     val isPlaying: Boolean get() = playbackState == PlaybackStatus.STATE_PLAYING
 
@@ -235,7 +237,30 @@ class MainViewModel(
     var isInForeground: Boolean by mutableStateOf(false)
         private set
 
-    private var householdId: String? = null
+    /** Steuerung über die Sonos-Cloud — Rückfall, wenn im WLAN kein Speaker antwortet, oder so eingestellt. */
+    private val cloudControl = CloudSonosControl(apiClient)
+
+    /** Der Weg, über den die App gerade steuert; null, solange die Speaker noch nicht geladen sind. */
+    private var control: SonosControl? = null
+
+    /** Für die Einstellungen: Wie die App gerade steuert (null = noch nicht verbunden). */
+    var controlPath: ControlPath? by mutableStateOf(null)
+        private set
+
+    /** Warum gerade über die Cloud gesteuert wird, obwohl das WLAN eingestellt ist — sonst null. */
+    var controlFallbackReason: String? by mutableStateOf(null)
+        private set
+
+    /** In den Einstellungen gewählt: immer über die Sonos-Cloud steuern. */
+    var preferCloud: Boolean by mutableStateOf(localClient.preferCloud)
+        private set
+
+    /** Fehlgeschlagene Abfragen im WLAN hintereinander — ab [LOCAL_FAILURES_BEFORE_RECONNECT] wird neu verbunden. */
+    private var localFailures = 0
+
+    /** Wann die App zuletzt versucht hat, die Speaker im WLAN zu erreichen. */
+    private var localTriedAtMillis = 0L
+    private var reconnectJob: Job? = null
     private var settingsLoaded = false
     private var pollJob: Job? = null
     private var lastCommandAtMillis = 0L
@@ -409,10 +434,102 @@ class MainViewModel(
     private class SyncResult(val players: List<SonosPlayer>, val added: Int)
 
     private suspend fun fetchAndSyncPlayers(): SyncResult {
-        val id = apiClient.getFirstHouseholdId()
-        householdId = id
-        val players = apiClient.getPlayers(id)
+        val players = connect().players
         return SyncResult(players, repository.syncPlayers(players))
+    }
+
+    /**
+     * Wählt den Weg zum Steuern: direkt im WLAN, wenn dort ein Speaker antwortet (und in den
+     * Einstellungen nicht die Cloud gewählt ist), sonst über die Sonos-Cloud. Ergebnis: Speaker und Gruppen.
+     */
+    private suspend fun connect(): GroupsResponse {
+        var localError: Exception? = null
+        if (!localClient.preferCloud) {
+            localTriedAtMillis = SystemClock.elapsedRealtime()
+            // Lief zuletzt etwas über die Cloud, verrät das Cover der Wiedergabe oft die Adresse eines Speakers
+            localClient.noteAddress(nowPlaying?.imageUrl)
+            try {
+                return localClient.getGroups().also { useControl(localClient, fallbackReason = null) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Speaker im WLAN nicht erreicht, versuche es über die Sonos-Cloud", e)
+                localError = e
+            }
+        }
+        val groups = try {
+            cloudControl.getGroups()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SessionExpiredException) {
+            throw e
+        } catch (e: Exception) {
+            if (localError == null) throw e
+            throw SonosApiException(
+                "${localError.message} Auch über die Sonos-Cloud ging es nicht: ${e.message ?: "unbekannter Fehler"}"
+            )
+        }
+        // Die Cloud nennt die Adressen der Speaker im Heimnetz — damit geht es oft doch direkt
+        if (localError != null) {
+            val addresses = groups.players.mapNotNull { it.localBaseUrl }
+            try {
+                localClient.connectTo(addresses)?.let { local ->
+                    Log.d(TAG, "Speaker über die Adressen aus der Sonos-Cloud im WLAN erreicht")
+                    useControl(localClient, fallbackReason = null)
+                    return local
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Adressen aus der Sonos-Cloud nicht genutzt", e)
+            }
+        }
+        useControl(cloudControl, fallbackReason = localError?.message)
+        return groups
+    }
+
+    /** Ab jetzt über [newControl] steuern. Gruppen-Ids gelten je Weg — bei einem Wechsel neu abfragen. */
+    private fun useControl(newControl: SonosControl, fallbackReason: String?) {
+        val changed = control !== newControl
+        control = newControl
+        controlPath = newControl.path
+        controlFallbackReason = fallbackReason
+        localFailures = 0
+        if (changed) {
+            Log.d(TAG, "Steuerung jetzt ${newControl.path.label}")
+            // Die Anzeige bleibt stehen, bis die erste Abfrage über den neuen Weg da ist
+            restartPolling(keepPlayback = true)
+        }
+    }
+
+    /**
+     * Still neu verbinden, ohne Ladebildschirm — etwa wenn im WLAN mehrmals hintereinander nichts
+     * ankam (dann ggf. über die Cloud) oder die App über die Cloud steuert, obwohl das WLAN eingestellt ist.
+     */
+    private fun reconnectQuietly() {
+        if (reconnectJob?.isActive == true) return
+        reconnectJob = viewModelScope.launch {
+            try {
+                val players = fetchAndSyncPlayers().players
+                // Unverändert? Dann nichts anfassen, sonst zeichnet sich der Startbildschirm neu
+                if ((uiState as? UiState.SpeakerList)?.players != players) uiState = UiState.SpeakerList(players)
+                updateSelection()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: SessionExpiredException) {
+                handleSessionExpired(e)
+            } catch (e: Exception) {
+                Log.d(TAG, "Still neu verbinden hat nicht geklappt: ${e.message}")
+            }
+        }
+    }
+
+    /** In den Einstellungen: immer über die Sonos-Cloud steuern oder (wieder) direkt im WLAN. */
+    fun changePreferCloud(enabled: Boolean) {
+        if (enabled == preferCloud) return
+        localClient.preferCloud = enabled
+        preferCloud = enabled
+        refreshSpeakers()
     }
 
     /** Lädt die Speaker des Haushalts neu (Knopf in den Settings), ohne den Bildschirm zu wechseln. */
@@ -447,7 +564,8 @@ class MainViewModel(
             1 -> "1 neuer Speaker gefunden"
             else -> "$added neue Speaker gefunden"
         }
-        return if (missing > 0) "$found · $missing nicht erreichbar" else found
+        val text = if (missing > 0) "$found · $missing nicht erreichbar" else found
+        return if (controlFallbackReason != null) "$text · Steuerung über die Sonos-Cloud (im WLAN kein Speaker erreicht)" else text
     }
 
     fun logout() = signOut(reason = null)
@@ -463,7 +581,10 @@ class MainViewModel(
         val leaves = pendingLeaves.values.toList()
         pendingLeaves.clear()
         leaves.forEach { it.job.cancel() }
-        householdId = null
+        control = null
+        controlPath = null
+        controlFallbackReason = null
+        cloudControl.forgetHousehold()
         selectedPlayerId = null
         nowPlaying = null
         clearPlaybackError()
@@ -545,7 +666,13 @@ class MainViewModel(
             return
         }
         // Lag beim letzten Mal z. B. kein Netz an, beim Zurückkommen still neu versuchen
-        if (uiState is UiState.Error && tokenStore.accessToken != null) loadSpeakers() else restartPolling()
+        if (uiState is UiState.Error && tokenStore.accessToken != null) {
+            loadSpeakers()
+        } else {
+            restartPolling()
+            // Lief die Steuerung nur ersatzweise über die Cloud, das WLAN erneut versuchen
+            if (control === cloudControl && !localClient.preferCloud) reconnectQuietly()
+        }
         // Inzwischen in der Sonos-App neue Alben in eine Playlist-Kategorie gelegt?
         refreshPlaylistCategoriesQuietly()
     }
@@ -555,54 +682,83 @@ class MainViewModel(
         pollJob = null
     }
 
-    private fun restartPolling() {
+    /** [keepPlayback]: Die Anzeige bleibt, bis die nächste Abfrage da ist (derselbe Speaker, anderer Weg). */
+    private fun restartPolling(keepPlayback: Boolean = false) {
         stopPolling()
         // Während die Musik umzieht, fragt der Umzug selbst ab und startet danach neu
         if (movingMusic != null) return
-        nowPlaying = null
+        if (!keepPlayback) nowPlaying = null
         clearPlaybackError()
         val playerId = selectedPlayerId ?: return
-        val household = householdId ?: return
+        val c = control ?: return
         if (!isInForeground || screen != Screen.Home) return
 
         pollJob = viewModelScope.launch {
+            var failures = 0
             while (isActive) {
                 try {
                     val pollStartedAt = SystemClock.elapsedRealtime()
-                    var fetched = fetchNowPlaying(household, playerId)
+                    var fetched = fetchNowPlaying(c, playerId)
                     // Wurde die Lautstärke woanders (Sonos-App, Taste am Speaker) über das
                     // Maximum gestellt, wird sie wieder auf das Maximum begrenzt.
                     val max = maxVolumeFor(playerId)
                     val volume = fetched.volume
                     if (volume != null && volume > max) {
-                        apiClient.setPlayerVolume(playerId, max)
+                        c.setPlayerVolume(playerId, max)
                         fetched = fetched.copy(volume = max)
                     }
                     // Kurz nach einem Befehl kann Sonos noch den alten Stand liefern. Während Musik
                     // gestartet wird, gibt es Zwischenstände (z. B. erst Titel 1, dann der Zufallstitel) —
                     // die nicht zeigen. Und keine Abfrage übernehmen, die vor dem Ende eines Befehls begann.
-                    val settled = SystemClock.elapsedRealtime() - lastCommandAtMillis > COMMAND_REFRESH_DELAY_MS
+                    val settled = SystemClock.elapsedRealtime() - lastCommandAtMillis > commandRefreshDelay(c)
                     if (settled && !isStartingMusic && pollStartedAt > lastCommandAtMillis) {
                         nowPlaying = fetched
                     }
                     clearPlaybackError()
+                    localFailures = 0
+                    failures = 0
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: SessionExpiredException) {
                     handleSessionExpired(e)
                     return@launch
                 } catch (e: Exception) {
-                    reportPlaybackError(e.message ?: "Wiedergabe konnte nicht geladen werden")
+                    failures++
+                    Log.d(TAG, "Abfrage der Wiedergabe fehlgeschlagen ($failures-mal in Folge): ${e.message}")
+                    // Ein einzelner Aussetzer (wackliges Netz) soll nicht gleich eine Meldung aufpoppen
+                    // lassen — solange noch etwas zu sehen ist, erst ab dem zweiten in Folge
+                    if (nowPlaying == null || failures >= POLL_FAILURES_BEFORE_ERROR) {
+                        reportPlaybackError(e.message ?: "Wiedergabe konnte nicht geladen werden")
+                    }
+                    // Im WLAN mehrmals nichts angekommen → neu verbinden: neue Adresse, sonst über die Cloud
+                    if (c === localClient && ++localFailures >= LOCAL_FAILURES_BEFORE_RECONNECT) {
+                        localFailures = 0
+                        reconnectQuietly()
+                    }
                 }
-                delay(POLL_INTERVAL_MS)
+                // Nur ersatzweise über die Cloud? Dann ab und zu wieder das WLAN versuchen
+                if (c === cloudControl && !localClient.preferCloud && !isStartingMusic &&
+                    SystemClock.elapsedRealtime() - localTriedAtMillis >= LOCAL_RETRY_INTERVAL_MS
+                ) {
+                    reconnectQuietly()
+                }
+                delay(if (c.path == ControlPath.LOCAL) LOCAL_POLL_INTERVAL_MS else POLL_INTERVAL_MS)
             }
         }
     }
 
     /** [userAction]: ein Knopfdruck ist fehlgeschlagen → Meldung immer (wieder) zeigen. */
     private fun reportPlaybackError(message: String, userAction: Boolean = false) {
-        if (userAction || message != playbackError) playbackErrorDismissed = false
-        playbackError = message
+        // Steuert die App nur ersatzweise über die Cloud, gehört der Grund dazu — meist ist er das eigentliche Problem
+        val reason = controlFallbackReason?.takeIf { control === cloudControl }
+        val text = when {
+            reason != null -> "$message\n\nDirekt im WLAN ging es nicht: $reason"
+            control === cloudControl && preferCloud ->
+                "$message\n\nIn den Einstellungen ist „Über die Sonos-Cloud steuern“ eingeschaltet."
+            else -> message
+        }
+        if (userAction || text != playbackError) playbackErrorDismissed = false
+        playbackError = text
     }
 
     private fun clearPlaybackError() {
@@ -614,23 +770,48 @@ class MainViewModel(
         playbackErrorDismissed = true
     }
 
+    /** Kurz nach einem Befehl kann Sonos noch den alten Stand liefern — im WLAN weniger lange. */
+    private fun commandRefreshDelay(c: SonosControl): Long =
+        if (c.path == ControlPath.LOCAL) LOCAL_COMMAND_REFRESH_DELAY_MS else COMMAND_REFRESH_DELAY_MS
+
+    private fun musicRefreshDelay(c: SonosControl): Long =
+        if (c.path == ControlPath.LOCAL) LOCAL_MUSIC_REFRESH_DELAY_MS else MUSIC_REFRESH_DELAY_MS
+
     /** Die Wiedergabe hängt an der Gruppe, in der der Player gerade spielt. */
-    private suspend fun findGroup(householdId: String, playerId: String): SonosGroup =
-        apiClient.getGroups(householdId).groups
+    private suspend fun findGroup(c: SonosControl, playerId: String): SonosGroup =
+        c.getGroups().groups
             .firstOrNull { playerId in it.playerIds }
             ?: throw SonosApiException("Speaker ist gerade nicht erreichbar")
 
-    private suspend fun fetchNowPlaying(householdId: String, playerId: String): NowPlaying =
+    /**
+     * Führt [block] mit der Gruppe aus, in der [playerId] gerade spielt. Sonos vergibt eine neue
+     * Gruppen-Id, sobald sich die Gruppe ändert — die Cloud nennt kurz danach manchmal noch die alte
+     * und lehnt sie dann ab (HTTP 410, ERROR_RESOURCE_GONE). Dann nach kurzer Pause mit frisch
+     * geholter Gruppe wiederholen, höchstens [GROUP_GONE_ATTEMPTS]-mal.
+     */
+    private suspend fun <T> withGroup(c: SonosControl, playerId: String, block: suspend (SonosGroup) -> T): T {
+        repeat(GROUP_GONE_ATTEMPTS - 1) { attempt ->
+            try {
+                return block(findGroup(c, playerId))
+            } catch (e: SonosApiException) {
+                if (!e.isGroupGone) throw e
+                Log.d(TAG, "Gruppe von $playerId gibt es nicht mehr (Versuch ${attempt + 1}), gleich noch einmal")
+            }
+            delay(GROUP_GONE_RETRY_MS)
+        }
+        return block(findGroup(c, playerId))
+    }
+
+    private suspend fun fetchNowPlaying(c: SonosControl, playerId: String): NowPlaying =
+        withGroup(c, playerId) { group -> fetchNowPlaying(c, playerId, group) }
+
+    private suspend fun fetchNowPlaying(c: SonosControl, playerId: String, group: SonosGroup): NowPlaying =
         coroutineScope {
-            val group = findGroup(householdId, playerId)
+            val current = async { c.getPlayback(group.id) }
+            val volume = async { runCatching { c.getPlayerVolume(playerId) }.getOrNull() }
 
-            val status = async { apiClient.getPlaybackStatus(group.id) }
-            val metadata = async { apiClient.getPlaybackMetadata(group.id) }
-            val volume = async { runCatching { apiClient.getPlayerVolume(playerId) }.getOrNull() }
-
-            val meta = metadata.await()
+            val (playback, meta) = current.await()
             val track = meta.currentItem?.track
-            val playback = status.await()
             val playerVolume = volume.await()
 
             val actions = playback.availablePlaybackActions
@@ -649,7 +830,8 @@ class MainViewModel(
                 muted = playerVolume?.muted ?: false,
                 canSkip = actions?.canSkip ?: true,
                 canSkipBack = actions?.canSkipBack ?: true,
-                fetchedAtMillis = SystemClock.elapsedRealtime()
+                fetchedAtMillis = SystemClock.elapsedRealtime(),
+                path = c.path
             )
         }
 
@@ -661,17 +843,41 @@ class MainViewModel(
             positionMillis = current.currentPositionMillis(),
             fetchedAtMillis = SystemClock.elapsedRealtime()
         )
-        sendPlaybackCommand { apiClient.togglePlayPause(current.groupId) }
+        sendGroupCommand(current) { c, groupId -> c.togglePlayPause(groupId) }
     }
 
     fun skipToNext() {
         val current = nowPlaying ?: return
-        sendPlaybackCommand { apiClient.skipToNextTrack(current.groupId) }
+        sendGroupCommand(current) { c, groupId -> c.skipToNextTrack(groupId) }
     }
 
     fun skipToPrevious() {
         val current = nowPlaying ?: return
-        sendPlaybackCommand { apiClient.skipToPreviousTrack(current.groupId) }
+        sendGroupCommand(current) { c, groupId -> c.skipToPreviousTrack(groupId) }
+    }
+
+    /**
+     * Ein Befehl an die Gruppe, in der der gewählte Speaker spielt. Die Gruppe aus der letzten Abfrage
+     * kann inzwischen eine andere sein (Musik mitgenommen, in der Sonos-App umgruppiert): Im WLAN wird
+     * sie deshalb frisch geholt (kostet kaum Zeit), über die Cloud erst, wenn Sonos die alte Id als
+     * nicht mehr vorhanden ablehnt (HTTP 410, ERROR_RESOURCE_GONE) — dann einmal mit der aktuellen.
+     */
+    private fun sendGroupCommand(current: NowPlaying, command: suspend (SonosControl, String) -> Unit) {
+        val playerId = selectedPlayerId ?: return
+        sendPlaybackCommand { c ->
+            // Im WLAN kostet die Abfrage kaum Zeit; und die Gruppen-Id vom anderen Weg gilt hier nicht
+            if (c.path == ControlPath.LOCAL || current.path != c.path) {
+                withGroup(c, playerId) { command(c, it.id) }
+                return@sendPlaybackCommand
+            }
+            try {
+                command(c, current.groupId)
+            } catch (e: SonosApiException) {
+                if (!e.isGroupGone) throw e
+                Log.d(TAG, "Gruppe ${current.groupId} gibt es nicht mehr — Befehl an die aktuelle Gruppe")
+                withGroup(c, playerId) { command(c, it.id) }
+            }
+        }
     }
 
     /**
@@ -681,6 +887,7 @@ class MainViewModel(
      */
     fun setVolume(volume: Int) {
         val playerId = selectedPlayerId ?: return
+        val c = control ?: return
         val current = nowPlaying ?: return
         val target = volume.coerceIn(0, maxVolumeFor(playerId))
         if (target == current.volume) return
@@ -691,7 +898,7 @@ class MainViewModel(
         volumeJob = viewModelScope.launch {
             delay(VOLUME_DEBOUNCE_MS)
             try {
-                apiClient.setPlayerVolume(playerId, target)
+                c.setPlayerVolume(playerId, target)
                 lastCommandAtMillis = SystemClock.elapsedRealtime()
             } catch (e: CancellationException) {
                 throw e
@@ -712,7 +919,7 @@ class MainViewModel(
      */
     fun playMusic(item: MusicItem, shuffle: Boolean? = null, onNewMusicPlayed: () -> Unit = {}) {
         val playerId = selectedPlayerId ?: return
-        val household = householdId ?: return
+        if (control == null) return
         // Jetzt merken: Bis Sonos die Musik angenommen hat, könnte schon ein anderes Profil gewählt sein
         val profileSyncId = selectedProfile?.profile?.syncId
         val order = categories
@@ -720,7 +927,7 @@ class MainViewModel(
         val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
         startingMusic = item
         sendPlaybackCommand(
-            refreshDelayMillis = MUSIC_REFRESH_DELAY_MS,
+            isMusicStart = true,
             onFinished = { startingMusic = null },
             // Erst wenn Sonos die Musik angenommen hat, ist sie nicht mehr neu
             onSent = {
@@ -737,140 +944,26 @@ class MainViewModel(
                     repository.storeCoverFromPlayback(item.id, playing.containerImageUrl, playing.imageUrl)
                 }
             }
-        ) {
+        ) { c ->
             // Wurde die Musik hier gerade erst mitgenommen, erst ganz aus der Gruppe — die neue Musik
             // soll nur hier laufen, nicht auch im anderen Raum
-            leaveNowIfPending(household, playerId)
+            leaveNowIfPending(c, playerId)
+            val shuffleTracks = useShuffle && item.hasMultipleTracks
             // Nur ein Album aus einer Playlist — das kann nur der Speaker im Heimnetz
             if (item.musicSource == MusicSource.PLAYLIST_ALBUM) {
-                playAlbumFromPlaylist(household, playerId, item, shuffle = useShuffle && item.hasMultipleTracks)
+                playAlbumFromPlaylist(c, playerId, item, shuffle = shuffleTracks)
                 return@sendPlaybackCommand
             }
-            val group = findGroup(household, playerId)
-            val type = item.musicType
-            // Radio hat keine Warteschlange — dort gibt es keine Reihenfolge, also direkt starten
-            val controlsOrder = type != MusicType.RADIO
-            val sourceId = when (item.musicSource) {
-                MusicSource.FAVORITE -> resolveFavoriteId(household, item)
-                MusicSource.PLAYLIST -> resolvePlaylistId(household, item)
-                MusicSource.PLAYLIST_ALBUM -> error("Alben aus einer Playlist laufen über das Heimnetz")
-            }
-            val load: suspend (play: Boolean) -> Unit = { playNow ->
-                when (item.musicSource) {
-                    MusicSource.FAVORITE -> apiClient.loadFavorite(group.id, sourceId, play = playNow)
-                    MusicSource.PLAYLIST -> apiClient.loadPlaylist(group.id, sourceId, play = playNow)
-                    MusicSource.PLAYLIST_ALBUM -> error("Alben aus einer Playlist laufen über das Heimnetz")
-                }
-            }
-            if (!controlsOrder) {
-                load(true)
-                return@sendPlaybackCommand
-            }
-            val wantsShuffle = useShuffle && item.hasMultipleTracks
-            if (!wantsShuffle) switchOffLeftoverShuffle(group.id)
-            loadRetryingWhenNothingQueued(item) { load(false) }
-            // Nach dem Laden ohne Abspielen füllt Sonos die Warteschlange noch —
-            // bis dahin lehnt es Befehle ab, deshalb jeweils kurz wiederholen.
-            // Zufall muss auch ausdrücklich AUS geschaltet werden, sonst bleibt er vom letzten Mal an.
-            // Klappt das nicht (manche Quellen erlauben es nicht), trotzdem abspielen.
-            val shuffled = wantsShuffle &&
-                runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, true) } }.isSuccess
-            if (!shuffled) runCatching { retryWhileQueueFills { apiClient.setShuffle(group.id, false) } }
-            // Wiederholen ebenso ausdrücklich aus, sonst läuft die Auswahl in Dauerschleife, wenn es noch
-            // vom letzten Mal oder aus der Sonos-App an ist. Eigener Aufruf, damit eine Quelle, die
-            // Wiederholen nicht erlaubt, nicht auch den Zufall verhindert. Klappt es nicht, trotzdem abspielen.
-            runCatching { retryWhileQueueFills { apiClient.setRepeatOff(group.id) } }
-            // Ohne Sprung würde auch im Zufallsmodus immer der erste Titel zuerst laufen
-            if (shuffled) runCatching { retryWhileQueueFills { apiClient.skipToNextTrack(group.id) } }
-            retryWhileQueueFills { apiClient.play(group.id) }
+            withGroup(c, playerId) { c.startMusic(it.id, item, shuffle = shuffleTracks) }
         }
     }
 
     /**
-     * Ist beim Laden noch Zufall vom letzten Mal an, wählt Sonos einen zufälligen ersten Titel —
-     * beim späteren Ausschalten bleibt es bei diesem, die Reihe startet mittendrin. Deshalb den
-     * Zufall vorher ausschalten, aber nur, wenn er wirklich an ist: Direkt nach dem Ausschalten
-     * reiht Sonos beim Laden keine Titel ein (HTTP 499). Daher warten, bis Sonos den Zufall als
-     * aus meldet, und noch einen Moment länger. Ohne Antwort zum Zufall bleibt alles wie es ist.
-     */
-    private suspend fun switchOffLeftoverShuffle(groupId: String) {
-        val shuffleOn = currentShuffle(groupId) ?: return
-        if (!shuffleOn) return
-        runCatching { apiClient.setShuffle(groupId, false) }.onFailure {
-            Log.d(TAG, "Übrig gebliebener Zufall nicht ausgeschaltet: ${it.message}")
-            return
-        }
-        val deadline = SystemClock.elapsedRealtime() + SHUFFLE_OFF_TIMEOUT_MS
-        do {
-            delay(SHUFFLE_OFF_POLL_MS)
-        } while (currentShuffle(groupId) != false && SystemClock.elapsedRealtime() < deadline)
-        delay(SHUFFLE_OFF_SETTLE_MS)
-    }
-
-    private suspend fun currentShuffle(groupId: String): Boolean? =
-        runCatching { apiClient.getPlaybackStatus(groupId).playModes?.shuffle }
-            .onFailure { if (it is CancellationException) throw it }
-            .getOrNull()
-            .also { if (it == null) Log.d(TAG, "Sonos meldet keinen Zufallsmodus für Gruppe $groupId") }
-
-    /**
-     * Lädt mit [load] und versucht es nach kurzer Pause erneut, wenn Sonos dabei keine Titel
-     * eingereiht hat (HTTP 499) — höchstens [LOAD_ATTEMPTS]-mal.
-     */
-    private suspend fun loadRetryingWhenNothingQueued(item: MusicItem, load: suspend () -> Unit) {
-        repeat(LOAD_ATTEMPTS - 1) { attempt ->
-            try {
-                return load()
-            } catch (e: SonosApiException) {
-                if (!e.isNoContent) throw e
-                Log.w(TAG, "„${item.name}“: keine Titel eingereiht (Versuch ${attempt + 1}), gleich noch einmal")
-            }
-            delay(LOAD_RETRY_DELAY_MS)
-        }
-        load()
-    }
-
-    /**
-     * Führt [command] aus und wiederholt ihn, solange Sonos meldet, dass die gerade
-     * geladene Warteschlange noch leer ist — höchstens [QUEUE_FILL_TIMEOUT_MS] lang.
-     */
-    private suspend fun <T> retryWhileQueueFills(command: suspend () -> T): T {
-        val deadline = SystemClock.elapsedRealtime() + QUEUE_FILL_TIMEOUT_MS
-        while (true) {
-            try {
-                return command()
-            } catch (e: SonosApiException) {
-                if (!e.isNoContent || SystemClock.elapsedRealtime() >= deadline) throw e
-            }
-            delay(QUEUE_FILL_RETRY_MS)
-        }
-    }
-
-    /**
-     * Sonos vergibt die Ids von Favoriten und Playlisten selbst. Wurde dort etwas
-     * gelöscht oder neu angelegt, kann die gespeicherte Id inzwischen zu einem
-     * anderen Eintrag gehören — dann wird über den Namen gesucht.
-     */
-    private suspend fun resolveFavoriteId(household: String, item: MusicItem): String {
-        val favorites = apiClient.getFavorites(household)
-        return favorites.firstOrNull { it.id == item.sonosId && it.name == item.name }?.id
-            ?: favorites.firstOrNull { it.name == item.name }?.id
-            ?: throw SonosApiException("„${item.name}“ gibt es nicht mehr in den Sonos-Favoriten.")
-    }
-
-    private suspend fun resolvePlaylistId(household: String, item: MusicItem): String {
-        val playlists = apiClient.getPlaylists(household)
-        return playlists.firstOrNull { it.id == item.sonosId && it.name == item.name }?.id
-            ?: playlists.firstOrNull { it.name == item.name }?.id
-            ?: throw SonosApiException("Die Playlist „${item.name}“ gibt es nicht mehr bei Sonos.")
-    }
-
-    /**
-     * Die Sonos-Playlist einer Playlist-Kategorie: wie bei [resolvePlaylistId] über Id und Namen, sonst
+     * Die Sonos-Playlist einer Playlist-Kategorie: wie beim Starten einer Playlist über Id und Namen, sonst
      * den Namen — und sonst nur die Id, falls die Playlist in der Sonos-App umbenannt wurde.
      */
-    private suspend fun findPlaylist(household: String, playlistId: String, name: String?): SonosPlaylist {
-        val playlists = apiClient.getPlaylists(household)
+    private suspend fun findPlaylist(c: SonosControl, playlistId: String, name: String?): SonosPlaylist {
+        val playlists = c.getPlaylists()
         return playlists.firstOrNull { it.id == playlistId && it.name == name }
             ?: name?.let { wanted -> playlists.firstOrNull { it.name == wanted } }
             ?: playlists.firstOrNull { it.id == playlistId }
@@ -881,9 +974,9 @@ class MainViewModel(
      * Spielt ein Album aus der Playlist seiner Kategorie — nur dieses, nicht die ganze Playlist. Die
      * Control API kann das nicht, deshalb über den Speaker im Heimnetz ([LocalSonosClient.playAlbumFromPlaylist]).
      */
-    private suspend fun playAlbumFromPlaylist(household: String, playerId: String, item: MusicItem, shuffle: Boolean) {
+    private suspend fun playAlbumFromPlaylist(c: SonosControl, playerId: String, item: MusicItem, shuffle: Boolean) {
         val category = repository.getCategory(item.categoryId)
-        val playlist = findPlaylist(household, category?.playlistId ?: item.sonosId, category?.playlistName)
+        val playlist = findPlaylist(c, category?.playlistId ?: item.sonosId, category?.playlistName)
         localClient.playAlbumFromPlaylist(
             playerId = playerId,
             playerName = speakerConfigs.firstOrNull { it.playerId == playerId }?.name,
@@ -900,24 +993,25 @@ class MainViewModel(
      * abgefragt — bleibt aus, wenn inzwischen ein anderer Speaker gewählt wurde.
      */
     private fun sendPlaybackCommand(
-        refreshDelayMillis: Long = COMMAND_REFRESH_DELAY_MS,
+        isMusicStart: Boolean = false,
         onFinished: () -> Unit = {},
         onSent: () -> Unit = {},
         onPlaying: (NowPlaying) -> Unit = {},
-        command: suspend () -> Unit
+        command: suspend (SonosControl) -> Unit
     ) {
         val playerId = selectedPlayerId ?: return onFinished()
-        val household = householdId ?: return onFinished()
+        val c = control ?: return onFinished()
         lastCommandAtMillis = SystemClock.elapsedRealtime()
         viewModelScope.launch {
             try {
-                command()
+                command(c)
                 lastCommandAtMillis = SystemClock.elapsedRealtime()
                 onSent()
                 // Sonos braucht einen Moment, bis Track und Status aktualisiert sind
-                delay(refreshDelayMillis)
-                if (selectedPlayerId == playerId) {
-                    nowPlaying = fetchNowPlaying(household, playerId).also(onPlaying)
+                delay(if (isMusicStart) musicRefreshDelay(c) else commandRefreshDelay(c))
+                // Inzwischen auf den anderen Weg gewechselt? Dann gilt die Gruppen-Id dieser Abfrage dort nicht
+                if (selectedPlayerId == playerId && control === c) {
+                    nowPlaying = fetchNowPlaying(c, playerId).also(onPlaying)
                     // Abfragen, die noch während des Befehls begonnen haben, sind damit überholt
                     lastCommandAtMillis = SystemClock.elapsedRealtime()
                     clearPlaybackError()
@@ -945,7 +1039,7 @@ class MainViewModel(
      */
     fun moveMusicTo(targetPlayerId: String) {
         val sourcePlayerId = selectedPlayerId ?: return
-        val household = householdId ?: return
+        val c = control ?: return
         if (targetPlayerId == sourcePlayerId || movingMusic != null || isStartingMusic) return
         val from = speakerConfigs.firstOrNull { it.playerId == sourcePlayerId } ?: return
         val to = speakerConfigs.firstOrNull { it.playerId == targetPlayerId } ?: return
@@ -960,19 +1054,20 @@ class MainViewModel(
             var playing: NowPlaying? = null
             var error: String? = null
             try {
-                val group = findGroup(household, sourcePlayerId)
-                if (targetPlayerId !in group.playerIds) {
-                    // Nicht lauter loslegen als erlaubt — sonst regelt erst die nächste Abfrage herunter
-                    limitVolume(targetPlayerId)
-                    apiClient.modifyGroupMembers(group.id, playerIdsToAdd = listOf(targetPlayerId), playerIdsToRemove = emptyList())
+                withGroup(c, sourcePlayerId) { group ->
+                    if (targetPlayerId !in group.playerIds) {
+                        // Nicht lauter loslegen als erlaubt — sonst regelt erst die nächste Abfrage herunter
+                        limitVolume(c, targetPlayerId)
+                        c.addToGroup(group.id, targetPlayerId)
+                    }
                 }
                 moved = true
-                scheduleLeave(household, sourcePlayerId, targetPlayerId)
+                scheduleLeave(c, sourcePlayerId, targetPlayerId)
                 // Das Tier am Cover macht dort weiter, was es hier gemacht hat (vorlesen oder tanzen)
                 settings.lastStartedCategories[sourcePlayerId]?.let {
                     repository.setLastStartedCategory(targetPlayerId, it)
                 }
-                playing = fetchMovedMusic(household, targetPlayerId)
+                playing = fetchMovedMusic(c, targetPlayerId)
             } catch (e: CancellationException) {
                 movingMusic = null
                 throw e
@@ -984,7 +1079,7 @@ class MainViewModel(
                 error = e.message ?: "Die Musik konnte nicht mitgenommen werden"
             }
             // Zurückholen hat nicht geklappt → der Ziel-Speaker geht doch noch aus der Gruppe, sonst spielten beide weiter
-            if (!moved && returningLeave != null) scheduleLeave(household, targetPlayerId, returningLeave.targetPlayerId)
+            if (!moved && returningLeave != null) scheduleLeave(c, targetPlayerId, returningLeave.targetPlayerId)
             movingMusic = null
             if (moved) {
                 selectedPlayerId = targetPlayerId
@@ -992,17 +1087,17 @@ class MainViewModel(
             }
             restartPolling()
             // Gleich die Wiedergabe am neuen Ort zeigen statt eines Ladekreises bis zur ersten Abfrage
-            if (playing != null) nowPlaying = playing
+            if (playing != null && control === c) nowPlaying = playing
             error?.let { reportPlaybackError(it, userAction = true) }
         }
     }
 
     /** Stellt [playerId] auf sein Maximum, falls er gerade lauter steht. Klappt das nicht, regelt die nächste Abfrage. */
-    private suspend fun limitVolume(playerId: String) {
+    private suspend fun limitVolume(c: SonosControl, playerId: String) {
         val max = maxVolumeFor(playerId)
         if (max >= 100) return
         try {
-            if (apiClient.getPlayerVolume(playerId).volume > max) apiClient.setPlayerVolume(playerId, max)
+            if (c.getPlayerVolume(playerId).volume > max) c.setPlayerVolume(playerId, max)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SessionExpiredException) {
@@ -1016,10 +1111,10 @@ class MainViewModel(
      * Wiedergabe auf dem Ziel-Speaker, sobald er mitspielt. null, wenn die Abfrage nicht klappt — die
      * Musik ist trotzdem mitgekommen, dann zeigt die nächste Abfrage sie.
      */
-    private suspend fun fetchMovedMusic(household: String, playerId: String): NowPlaying? {
+    private suspend fun fetchMovedMusic(c: SonosControl, playerId: String): NowPlaying? {
         delay(MOVE_REFRESH_DELAY_MS)
         return try {
-            fetchNowPlaying(household, playerId)
+            fetchNowPlaying(c, playerId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SessionExpiredException) {
@@ -1034,12 +1129,12 @@ class MainViewModel(
      * Nimmt [sourcePlayerId] nach [MOVE_SOURCE_STOP_DELAY_MS] aus der Gruppe — bis dahin spielen
      * beide Speaker, damit die Kinder Zeit haben, in den anderen Raum zu gehen.
      */
-    private fun scheduleLeave(household: String, sourcePlayerId: String, targetPlayerId: String) {
+    private fun scheduleLeave(c: SonosControl, sourcePlayerId: String, targetPlayerId: String) {
         cancelPendingLeave(sourcePlayerId)
         val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 delay(MOVE_SOURCE_STOP_DELAY_MS)
-                leaveGroupRetrying(household, sourcePlayerId, targetPlayerId)
+                leaveGroupRetrying(c, sourcePlayerId, targetPlayerId)
             } finally {
                 // Nur den eigenen Eintrag entfernen, nicht einen inzwischen neu geplanten
                 if (pendingLeaves[sourcePlayerId]?.job === coroutineContext[Job]) pendingLeaves.remove(sourcePlayerId)
@@ -1058,20 +1153,20 @@ class MainViewModel(
      * schon — etwa bevor er neue Musik spielt. Sonst liefe die neue Musik auch im anderen Raum, und
      * hier hörte sie nach Ablauf der Zeit trotzdem auf.
      */
-    private suspend fun leaveNowIfPending(household: String, playerId: String) {
+    private suspend fun leaveNowIfPending(c: SonosControl, playerId: String) {
         val pending = pendingLeaves.remove(playerId) ?: return
         pending.job.cancel()
-        leaveGroup(household, playerId, pending.targetPlayerId)
+        leaveGroup(c, playerId, pending.targetPlayerId)
     }
 
     /**
      * [leaveGroup] mit ein paar Versuchen — klappt es gar nicht, spielt der bisherige Speaker weiter.
      * Dann eine Meldung, damit ein Erwachsener ihn ausmacht.
      */
-    private suspend fun leaveGroupRetrying(household: String, sourcePlayerId: String, targetPlayerId: String) {
+    private suspend fun leaveGroupRetrying(c: SonosControl, sourcePlayerId: String, targetPlayerId: String) {
         repeat(LEAVE_ATTEMPTS) { attempt ->
             try {
-                leaveGroup(household, sourcePlayerId, targetPlayerId)
+                leaveGroup(c, sourcePlayerId, targetPlayerId)
                 return
             } catch (e: CancellationException) {
                 throw e
@@ -1099,25 +1194,37 @@ class MainViewModel(
      * ist. Hat der bisherige Speaker die Gruppe gesteuert, übernimmt ein anderer; lief die Musik und
      * steht danach still, wird sie einmal angeschubst.
      */
-    private suspend fun leaveGroup(household: String, sourcePlayerId: String, targetPlayerId: String) {
-        val group = findGroup(household, sourcePlayerId)
-        if (targetPlayerId !in group.playerIds) return
-        val wasPlaying = currentlyPlaying(group.id)
-        apiClient.modifyGroupMembers(group.id, playerIdsToAdd = emptyList(), playerIdsToRemove = listOf(sourcePlayerId))
+    private suspend fun leaveGroup(c: SonosControl, sourcePlayerId: String, targetPlayerId: String) {
+        var left = false
+        val wasPlaying = withGroup(c, sourcePlayerId) { group ->
+            if (targetPlayerId !in group.playerIds) return@withGroup null
+            val playing = currentlyPlaying(c, group.id)
+            c.removeFromGroup(group.id, sourcePlayerId)
+            left = true
+            playing
+        }
+        if (!left) return
         Log.d(TAG, "$sourcePlayerId hat die Musik an $targetPlayerId abgegeben")
         if (wasPlaying != true) return
         delay(MOVE_REFRESH_DELAY_MS)
-        val targetGroup = findGroup(household, targetPlayerId)
-        if (currentlyPlaying(targetGroup.id) == false) {
-            Log.d(TAG, "Musik steht nach dem Mitnehmen still — wieder starten")
-            apiClient.play(targetGroup.id)
+        withGroup(c, targetPlayerId) { targetGroup ->
+            if (currentlyPlaying(c, targetGroup.id) == false) {
+                Log.d(TAG, "Musik steht nach dem Mitnehmen still — wieder starten")
+                c.play(targetGroup.id)
+            }
         }
     }
 
-    /** Spielt die Gruppe gerade (oder lädt)? null, wenn Sonos nicht antwortet. */
-    private suspend fun currentlyPlaying(groupId: String): Boolean? =
-        runCatching { apiClient.getPlaybackStatus(groupId) }
-            .onFailure { if (it is CancellationException || it is SessionExpiredException) throw it }
+    /**
+     * Spielt die Gruppe gerade (oder lädt)? null, wenn Sonos nicht antwortet. Gibt es die Gruppe nicht
+     * mehr, kommt der Fehler durch — [withGroup] versucht es dann mit der aktuellen.
+     */
+    private suspend fun currentlyPlaying(c: SonosControl, groupId: String): Boolean? =
+        runCatching { c.getPlaybackStatus(groupId) }
+            .onFailure {
+                if (it is CancellationException || it is SessionExpiredException) throw it
+                if (it is SonosApiException && it.isGroupGone) throw it
+            }
             .getOrNull()
             ?.let { it.isPlaying || it.isBuffering }
 
@@ -1329,8 +1436,8 @@ class MainViewModel(
         val playlistId = category.playlistId ?: return@withLock
         refreshingPlaylistCategories = refreshingPlaylistCategories + categoryId
         try {
-            val household = householdId ?: apiClient.getFirstHouseholdId().also { householdId = it }
-            val playlist = findPlaylist(household, playlistId, category.playlistName)
+            // Bevor die Speaker geladen sind, über die Cloud — sonst auf dem Weg, über den die App gerade steuert
+            val playlist = findPlaylist(control ?: cloudControl, playlistId, category.playlistName)
             if (playlist.id != playlistId || playlist.name != category.playlistName) {
                 repository.setCategoryPlaylist(categoryId, playlist.id, playlist.name)
             }
@@ -1338,8 +1445,7 @@ class MainViewModel(
             // Der Speaker kennt auch die Cover; fehlen dort Titel, lieber die Liste aus der Cloud
             val tracks = localClient.playlistTracks(playlist.id, addressHint = nowPlaying?.imageUrl)
                 ?.takeIf { expected == null || it.size >= expected }
-                ?: apiClient.getPlaylist(household, playlist.id).tracks
-                    .map { PlaylistTrackInfo(title = it.name, album = it.album, artist = it.artist) }
+                ?: cloudControl.getPlaylistTracks(playlist.id)
             // Eine leere Antwort zu einer Playlist mit Titeln würde alle Einträge löschen
             if (tracks.isEmpty() && expected != 0) {
                 throw SonosApiException("Die Titel der Playlist „${playlist.name}“ konnten nicht geladen werden.")
@@ -1502,8 +1608,7 @@ class MainViewModel(
         catalogState = CatalogState.Loading
         catalogJob = viewModelScope.launch {
             catalogState = try {
-                val household = householdId ?: apiClient.getFirstHouseholdId().also { householdId = it }
-                CatalogState.Loaded(fetchCatalog(household).also { repository.refreshMusicImages(it) })
+                CatalogState.Loaded(fetchCatalog().also { repository.refreshMusicImages(it) })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -1515,17 +1620,36 @@ class MainViewModel(
         }
     }
 
-    private suspend fun fetchCatalog(household: String): List<CatalogEntry> {
-        val entries = coroutineScope {
-            val favorites = async { apiClient.getFavorites(household) }
-            val playlists = async { apiClient.getPlaylists(household) }
-            favorites.await().map(CatalogEntry::from) + playlists.await().map(CatalogEntry::from)
-        }
+    private suspend fun fetchCatalog(): List<CatalogEntry> {
         // Cover (und Künstler) direkt beim Speaker im Heimnetz holen — dieselben, die die Sonos-App zeigt.
         // Die Cloud liefert für Sonos-Playlisten nie eins und für manche Favoriten keins,
         // das sich laden lässt. Klappt das lokal nicht, bleibt es beim Cover aus der Cloud.
         // Abgelaufene Adressen (Apple Music: nur 24 h gültig) gar nicht erst versuchen.
-        val local = localClient.loadCovers(addressHint = nowPlaying?.imageUrl)
+        val (cloudEntries, local) = coroutineScope {
+            val cloud = async {
+                try {
+                    Result.success(
+                        coroutineScope {
+                            val favorites = async { cloudControl.getFavorites() }
+                            val playlists = async { cloudControl.getPlaylists() }
+                            favorites.await().map(CatalogEntry::from) + playlists.await().map(CatalogEntry::from)
+                        }
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
+            }
+            val local = async { localClient.loadCovers(addressHint = nowPlaying?.imageUrl) }
+            cloud.await() to local.await()
+        }
+        // Antwortet die Cloud nicht, reicht auch der Katalog vom Speaker im Heimnetz
+        val entries = cloudEntries.getOrElse { error ->
+            local?.catalogEntries()?.takeIf { it.isNotEmpty() }
+                ?.also { Log.w(TAG, "Musik-Katalog nur aus dem Heimnetz, die Sonos-Cloud antwortet nicht: ${error.message}") }
+                ?: throw error
+        }
         return entries.map { entry ->
             val localCovers = local?.coversFor(entry).orEmpty()
             val cloudCovers = imageUrlCandidates(entry.imageUrl)
@@ -1554,11 +1678,11 @@ class MainViewModel(
 
     /** Cover der gespeicherten Musikauswahl still im Hintergrund auffrischen. */
     private fun refreshMusicImagesQuietly() {
-        val household = householdId ?: return
+        if (control == null) return
         if (categories.none { it.items.isNotEmpty() }) return
         viewModelScope.launch {
             try {
-                repository.refreshMusicImages(fetchCatalog(household))
+                repository.refreshMusicImages(fetchCatalog())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1592,8 +1716,10 @@ class MainViewModel(
         playlistPreview = PlaylistPreview(entry)
         viewModelScope.launch {
             val preview = try {
-                val household = householdId ?: apiClient.getFirstHouseholdId().also { householdId = it }
-                PlaylistPreview(entry, tracks = apiClient.getPlaylist(household, entry.sonosId).tracks)
+                // Vom Speaker im Heimnetz, sonst aus der Cloud
+                val tracks = localClient.playlistTracks(entry.sonosId, addressHint = nowPlaying?.imageUrl)
+                    ?: cloudControl.getPlaylistTracks(entry.sonosId)
+                PlaylistPreview(entry, tracks = tracks.map { PlaylistTrack(name = it.title, artist = it.artist, album = it.album) })
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
@@ -1625,24 +1751,30 @@ class MainViewModel(
 
     companion object {
         private const val TAG = "SoundBuddy"
+        /** Abfrage-Takt über die Cloud — im WLAN geht es schneller und kostet nichts. */
         private const val POLL_INTERVAL_MS = 5_000L
+        private const val LOCAL_POLL_INTERVAL_MS = 2_000L
         private const val COMMAND_REFRESH_DELAY_MS = 600L
+        private const val LOCAL_COMMAND_REFRESH_DELAY_MS = 300L
         private const val VOLUME_DEBOUNCE_MS = 150L
         /** Neue Musik zu laden dauert bei Sonos etwas länger als ein Skip. */
         private const val MUSIC_REFRESH_DELAY_MS = 1_500L
+        private const val LOCAL_MUSIC_REFRESH_DELAY_MS = 800L
+        /** So viele Abfragen im WLAN dürfen hintereinander scheitern, bevor die App neu verbindet. */
+        private const val LOCAL_FAILURES_BEFORE_RECONNECT = 3
+        /** Erst so viele gescheiterte Abfragen in Folge zeigen eine Meldung, solange noch etwas zu sehen ist. */
+        private const val POLL_FAILURES_BEFORE_ERROR = 2
+        /** Steuert die App nur ersatzweise über die Cloud, versucht sie es so oft wieder im WLAN. */
+        private const val LOCAL_RETRY_INTERVAL_MS = 60_000L
+        /** So oft versucht die App einen Befehl, wenn Sonos die Gruppe als nicht mehr vorhanden meldet. */
+        private const val GROUP_GONE_ATTEMPTS = 3
+        private const val GROUP_GONE_RETRY_MS = 700L
         /** Bis die Gruppe nach dem Mitnehmen steht und die Musik am neuen Ort läuft. */
         private const val MOVE_REFRESH_DELAY_MS = 1_500L
         /** So lange spielt der bisherige Speaker nach dem Mitnehmen noch mit — Zeit zum Hinübergehen. */
         private const val MOVE_SOURCE_STOP_DELAY_MS = 15_000L
         private const val LEAVE_ATTEMPTS = 3
         private const val LEAVE_RETRY_DELAY_MS = 5_000L
-        private const val QUEUE_FILL_RETRY_MS = 400L
-        private const val QUEUE_FILL_TIMEOUT_MS = 3_000L
-        private const val SHUFFLE_OFF_POLL_MS = 300L
-        private const val SHUFFLE_OFF_TIMEOUT_MS = 3_000L
-        private const val SHUFFLE_OFF_SETTLE_MS = 1_000L
-        private const val LOAD_ATTEMPTS = 3
-        private const val LOAD_RETRY_DELAY_MS = 1_500L
         /** So viele Einträge zeigt „Zuletzt gespielt“ in den Einstellungen. */
         private const val RECENT_PLAYS_SHOWN = 5
         /** Playlist-Kategorien gleicht die App von selbst höchstens so oft mit Sonos ab. */
