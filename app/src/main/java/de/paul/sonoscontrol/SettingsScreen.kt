@@ -96,6 +96,7 @@ fun SettingsScreen(
     /** Hinweis auf einen neuen Stand aus der Cloud, der auf Übernahme wartet. */
     syncNotice: String?,
     onLogout: () -> Unit,
+    onOpenLog: () -> Unit,
     onOpenReleaseNotes: () -> Unit
 ) {
     var showNewProfile by remember { mutableStateOf(false) }
@@ -201,6 +202,16 @@ fun SettingsScreen(
                         Text("Abmelden")
                     }
                 }
+            }
+
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SectionHeader(
+                    title = "Protokoll",
+                    description = "Welche Fehlermeldungen auf dem Startbildschirm standen, was im Hintergrund " +
+                        "nicht geklappt hat und wodurch es wieder wegging."
+                )
+                LogSettingsEntry(onClick = onOpenLog)
             }
 
             item {

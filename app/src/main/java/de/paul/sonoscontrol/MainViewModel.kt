@@ -2,7 +2,6 @@ package de.paul.sonoscontrol
 
 import android.net.Uri
 import android.os.SystemClock
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -30,10 +29,10 @@ sealed interface UiState {
 
 /**
  * [Speakers], [ProfileEditor], [MusicLibrary] (die zentrale Musikauswahl) mit
- * [CategoryEditor] (eine Kategorie) und [MusicCatalog], sowie [Sync] und [ReleaseNotes] sind
- * Unterseiten der Settings.
+ * [CategoryEditor] (eine Kategorie) und [MusicCatalog], sowie [Sync], [ReleaseNotes] und [Log] (das Protokoll)
+ * sind Unterseiten der Settings.
  */
-enum class Screen { Home, Settings, Speakers, ProfileEditor, MusicLibrary, CategoryEditor, MusicCatalog, Sync, ReleaseNotes }
+enum class Screen { Home, Settings, Speakers, ProfileEditor, MusicLibrary, CategoryEditor, MusicCatalog, Sync, ReleaseNotes, Log }
 
 /** Inhalt des Sonos-Katalogs (Favoriten + Playlisten) beim Zusammenstellen der Musikauswahl. */
 sealed interface CatalogState {
@@ -116,6 +115,9 @@ class MainViewModel(
 
     /** Die aktuelle Fehlermeldung wurde mit „Okay" weggeklickt. */
     private var playbackErrorDismissed: Boolean by mutableStateOf(false)
+
+    /** Seit wann die aktuelle Fehlermeldung steht (SystemClock.elapsedRealtime()) — fürs Protokoll. */
+    private var playbackErrorSinceMillis = 0L
 
     /**
      * Fehler, der groß über dem Homescreen angezeigt wird. Einmal weggeklickt,
@@ -369,16 +371,17 @@ class MainViewModel(
         viewModelScope.launch {
             repository.playLog.collect { playLog = it }
         }
-        if (uiState is UiState.LoadingSpeakers) loadSpeakers()
+        AppLog.i(TAG, "App gestartet (Version ${BuildConfig.VERSION_NAME})")
+        if (uiState is UiState.LoadingSpeakers) startLoadingSpeakers("App gestartet")
         viewModelScope.launch {
             runCatching { repository.deleteUnusedImages() }
-                .onFailure { Log.w(TAG, "Aufräumen der Bilder fehlgeschlagen", it) }
+                .onFailure { AppLog.w(TAG, "Aufräumen der Bilder fehlgeschlagen", it) }
         }
         viewModelScope.launch {
             // Hat dieses Tablet eine Playlist-Kategorie noch mit einer älteren Version übernommen?
             runCatching { repository.restorePlaylistLinks() }
-                .onSuccess { if (it > 0) Log.d(TAG, "$it Playlist-Kategorie(n) wieder mit ihrer Playlist verbunden") }
-                .onFailure { Log.w(TAG, "Playlist-Kategorien nicht geprüft", it) }
+                .onSuccess { if (it > 0) AppLog.d(TAG, "$it Playlist-Kategorie(n) wieder mit ihrer Playlist verbunden") }
+                .onFailure { AppLog.w(TAG, "Playlist-Kategorien nicht geprüft", it) }
         }
     }
 
@@ -390,15 +393,15 @@ class MainViewModel(
         val refreshToken = uri.getQueryParameter("refresh_token")
 
         if (!authManager.isValidState(state)) {
-            uiState = UiState.Error("Ungültiger state-Parameter — Login abgebrochen (möglicher CSRF-Versuch).")
+            uiState = errorState("Ungültiger state-Parameter — Login abgebrochen (möglicher CSRF-Versuch).")
             return
         }
         if (error != null) {
-            uiState = UiState.Error("Sonos-Login fehlgeschlagen: $error")
+            uiState = errorState("Sonos-Login fehlgeschlagen: $error")
             return
         }
         if (accessToken.isNullOrBlank()) {
-            uiState = UiState.Error("Kein Access-Token in der Antwort erhalten.")
+            uiState = errorState("Kein Access-Token in der Antwort erhalten.")
             return
         }
 
@@ -408,14 +411,31 @@ class MainViewModel(
             expiresInSeconds = uri.getQueryParameter("expires_in")?.toLongOrNull()
         )
 
-        loadSpeakers()
+        startLoadingSpeakers("bei Sonos angemeldet")
     }
 
-    fun loadSpeakers() {
+    /** „Nochmal versuchen“ auf der Fehlerseite. */
+    fun loadSpeakers() = startLoadingSpeakers("„Nochmal versuchen“ gedrückt")
+
+    /** Die Fehlerseite statt des Startbildschirms — steht damit auch im Protokoll. */
+    private fun errorState(message: String, cause: Throwable? = null): UiState.Error {
+        AppLog.e(TAG, "Fehlerseite statt des Startbildschirms angezeigt: $message", cause)
+        return UiState.Error(message)
+    }
+
+    /** [trigger]: wodurch geladen wird — fürs Protokoll, falls vorher die Fehlerseite stand. */
+    private fun startLoadingSpeakers(trigger: String) {
+        val failedBefore = (uiState as? UiState.Error)?.message
         uiState = UiState.LoadingSpeakers
         viewModelScope.launch {
             uiState = try {
                 UiState.SpeakerList(fetchAndSyncPlayers().players).also {
+                    if (failedBefore != null) {
+                        AppLog.resolved(
+                            TAG,
+                            "Fehlerseite ist weg, die Speaker sind geladen ($trigger). Meldung war: ${firstLine(failedBefore)}"
+                        )
+                    }
                     refreshMusicImagesQuietly()
                     refreshPlaylistCategoriesQuietly()
                 }
@@ -425,7 +445,7 @@ class MainViewModel(
                 handleSessionExpired(e)
                 return@launch
             } catch (e: Exception) {
-                UiState.Error(e.message ?: "Unbekannter Fehler beim Laden der Speaker")
+                errorState(e.message ?: "Unbekannter Fehler beim Laden der Speaker", e)
             }
             updateSelection()
         }
@@ -453,7 +473,10 @@ class MainViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Speaker im WLAN nicht erreicht, versuche es über die Sonos-Cloud", e)
+                // Steuert die App deshalb schon über die Cloud, nicht bei jedem neuen Versuch wieder ins Protokoll
+                if (control !== cloudControl || controlFallbackReason != e.message) {
+                    AppLog.w(TAG, "Speaker im WLAN nicht erreicht, versuche es über die Sonos-Cloud", e)
+                }
                 localError = e
             }
         }
@@ -474,14 +497,18 @@ class MainViewModel(
             val addresses = groups.players.mapNotNull { it.localBaseUrl }
             try {
                 localClient.connectTo(addresses)?.let { local ->
-                    Log.d(TAG, "Speaker über die Adressen aus der Sonos-Cloud im WLAN erreicht")
+                    AppLog.resolved(
+                        TAG,
+                        "Die Suche im WLAN fand keinen Speaker (${localError.message}) — über die Adressen aus der " +
+                            "Sonos-Cloud ist er doch direkt erreichbar"
+                    )
                     useControl(localClient, fallbackReason = null)
                     return local
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Adressen aus der Sonos-Cloud nicht genutzt", e)
+                AppLog.w(TAG, "Adressen aus der Sonos-Cloud nicht genutzt", e)
             }
         }
         useControl(cloudControl, fallbackReason = localError?.message)
@@ -491,14 +518,26 @@ class MainViewModel(
     /** Ab jetzt über [newControl] steuern. Gruppen-Ids gelten je Weg — bei einem Wechsel neu abfragen. */
     private fun useControl(newControl: SonosControl, fallbackReason: String?) {
         val changed = control !== newControl
+        // Lief es bisher nur ersatzweise über die Cloud?
+        val wasFallback = control === cloudControl && controlFallbackReason != null
         control = newControl
         controlPath = newControl.path
         controlFallbackReason = fallbackReason
         localFailures = 0
         if (changed) {
-            Log.d(TAG, "Steuerung jetzt ${newControl.path.label}")
+            when {
+                fallbackReason != null -> AppLog.resolved(
+                    TAG,
+                    "Im WLAN kein Speaker erreicht — die App steuert ersatzweise über die Sonos-Cloud. Grund: $fallbackReason"
+                )
+                wasFallback && newControl !== cloudControl -> AppLog.resolved(
+                    TAG,
+                    "Speaker im WLAN wieder erreicht — die App steuert wieder direkt im WLAN statt über die Sonos-Cloud"
+                )
+                else -> AppLog.i(TAG, "Steuerung jetzt ${newControl.path.label}")
+            }
             // Die Anzeige bleibt stehen, bis die erste Abfrage über den neuen Weg da ist
-            restartPolling(keepPlayback = true)
+            restartPolling("Steuerung jetzt ${newControl.path.label}", keepPlayback = true)
         }
     }
 
@@ -519,7 +558,7 @@ class MainViewModel(
             } catch (e: SessionExpiredException) {
                 handleSessionExpired(e)
             } catch (e: Exception) {
-                Log.d(TAG, "Still neu verbinden hat nicht geklappt: ${e.message}")
+                AppLog.w(TAG, "Still neu verbinden hat nicht geklappt", e)
             }
         }
     }
@@ -550,6 +589,7 @@ class MainViewModel(
             } catch (e: SessionExpiredException) {
                 handleSessionExpired(e)
             } catch (e: Exception) {
+                AppLog.w(TAG, "Speaker-Liste aktualisieren (Einstellungen) fehlgeschlagen", e)
                 speakerRefreshMessage = "Speaker-Liste konnte nicht geladen werden: " +
                     (e.message ?: "Unbekannter Fehler")
             } finally {
@@ -574,6 +614,11 @@ class MainViewModel(
     private fun handleSessionExpired(e: SessionExpiredException) = signOut(reason = e.message)
 
     private fun signOut(reason: String?) {
+        if (reason != null) {
+            AppLog.e(TAG, "Abgemeldet, die Anmeldeseite steht statt des Startbildschirms: $reason")
+        } else {
+            AppLog.i(TAG, "Bei Sonos abgemeldet (Einstellungen)")
+        }
         tokenStore.clear()
         stopPolling()
         volumeJob?.cancel()
@@ -587,7 +632,7 @@ class MainViewModel(
         cloudControl.forgetHousehold()
         selectedPlayerId = null
         nowPlaying = null
-        clearPlaybackError()
+        clearPlaybackError("abgemeldet")
         screen = Screen.Home
         editingProfileId = null
         editingCategoryId = null
@@ -600,8 +645,9 @@ class MainViewModel(
     fun selectSpeaker(playerId: String) {
         if (playerId == selectedPlayerId) return
         selectedPlayerId = playerId
+        AppLog.d(TAG, "Speaker gewählt: ${speakerName(playerId)}")
         viewModelScope.launch { repository.setLastSelectedPlayer(playerId) }
-        restartPolling()
+        restartPolling("anderer Speaker gewählt")
     }
 
     /**
@@ -619,14 +665,14 @@ class MainViewModel(
             else -> null
         }
         if (newSelection == selectedPlayerId) {
-            if (pollJob == null) restartPolling()
+            if (pollJob == null) restartPolling("Abfrage der Wiedergabe startet")
             return
         }
         selectedPlayerId = newSelection
         if (newSelection != null && newSelection != settings.lastSelectedPlayerId) {
             viewModelScope.launch { repository.setLastSelectedPlayer(newSelection) }
         }
-        restartPolling()
+        restartPolling("Speaker-Auswahl hat sich geändert")
     }
 
     // --- Profil-Auswahl --------------------------------------------------
@@ -660,6 +706,7 @@ class MainViewModel(
     // --- Wiedergabe ------------------------------------------------------
 
     fun onForegroundChanged(foreground: Boolean) {
+        if (foreground != isInForeground) AppLog.d(TAG, if (foreground) "App im Vordergrund" else "App im Hintergrund")
         isInForeground = foreground
         if (!foreground) {
             stopPolling()
@@ -667,9 +714,9 @@ class MainViewModel(
         }
         // Lag beim letzten Mal z. B. kein Netz an, beim Zurückkommen still neu versuchen
         if (uiState is UiState.Error && tokenStore.accessToken != null) {
-            loadSpeakers()
+            startLoadingSpeakers("App wieder geöffnet")
         } else {
-            restartPolling()
+            restartPolling("App wieder geöffnet")
             // Lief die Steuerung nur ersatzweise über die Cloud, das WLAN erneut versuchen
             if (control === cloudControl && !localClient.preferCloud) reconnectQuietly()
         }
@@ -682,19 +729,23 @@ class MainViewModel(
         pollJob = null
     }
 
-    /** [keepPlayback]: Die Anzeige bleibt, bis die nächste Abfrage da ist (derselbe Speaker, anderer Weg). */
-    private fun restartPolling(keepPlayback: Boolean = false) {
+    /**
+     * [reason]: warum neu abgefragt wird — steht im Protokoll, falls dabei eine Fehlermeldung verschwindet.
+     * [keepPlayback]: Die Anzeige bleibt, bis die nächste Abfrage da ist (derselbe Speaker, anderer Weg).
+     */
+    private fun restartPolling(reason: String, keepPlayback: Boolean = false) {
         stopPolling()
         // Während die Musik umzieht, fragt der Umzug selbst ab und startet danach neu
         if (movingMusic != null) return
         if (!keepPlayback) nowPlaying = null
-        clearPlaybackError()
+        clearPlaybackError("die Abfrage der Wiedergabe beginnt neu: $reason")
         val playerId = selectedPlayerId ?: return
         val c = control ?: return
         if (!isInForeground || screen != Screen.Home) return
 
         pollJob = viewModelScope.launch {
             var failures = 0
+            var failingSinceMillis = 0L
             while (isActive) {
                 try {
                     val pollStartedAt = SystemClock.elapsedRealtime()
@@ -714,7 +765,15 @@ class MainViewModel(
                     if (settled && !isStartingMusic && pollStartedAt > lastCommandAtMillis) {
                         nowPlaying = fetched
                     }
-                    clearPlaybackError()
+                    if (failures > 0) {
+                        val recovery = "die Abfrage der Wiedergabe klappt wieder (nach ${attempts(failures)}, " +
+                            "${secondsSince(failingSinceMillis)} s)"
+                        // Stand eine Meldung da, sagt das Protokoll gleich, dass sie damit verschwunden ist
+                        if (playbackError == null) AppLog.resolved(TAG, "Aussetzer ohne Fehlermeldung überstanden: $recovery")
+                        clearPlaybackError(recovery, recovered = true)
+                    } else {
+                        clearPlaybackError("die nächste Abfrage der Wiedergabe hat geklappt", recovered = true)
+                    }
                     localFailures = 0
                     failures = 0
                 } catch (e: CancellationException) {
@@ -723,16 +782,22 @@ class MainViewModel(
                     handleSessionExpired(e)
                     return@launch
                 } catch (e: Exception) {
-                    failures++
-                    Log.d(TAG, "Abfrage der Wiedergabe fehlgeschlagen ($failures-mal in Folge): ${e.message}")
+                    if (failures++ == 0) failingSinceMillis = SystemClock.elapsedRealtime()
+                    // Ohne Zähler im Text: So zählt derselbe Eintrag im Protokoll hoch, statt alle 2 Sekunden einen neuen
+                    AppLog.w(TAG, "Abfrage der Wiedergabe fehlgeschlagen: ${e.message}", e)
                     // Ein einzelner Aussetzer (wackliges Netz) soll nicht gleich eine Meldung aufpoppen
                     // lassen — solange noch etwas zu sehen ist, erst ab dem zweiten in Folge
                     if (nowPlaying == null || failures >= POLL_FAILURES_BEFORE_ERROR) {
-                        reportPlaybackError(e.message ?: "Wiedergabe konnte nicht geladen werden")
+                        reportPlaybackError(
+                            e.message ?: "Wiedergabe konnte nicht geladen werden",
+                            during = "Abfrage der Wiedergabe",
+                            cause = e
+                        )
                     }
                     // Im WLAN mehrmals nichts angekommen → neu verbinden: neue Adresse, sonst über die Cloud
                     if (c === localClient && ++localFailures >= LOCAL_FAILURES_BEFORE_RECONNECT) {
                         localFailures = 0
+                        AppLog.d(TAG, "Im WLAN $LOCAL_FAILURES_BEFORE_RECONNECT-mal nichts angekommen — neu verbinden")
                         reconnectQuietly()
                     }
                 }
@@ -747,8 +812,11 @@ class MainViewModel(
         }
     }
 
-    /** [userAction]: ein Knopfdruck ist fehlgeschlagen → Meldung immer (wieder) zeigen. */
-    private fun reportPlaybackError(message: String, userAction: Boolean = false) {
+    /**
+     * [during]: wobei es passiert ist, fürs Protokoll. [userAction]: ein Knopfdruck ist
+     * fehlgeschlagen → Meldung immer (wieder) zeigen.
+     */
+    private fun reportPlaybackError(message: String, during: String, userAction: Boolean = false, cause: Throwable? = null) {
         // Steuert die App nur ersatzweise über die Cloud, gehört der Grund dazu — meist ist er das eigentliche Problem
         val reason = controlFallbackReason?.takeIf { control === cloudControl }
         val text = when {
@@ -757,18 +825,54 @@ class MainViewModel(
                 "$message\n\nIn den Einstellungen ist „Über die Sonos-Cloud steuern“ eingeschaltet."
             else -> message
         }
+        // Dieselbe Meldung steht bei jeder weiteren gescheiterten Abfrage noch da — nur einmal ins Protokoll
+        if (userAction || text != playbackError) {
+            AppLog.e(TAG, "Fehlermeldung auf dem Startbildschirm bei „$during“: $text", cause)
+        }
+        if (playbackError == null) playbackErrorSinceMillis = SystemClock.elapsedRealtime()
         if (userAction || text != playbackError) playbackErrorDismissed = false
         playbackError = text
     }
 
-    private fun clearPlaybackError() {
+    /**
+     * [reason]: wodurch die Meldung verschwindet — steht im Protokoll, denn die Kinder können nicht
+     * vorlesen, was da stand. [recovered]: Es hat wieder geklappt, statt dass nur die Anzeige neu beginnt.
+     */
+    private fun clearPlaybackError(reason: String, recovered: Boolean = false) {
+        playbackError?.let { shown ->
+            val how = if (recovered) "verschwunden" else "ausgeblendet"
+            val dismissed = if (playbackErrorDismissed) ", war schon mit „Okay“ weggeklickt" else ""
+            AppLog.resolved(
+                TAG,
+                "Fehlermeldung nach ${secondsSince(playbackErrorSinceMillis)} s $how$dismissed — $reason. " +
+                    "Meldung war: ${firstLine(shown)}"
+            )
+        }
         playbackError = null
         playbackErrorDismissed = false
     }
 
     fun dismissPlaybackError() {
+        if (playbackError != null && !playbackErrorDismissed) {
+            AppLog.resolved(
+                TAG,
+                "Fehlermeldung nach ${secondsSince(playbackErrorSinceMillis)} s mit „Okay“ weggeklickt. " +
+                    "Meldung war: ${firstLine(playbackError.orEmpty())}"
+            )
+        }
         playbackErrorDismissed = true
     }
+
+    private fun secondsSince(elapsedRealtimeMillis: Long): Long =
+        (SystemClock.elapsedRealtime() - elapsedRealtimeMillis) / 1000
+
+    private fun firstLine(text: String): String = text.lineSequence().firstOrNull().orEmpty()
+
+    private fun attempts(count: Int): String = if (count == 1) "1 Fehlversuch" else "$count Fehlversuchen"
+
+    /** Name des Speakers fürs Protokoll. */
+    private fun speakerName(playerId: String): String =
+        speakerConfigs.firstOrNull { it.playerId == playerId }?.name ?: playerId
 
     /** Kurz nach einem Befehl kann Sonos noch den alten Stand liefern — im WLAN weniger lange. */
     private fun commandRefreshDelay(c: SonosControl): Long =
@@ -792,15 +896,25 @@ class MainViewModel(
     private suspend fun <T> withGroup(c: SonosControl, playerId: String, block: suspend (SonosGroup) -> T): T {
         repeat(GROUP_GONE_ATTEMPTS - 1) { attempt ->
             try {
-                return block(findGroup(c, playerId))
+                return block(findGroup(c, playerId)).also { if (attempt > 0) logGroupFound(playerId, attempt + 1) }
             } catch (e: SonosApiException) {
                 if (!e.isGroupGone) throw e
-                Log.d(TAG, "Gruppe von $playerId gibt es nicht mehr (Versuch ${attempt + 1}), gleich noch einmal")
+                AppLog.w(
+                    TAG,
+                    "Gruppe von ${speakerName(playerId)} gibt es nicht mehr (Versuch ${attempt + 1}), gleich noch einmal",
+                    e
+                )
             }
             delay(GROUP_GONE_RETRY_MS)
         }
-        return block(findGroup(c, playerId))
+        return block(findGroup(c, playerId)).also { logGroupFound(playerId, GROUP_GONE_ATTEMPTS) }
     }
+
+    private fun logGroupFound(playerId: String, attempt: Int) = AppLog.resolved(
+        TAG,
+        "Sonos meldete die Gruppe von ${speakerName(playerId)} als nicht mehr vorhanden — " +
+            "mit der neu geholten Gruppe hat es im $attempt. Versuch geklappt"
+    )
 
     private suspend fun fetchNowPlaying(c: SonosControl, playerId: String): NowPlaying =
         withGroup(c, playerId) { group -> fetchNowPlaying(c, playerId, group) }
@@ -843,17 +957,17 @@ class MainViewModel(
             positionMillis = current.currentPositionMillis(),
             fetchedAtMillis = SystemClock.elapsedRealtime()
         )
-        sendGroupCommand(current) { c, groupId -> c.togglePlayPause(groupId) }
+        sendGroupCommand(current, if (current.isPlaying) "Pause" else "Abspielen") { c, groupId -> c.togglePlayPause(groupId) }
     }
 
     fun skipToNext() {
         val current = nowPlaying ?: return
-        sendGroupCommand(current) { c, groupId -> c.skipToNextTrack(groupId) }
+        sendGroupCommand(current, "Nächster Titel") { c, groupId -> c.skipToNextTrack(groupId) }
     }
 
     fun skipToPrevious() {
         val current = nowPlaying ?: return
-        sendGroupCommand(current) { c, groupId -> c.skipToPreviousTrack(groupId) }
+        sendGroupCommand(current, "Vorheriger Titel") { c, groupId -> c.skipToPreviousTrack(groupId) }
     }
 
     /**
@@ -862,9 +976,9 @@ class MainViewModel(
      * sie deshalb frisch geholt (kostet kaum Zeit), über die Cloud erst, wenn Sonos die alte Id als
      * nicht mehr vorhanden ablehnt (HTTP 410, ERROR_RESOURCE_GONE) — dann einmal mit der aktuellen.
      */
-    private fun sendGroupCommand(current: NowPlaying, command: suspend (SonosControl, String) -> Unit) {
+    private fun sendGroupCommand(current: NowPlaying, what: String, command: suspend (SonosControl, String) -> Unit) {
         val playerId = selectedPlayerId ?: return
-        sendPlaybackCommand { c ->
+        sendPlaybackCommand(what) { c ->
             // Im WLAN kostet die Abfrage kaum Zeit; und die Gruppen-Id vom anderen Weg gilt hier nicht
             if (c.path == ControlPath.LOCAL || current.path != c.path) {
                 withGroup(c, playerId) { command(c, it.id) }
@@ -874,8 +988,12 @@ class MainViewModel(
                 command(c, current.groupId)
             } catch (e: SonosApiException) {
                 if (!e.isGroupGone) throw e
-                Log.d(TAG, "Gruppe ${current.groupId} gibt es nicht mehr — Befehl an die aktuelle Gruppe")
+                AppLog.w(TAG, "„$what“: Gruppe ${current.groupId} gibt es nicht mehr — Befehl an die aktuelle Gruppe", e)
                 withGroup(c, playerId) { command(c, it.id) }
+                AppLog.resolved(
+                    TAG,
+                    "„$what“: Sonos meldete die Gruppe als nicht mehr vorhanden — mit der aktuellen Gruppe hat es geklappt"
+                )
             }
         }
     }
@@ -905,7 +1023,12 @@ class MainViewModel(
             } catch (e: SessionExpiredException) {
                 handleSessionExpired(e)
             } catch (e: Exception) {
-                reportPlaybackError(e.message ?: "Lautstärke konnte nicht geändert werden", userAction = true)
+                reportPlaybackError(
+                    e.message ?: "Lautstärke konnte nicht geändert werden",
+                    during = "Lautstärke auf $target",
+                    userAction = true,
+                    cause = e
+                )
             }
         }
     }
@@ -927,6 +1050,7 @@ class MainViewModel(
         val useShuffle = shuffle ?: (order == PlayOrder.SHUFFLE)
         startingMusic = item
         sendPlaybackCommand(
+            what = "Musik starten: ${item.name}",
             isMusicStart = true,
             onFinished = { startingMusic = null },
             // Erst wenn Sonos die Musik angenommen hat, ist sie nicht mehr neu
@@ -993,6 +1117,8 @@ class MainViewModel(
      * abgefragt — bleibt aus, wenn inzwischen ein anderer Speaker gewählt wurde.
      */
     private fun sendPlaybackCommand(
+        /** Was der Befehl tut — fürs Protokoll. */
+        what: String,
         isMusicStart: Boolean = false,
         onFinished: () -> Unit = {},
         onSent: () -> Unit = {},
@@ -1001,6 +1127,7 @@ class MainViewModel(
     ) {
         val playerId = selectedPlayerId ?: return onFinished()
         val c = control ?: return onFinished()
+        AppLog.d(TAG, "$what (${speakerName(playerId)}, ${c.path.label})")
         lastCommandAtMillis = SystemClock.elapsedRealtime()
         viewModelScope.launch {
             try {
@@ -1014,14 +1141,19 @@ class MainViewModel(
                     nowPlaying = fetchNowPlaying(c, playerId).also(onPlaying)
                     // Abfragen, die noch während des Befehls begonnen haben, sind damit überholt
                     lastCommandAtMillis = SystemClock.elapsedRealtime()
-                    clearPlaybackError()
+                    clearPlaybackError("„$what“ hat geklappt", recovered = true)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SessionExpiredException) {
                 handleSessionExpired(e)
             } catch (e: Exception) {
-                reportPlaybackError(e.message ?: "Befehl konnte nicht gesendet werden", userAction = true)
+                reportPlaybackError(
+                    e.message ?: "Befehl konnte nicht gesendet werden",
+                    during = what,
+                    userAction = true,
+                    cause = e
+                )
             } finally {
                 onFinished()
             }
@@ -1044,6 +1176,7 @@ class MainViewModel(
         val from = speakerConfigs.firstOrNull { it.playerId == sourcePlayerId } ?: return
         val to = speakerConfigs.firstOrNull { it.playerId == targetPlayerId } ?: return
         movingMusic = MovingMusic(from, to)
+        AppLog.d(TAG, "Musik mitnehmen: von ${from.name} nach ${to.name} (${c.path.label})")
         stopPolling()
         volumeJob?.cancel()
         lastCommandAtMillis = SystemClock.elapsedRealtime()
@@ -1053,6 +1186,7 @@ class MainViewModel(
             var moved = false
             var playing: NowPlaying? = null
             var error: String? = null
+            var errorCause: Exception? = null
             try {
                 withGroup(c, sourcePlayerId) { group ->
                     if (targetPlayerId !in group.playerIds) {
@@ -1077,6 +1211,7 @@ class MainViewModel(
                 return@launch
             } catch (e: Exception) {
                 error = e.message ?: "Die Musik konnte nicht mitgenommen werden"
+                errorCause = e
             }
             // Zurückholen hat nicht geklappt → der Ziel-Speaker geht doch noch aus der Gruppe, sonst spielten beide weiter
             if (!moved && returningLeave != null) scheduleLeave(c, targetPlayerId, returningLeave.targetPlayerId)
@@ -1085,10 +1220,12 @@ class MainViewModel(
                 selectedPlayerId = targetPlayerId
                 launch { repository.setLastSelectedPlayer(targetPlayerId) }
             }
-            restartPolling()
+            restartPolling("Musik mitnehmen ist fertig")
             // Gleich die Wiedergabe am neuen Ort zeigen statt eines Ladekreises bis zur ersten Abfrage
             if (playing != null && control === c) nowPlaying = playing
-            error?.let { reportPlaybackError(it, userAction = true) }
+            error?.let {
+                reportPlaybackError(it, during = "Musik mitnehmen nach ${to.name}", userAction = true, cause = errorCause)
+            }
         }
     }
 
@@ -1103,7 +1240,7 @@ class MainViewModel(
         } catch (e: SessionExpiredException) {
             throw e
         } catch (e: Exception) {
-            Log.d(TAG, "Lautstärke von $playerId vor dem Mitnehmen nicht begrenzt: ${e.message}")
+            AppLog.w(TAG, "Lautstärke von ${speakerName(playerId)} vor dem Mitnehmen nicht begrenzt", e)
         }
     }
 
@@ -1120,7 +1257,7 @@ class MainViewModel(
         } catch (e: SessionExpiredException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Wiedergabe nach dem Mitnehmen nicht abgefragt", e)
+            AppLog.w(TAG, "Wiedergabe nach dem Mitnehmen nicht abgefragt", e)
             null
         }
     }
@@ -1167,6 +1304,13 @@ class MainViewModel(
         repeat(LEAVE_ATTEMPTS) { attempt ->
             try {
                 leaveGroup(c, sourcePlayerId, targetPlayerId)
+                if (attempt > 0) {
+                    AppLog.resolved(
+                        TAG,
+                        "${speakerName(sourcePlayerId)} ließ sich nach dem Mitnehmen erst nicht aus der Gruppe nehmen — " +
+                            "im ${attempt + 1}. Versuch hat es geklappt"
+                    )
+                }
                 return
             } catch (e: CancellationException) {
                 throw e
@@ -1174,12 +1318,18 @@ class MainViewModel(
                 handleSessionExpired(e)
                 return
             } catch (e: Exception) {
-                Log.w(TAG, "$sourcePlayerId nach dem Mitnehmen nicht aus der Gruppe genommen (Versuch ${attempt + 1})", e)
+                AppLog.w(
+                    TAG,
+                    "${speakerName(sourcePlayerId)} nach dem Mitnehmen nicht aus der Gruppe genommen (Versuch ${attempt + 1})",
+                    e
+                )
                 if (attempt == LEAVE_ATTEMPTS - 1) {
                     val name = speakerConfigs.firstOrNull { it.playerId == sourcePlayerId }?.name ?: "Der Speaker"
                     reportPlaybackError(
                         "„$name“ spielt noch weiter: ${e.message ?: "Unbekannter Fehler"}",
-                        userAction = true
+                        during = "Musik mitnehmen: bisherigen Speaker ausmachen",
+                        userAction = true,
+                        cause = e
                     )
                 } else {
                     delay(LEAVE_RETRY_DELAY_MS)
@@ -1204,12 +1354,12 @@ class MainViewModel(
             playing
         }
         if (!left) return
-        Log.d(TAG, "$sourcePlayerId hat die Musik an $targetPlayerId abgegeben")
+        AppLog.d(TAG, "${speakerName(sourcePlayerId)} hat die Musik an ${speakerName(targetPlayerId)} abgegeben")
         if (wasPlaying != true) return
         delay(MOVE_REFRESH_DELAY_MS)
         withGroup(c, targetPlayerId) { targetGroup ->
             if (currentlyPlaying(c, targetGroup.id) == false) {
-                Log.d(TAG, "Musik steht nach dem Mitnehmen still — wieder starten")
+                AppLog.resolved(TAG, "Musik stand nach dem Mitnehmen still — wieder gestartet")
                 c.play(targetGroup.id)
             }
         }
@@ -1281,6 +1431,7 @@ class MainViewModel(
             }
             Screen.Sync -> screen = Screen.Settings
             Screen.ReleaseNotes -> screen = Screen.Settings
+            Screen.Log -> screen = Screen.Settings
             Screen.Settings -> closeSettings()
             Screen.Home -> Unit
         }
@@ -1294,7 +1445,7 @@ class MainViewModel(
         speakerRefreshMessage = null
         // Neue Speaker wurden in den Settings gesehen → beim nächsten Mal nicht mehr „Neu"
         viewModelScope.launch { repository.clearNewFlags() }
-        restartPolling()
+        restartPolling("Einstellungen geschlossen")
     }
 
     /** Öffnet die Speaker-Einstellungen. */
@@ -1310,6 +1461,11 @@ class MainViewModel(
     /** Öffnet die Release Notes. */
     fun openReleaseNotes() {
         screen = Screen.ReleaseNotes
+    }
+
+    /** Öffnet das Protokoll. */
+    fun openLog() {
+        screen = Screen.Log
     }
 
     fun setSpeakerEnabled(playerId: String, enabled: Boolean) {
@@ -1457,7 +1613,7 @@ class MainViewModel(
         } catch (e: SessionExpiredException) {
             handleSessionExpired(e)
         } catch (e: Exception) {
-            Log.w(TAG, "Playlist-Kategorie $categoryId nicht abgeglichen", e)
+            AppLog.w(TAG, "Playlist-Kategorie „${category.name}“ nicht abgeglichen", e)
             playlistCategoryErrors = playlistCategoryErrors +
                 (categoryId to (e.message ?: "Die Playlist konnte nicht geladen werden."))
         } finally {
@@ -1504,6 +1660,7 @@ class MainViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                AppLog.w(TAG, "Eigenes Bild nicht übernommen (Einstellungen)", e)
                 imageImportError = e.message ?: "Das Bild konnte nicht übernommen werden."
             }
         }
@@ -1615,6 +1772,7 @@ class MainViewModel(
                 handleSessionExpired(e)
                 return@launch
             } catch (e: Exception) {
+                AppLog.w(TAG, "Musik-Katalog nicht geladen (Einstellungen)", e)
                 CatalogState.Error(e.message ?: "Musik-Katalog konnte nicht geladen werden")
             }
         }
@@ -1647,7 +1805,12 @@ class MainViewModel(
         // Antwortet die Cloud nicht, reicht auch der Katalog vom Speaker im Heimnetz
         val entries = cloudEntries.getOrElse { error ->
             local?.catalogEntries()?.takeIf { it.isNotEmpty() }
-                ?.also { Log.w(TAG, "Musik-Katalog nur aus dem Heimnetz, die Sonos-Cloud antwortet nicht: ${error.message}") }
+                ?.also {
+                    AppLog.resolved(
+                        TAG,
+                        "Die Sonos-Cloud lieferte den Musik-Katalog nicht (${error.message}) — er kommt vom Speaker im Heimnetz"
+                    )
+                }
                 ?: throw error
         }
         return entries.map { entry ->
@@ -1686,7 +1849,7 @@ class MainViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.d(TAG, "Cover der Musikauswahl nicht aufgefrischt: ${e.message}")
+                AppLog.d(TAG, "Cover der Musikauswahl nicht aufgefrischt: ${e.message}")
             }
         }
     }
@@ -1726,6 +1889,7 @@ class MainViewModel(
                 handleSessionExpired(e)
                 return@launch
             } catch (e: Exception) {
+                AppLog.w(TAG, "Titel der Playlist „${entry.name}“ nicht geladen (Einstellungen)", e)
                 PlaylistPreview(entry, error = e.message ?: "Titel konnten nicht geladen werden")
             }
             // Inzwischen geschlossen oder eine andere Playlist geöffnet → verwerfen

@@ -1,6 +1,5 @@
 package de.paul.sonoscontrol
 
-import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -80,7 +79,7 @@ fun MusicCover(
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 onError = {
-                    Log.w("Cover", "Cover konnte nicht geladen werden: $url", it.result.throwable)
+                    AppLog.d("Cover", "Cover konnte nicht geladen werden: $url", it.result.throwable)
                     attempt++
                 },
                 modifier = Modifier.fillMaxSize()

@@ -3,7 +3,6 @@ package de.paul.sonoscontrol
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.ensureActive
@@ -122,7 +121,7 @@ class LocalTransfer(context: Context) {
             }
         }
     } catch (e: IOException) {
-        Log.w(TAG, "Übertragung abgebrochen", e)
+        AppLog.w(TAG, "Übertragung abgebrochen", e)
         ServeResult.Failed
     }
 
@@ -220,7 +219,7 @@ class LocalTransfer(context: Context) {
                 throw e
             } catch (e: IOException) {
                 // Technische Fehler (Timeout, Verbindung zurückgesetzt …) verständlich melden
-                Log.w(TAG, "Empfang von ${tablet.name} fehlgeschlagen", e)
+                AppLog.w(TAG, "Empfang von ${tablet.name} fehlgeschlagen", e)
                 throw TransferException("Die Verbindung zu ${tablet.name} ist abgebrochen.")
             }
         }
@@ -232,7 +231,7 @@ class LocalTransfer(context: Context) {
             @Suppress("DEPRECATION")
             nsdManager.resolveService(service, object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                    Log.w(TAG, "${serviceInfo.serviceName} nicht aufgelöst ($errorCode)")
+                    AppLog.w(TAG, "${serviceInfo.serviceName} nicht aufgelöst ($errorCode)")
                     if (continuation.isActive) continuation.resume(null)
                 }
 

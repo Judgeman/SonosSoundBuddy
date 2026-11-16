@@ -240,9 +240,12 @@ class SonosApiClient(
             return call(token)
         } catch (e: SonosApiException) {
             if (e.httpCode != 401) throw e
+            AppLog.w(TAG, "Sonos hat die Anmeldung abgelehnt (HTTP 401) — erneuern und noch einmal versuchen", e)
         }
         // Token wurde abgelehnt (z. B. Ablaufzeit unbekannt) → erneuern und einmal wiederholen
-        return call(refreshAccessToken(rejectedToken = token))
+        return call(refreshAccessToken(rejectedToken = token)).also {
+            AppLog.resolved(TAG, "Sonos hatte die Anmeldung abgelehnt (HTTP 401) — mit erneuerter Anmeldung hat es geklappt")
+        }
     }
 
     private suspend fun validAccessToken(): String {
@@ -270,13 +273,16 @@ class SonosApiClient(
             executeAsync(request)
         } catch (e: SonosApiException) {
             // Nur 401 heißt "Refresh-Token ungültig" — alles andere ist vorübergehend
-            if (e.httpCode == 401) throw SessionExpiredException()
+            if (e.httpCode == 401) {
+                AppLog.w(TAG, "Die Anmeldung lässt sich nicht mehr erneuern (HTTP 401) — neu anmelden nötig", e)
+                throw SessionExpiredException()
+            }
             throw SonosApiException("Anmeldung konnte nicht erneuert werden (HTTP ${e.httpCode})", e.httpCode)
         }
 
         val tokens = json.decodeFromString(RefreshResponse.serializer(), body)
         tokenStore.saveTokens(tokens.accessToken, tokens.refreshToken, tokens.expiresIn)
-        Log.d(TAG, "Access-Token erneuert")
+        AppLog.d(TAG, "Access-Token erneuert")
         tokens.accessToken
     }
 
@@ -295,7 +301,7 @@ class SonosApiClient(
                         val bodyString = it.body?.string().orEmpty()
                         if (!it.isSuccessful) {
                             // Für die Fehlersuche: welcher Aufruf genau abgelehnt wurde
-                            Log.w(TAG, "${request.method} ${request.url.encodedPath} → HTTP ${it.code}: $bodyString")
+                            AppLog.w(TAG, "${request.method} ${request.url.encodedPath} → HTTP ${it.code}: $bodyString")
                             continuation.resumeWithException(
                                 SonosApiException(describeError(request, it.code, bodyString), it.code)
                             )

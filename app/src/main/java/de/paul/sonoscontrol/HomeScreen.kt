@@ -1,6 +1,5 @@
 package de.paul.sonoscontrol
 
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -847,7 +846,7 @@ private fun CoverImage(imageUrl: String?, modifier: Modifier = Modifier) {
                 model = imageUrl,
                 contentDescription = "Cover",
                 contentScale = ContentScale.Crop,
-                onError = { Log.w("Cover", "Cover konnte nicht geladen werden: $imageUrl", it.result.throwable) },
+                onError = { AppLog.d("Cover", "Cover konnte nicht geladen werden: $imageUrl", it.result.throwable) },
                 modifier = Modifier.fillMaxSize().clip(CoverShape)
             )
         }

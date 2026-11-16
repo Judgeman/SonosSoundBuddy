@@ -270,6 +270,43 @@ App in `SonosConfig.kt` eingetragen (siehe unten).
   - **Tablets abgleichen** (siehe unten): Stand eines Tablets automatisch
     über die Cloud, im WLAN oder als Datei auf andere übertragen.
   - **Abmelden** vom Sonos-Konto.
+  - **Protokoll** (eigene Unterseite, `AppLog.kt`, `LogScreen.kt`): Die
+    Kinder können nicht vorlesen, was auf dem Tablet stand — und viele
+    Meldungen verschwinden von selbst wieder. Hier steht es nach, der neueste
+    Eintrag oben, nach Tagen gruppiert:
+    - **Fehler:** jede Fehlermeldung auf dem Startbildschirm (das Popup mit
+      dem SoundBuddy, die Fehlerseite, die Anmeldeseite nach abgelaufener
+      Anmeldung) mit dem Text, wobei sie kam (z. B. „Abfrage der Wiedergabe“,
+      „Musik starten: …“) und der Ausnahme dahinter — und Abstürze der App.
+    - **Erledigt:** wodurch ein Problem wieder wegging. Zu jeder Meldung
+      steht, nach wie vielen Sekunden sie verschwand und warum: die nächste
+      Abfrage oder ein Knopfdruck hat geklappt, „Okay“, ein anderer Speaker,
+      die App wurde neu geöffnet. Ebenso, wenn ein neuer Versuch oder ein
+      Ersatzweg geholfen hat: neu geholte Gruppe, erneuerte Anmeldung, Titel
+      beim zweiten Laden eingereiht, Sonos-Cloud statt WLAN (und zurück),
+      Speaker unter anderer Adresse.
+    - **Problem:** was im Hintergrund nicht geklappt hat, ohne dass eine
+      Meldung erschien — einzelne gescheiterte Abfragen, abgelehnte Aufrufe
+      der Sonos-Cloud, Speaker, die im WLAN nicht antworten, Abgleich.
+    - **Info/Detail:** App-Start, Vorder-/Hintergrund, gedrückte Knöpfe,
+      gestartete Musik, Suche im WLAN — um nachzuvollziehen, was vor einem
+      Fehler passiert ist.
+
+    Der Filter zeigt „Fehler“ (Fehler und Erledigt, die Voreinstellung),
+    „Auch Probleme“ oder „Alles“. Antippen klappt die Details eines Eintrags
+    auf. Wiederholt sich ein Eintrag innerhalb von zwei Minuten (etwa eine
+    alle 2 Sekunden scheiternde Abfrage), zählt der frühere hoch und nennt,
+    wann es zuletzt passiert ist; Fehler und Erledigtes stehen dagegen jedes
+    Mal einzeln da. Das Protokoll lässt sich als Text teilen (mit App-Version
+    und Gerät) und leeren. Es liegt als Datei im App-Speicher
+    (`protokoll.jsonl`, eine Zeile JSON je Eintrag), übersteht also Neustart
+    und Absturz, und reicht höchstens 30 Tage zurück. Jede Art hat ihre
+    eigene Grenze — 400 Fehler/Erledigt, 500 Probleme, 600 Info/Detail —,
+    damit weder die Routine noch eine Flut von Problemen (eine Nacht ohne
+    WLAN) die Fehler vom Tag verdrängt. Es verlässt das Tablet nur über
+    „Teilen“ und wird nicht mit anderen Tablets abgeglichen.
+    Der Eintrag in den Einstellungen nennt die Zahl der Fehler der letzten
+    24 Stunden.
   - **Release Notes** (eigene Unterseite): alle Versionen mit ihren
     Neuerungen, die neueste oben; die installierte trägt das Schild
     „Installiert“.
@@ -696,7 +733,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 
 | Datei | Inhalt |
 |---|---|
-| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich/Release Notes samt Seitenstand für „Zurück“, Theme |
+| `MainActivity.kt` | Einstieg, Navigation Home/Settings/Profil/Musikauswahl/Katalog/Abgleich/Release Notes/Protokoll samt Seitenstand für „Zurück“, Theme |
 | `MainViewModel.kt` | Zustand, Speaker- und Profil-Auswahl, Polling, Befehle, Katalog, Passwort |
 | `HomeScreen.kt` | Homescreen: Dropdown, Cover, Fortschritt, Knöpfe |
 | `MoveMusic.kt` | „Musik mitnehmen“: Knopf, Raum-Auswahl, Popup mit hüpfenden Noten während des Umzugs |
@@ -709,6 +746,7 @@ Alle Quellen liegen in `app/src/main/java/de/paul/sonoscontrol/`:
 | `CoverColors.kt` | Farben aus dem Cover, Cover-Theme, Statusleiste |
 | `SettingsScreen.kt` | Einstellungen, Icon-Auswahl, Passwort-Dialog |
 | `ReleaseNotes.kt` | Versionsliste mit Neuerungen und die Seite „Release Notes“ |
+| `AppLog.kt`, `LogScreen.kt` | Protokoll: Einträge sammeln, in einer Datei halten, Abstürze festhalten; die Seite „Protokoll“ mit Filter, Teilen und Leeren |
 | `ProfileSettingsScreens.kt` | Profil-Liste, Profil-Seite, zentrale Musikauswahl mit Kategorien, Katalog-Auswahl |
 | `MusicCatalog.kt`, `MusicCover.kt` | Katalog-Einträge, Musik-Typen, Abspielreihenfolge, eigene Bilder, Cover-Kachel |
 | `CustomImageStore.kt` | Eigene Bilder für Kategorien und Einträge importieren (verkleinern, drehen) und löschen |
