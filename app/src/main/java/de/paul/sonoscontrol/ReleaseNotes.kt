@@ -43,6 +43,27 @@ data class ReleaseSection(val title: String, val items: List<String>)
  */
 val ReleaseHistory = listOf(
     Release(
+        version = "1.5.0",
+        date = "16. November 2026",
+        sections = listOf(
+            ReleaseSection(
+                "Protokoll",
+                listOf(
+                    "Neu in den Einstellungen: „Protokoll“. Dort steht, welche Fehlermeldungen auf dem " +
+                        "Startbildschirm standen – auch wenn sie längst wieder verschwunden sind und die Kinder " +
+                        "nicht sagen können, was da stand.",
+                    "Zu jeder Fehlermeldung steht, wobei sie kam, wie lange sie zu sehen war und wodurch sie " +
+                        "wieder wegging: die nächste Abfrage hat geklappt, ein Knopfdruck, „Okay“ oder ein anderer Speaker.",
+                    "Auch Probleme ohne Meldung stehen dort, und ob ein neuer Versuch oder ein Ersatzweg geholfen " +
+                        "hat – etwa die Sonos-Cloud statt des WLANs oder eine neu geholte Gruppe.",
+                    "Stürzt die App ab, steht auch das im Protokoll.",
+                    "Der Filter zeigt nur Fehler, auch Probleme im Hintergrund oder alles. Das Protokoll lässt " +
+                        "sich teilen (etwa per E-Mail) und leeren; es bleibt über einen Neustart der App erhalten."
+                )
+            )
+        )
+    ),
+    Release(
         version = "1.4.0",
         date = "15. November 2026",
         sections = listOf(

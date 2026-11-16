@@ -2,7 +2,6 @@ package de.paul.sonoscontrol
 
 import android.net.Uri
 import android.os.SystemClock
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -208,7 +207,7 @@ class SyncViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Freigabe beendet", e)
+                AppLog.w(TAG, "Freigabe beendet", e)
                 message = e.message ?: "Die Freigabe wurde beendet."
             } finally {
                 // Nach „Beenden“ kann schon eine neue Freigabe laufen — die bleibt
@@ -277,7 +276,7 @@ class SyncViewModel(
             } catch (e: LocalTransfer.WrongCodeException) {
                 codeWrong = true
             } catch (e: Exception) {
-                Log.w(TAG, "Empfang fehlgeschlagen", e)
+                AppLog.w(TAG, "Empfang fehlgeschlagen", e)
                 codePromptFor = null
                 message = e.message ?: "Die Daten konnten nicht geholt werden."
             } finally {
@@ -399,7 +398,7 @@ class SyncViewModel(
             } catch (e: SessionExpiredException) {
                 playedStatus = "Für den Abgleich bei Sonos anmelden."
             } catch (e: Exception) {
-                Log.w(TAG, "Abgleich der gespielten Musik fehlgeschlagen", e)
+                AppLog.w(TAG, "Abgleich der gespielten Musik fehlgeschlagen", e)
                 playedStatus = "Gespielte Musik: " + (e.message ?: "Der Abgleich ist fehlgeschlagen.")
                 if (userAction) message = playedStatus
             }
@@ -457,7 +456,7 @@ class SyncViewModel(
         } catch (e: SessionExpiredException) {
             cloudStatus = "Für den Abgleich bei Sonos anmelden."
         } catch (e: Exception) {
-            Log.w(TAG, "Abgleich über die Cloud fehlgeschlagen", e)
+            AppLog.w(TAG, "Abgleich über die Cloud fehlgeschlagen", e)
             cloudStatus = e.message ?: "Der Abgleich über die Cloud ist fehlgeschlagen."
             if (userAction) message = cloudStatus
         } finally {
@@ -491,7 +490,7 @@ class SyncViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, text, e)
+                AppLog.w(TAG, text, e)
                 message = e.message ?: "Das hat nicht geklappt."
             } finally {
                 busy = null

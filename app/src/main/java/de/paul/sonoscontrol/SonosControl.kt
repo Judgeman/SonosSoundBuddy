@@ -1,7 +1,6 @@
 package de.paul.sonoscontrol
 
 import android.os.SystemClock
-import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -152,7 +151,7 @@ class CloudSonosControl(private val api: SonosApiClient) : SonosControl {
         val shuffleOn = currentShuffle(groupId) ?: return
         if (!shuffleOn) return
         runCatching { api.setShuffle(groupId, false) }.onFailure {
-            Log.d(TAG, "Übrig gebliebener Zufall nicht ausgeschaltet: ${it.message}")
+            AppLog.d(TAG, "Übrig gebliebener Zufall nicht ausgeschaltet: ${it.message}")
             return
         }
         val deadline = SystemClock.elapsedRealtime() + SHUFFLE_OFF_TIMEOUT_MS
@@ -166,7 +165,7 @@ class CloudSonosControl(private val api: SonosApiClient) : SonosControl {
         runCatching { api.getPlaybackStatus(groupId).playModes?.shuffle }
             .onFailure { if (it is CancellationException) throw it }
             .getOrNull()
-            .also { if (it == null) Log.d(TAG, "Sonos meldet keinen Zufallsmodus für Gruppe $groupId") }
+            .also { if (it == null) AppLog.d(TAG, "Sonos meldet keinen Zufallsmodus für Gruppe $groupId") }
 
     /**
      * Lädt mit [load] und versucht es nach kurzer Pause erneut, wenn Sonos dabei keine Titel
@@ -175,15 +174,23 @@ class CloudSonosControl(private val api: SonosApiClient) : SonosControl {
     private suspend fun loadRetryingWhenNothingQueued(item: MusicItem, load: suspend () -> Unit) {
         repeat(LOAD_ATTEMPTS - 1) { attempt ->
             try {
-                return load()
+                load()
+                if (attempt > 0) logLoaded(item, attempt + 1)
+                return
             } catch (e: SonosApiException) {
                 if (!e.isNoContent) throw e
-                Log.w(TAG, "„${item.name}“: keine Titel eingereiht (Versuch ${attempt + 1}), gleich noch einmal")
+                AppLog.w(TAG, "„${item.name}“: keine Titel eingereiht (Versuch ${attempt + 1}), gleich noch einmal", e)
             }
             delay(LOAD_RETRY_DELAY_MS)
         }
         load()
+        logLoaded(item, LOAD_ATTEMPTS)
     }
+
+    private fun logLoaded(item: MusicItem, attempt: Int) = AppLog.resolved(
+        TAG,
+        "„${item.name}“: Sonos hatte beim Laden keine Titel eingereiht — im $attempt. Versuch hat es geklappt"
+    )
 
     /**
      * Führt [command] aus und wiederholt ihn, solange Sonos meldet, dass die gerade

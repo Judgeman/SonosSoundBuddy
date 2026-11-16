@@ -6,7 +6,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -66,7 +65,7 @@ class CustomImageStore(context: Context) {
             file.outputStream().use { scaleDown(decoded).compress(Bitmap.CompressFormat.JPEG, 90, it) }
             file.absolutePath
         } catch (e: Exception) {
-            Log.d(TAG, "Cover nicht gespeichert ($url): ${e.message}")
+            AppLog.d(TAG, "Cover nicht gespeichert ($url): ${e.message}")
             null
         }
     }

@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Zuerst, damit schon der Start und ein Absturz dabei im Protokoll stehen
+        AppLog.init(applicationContext)
         // Inhalt bis unter die Statusleiste zeichnen, damit der Cover-Verlauf den ganzen Bildschirm füllt
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -206,6 +208,7 @@ private fun ScreenContent(viewModel: MainViewModel, syncViewModel: SyncViewModel
                 onOpenSync = viewModel::openSync,
                 syncNotice = syncViewModel.cloudNotice,
                 onLogout = viewModel::logout,
+                onOpenLog = viewModel::openLog,
                 onOpenReleaseNotes = viewModel::openReleaseNotes
             )
         }
@@ -264,6 +267,12 @@ private fun ScreenContent(viewModel: MainViewModel, syncViewModel: SyncViewModel
             BackHandler(onBack = viewModel::navigateBack)
             StatusBarIcons(light = !isSystemInDarkTheme())
             ReleaseNotesScreen(onBack = viewModel::navigateBack)
+        }
+
+        Screen.Log -> {
+            BackHandler(onBack = viewModel::navigateBack)
+            StatusBarIcons(light = !isSystemInDarkTheme())
+            LogScreen(onBack = viewModel::navigateBack)
         }
 
         Screen.MusicLibrary -> {

@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.SystemClock
-import android.util.Log
 import android.util.Xml
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -228,7 +227,7 @@ class LocalSonosClient(context: Context) : SonosControl {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
-                Log.d(TAG, "Speaker unter $base (Adresse aus der Cloud) antwortet nicht: ${e.message}")
+                AppLog.d(TAG, "Speaker unter $base (Adresse aus der Cloud) antwortet nicht: ${e.message}")
             }
         }
         return null
@@ -298,7 +297,7 @@ class LocalSonosClient(context: Context) : SonosControl {
                 transport(base, "Pause")
             } catch (e: LocalSonosException) {
                 // Manche Radiosender lassen sich nicht pausieren, nur anhalten
-                Log.d(TAG, "Pause abgelehnt, stattdessen anhalten: ${e.message}")
+                AppLog.d(TAG, "Pause abgelehnt, stattdessen anhalten: ${e.message}")
                 transport(base, "Stop")
             }
         } else {
@@ -339,7 +338,7 @@ class LocalSonosClient(context: Context) : SonosControl {
                     )
                     return@onSpeaker
                 } catch (e: LocalSonosException) {
-                    Log.d(TAG, "Gruppe nicht an ${successor.name} übergeben: ${e.message}")
+                    AppLog.d(TAG, "Gruppe nicht an ${successor.name} übergeben: ${e.message}")
                 }
             }
             transport(coordinator.baseUrl, "BecomeCoordinatorOfStandaloneGroup")
@@ -451,7 +450,7 @@ class LocalSonosClient(context: Context) : SonosControl {
         } catch (e: LocalSonosException) {
             throw e
         } catch (e: IOException) {
-            Log.w(TAG, "Speaker ${speaker.name} unter ${speaker.baseUrl} nicht erreichbar", e)
+            AppLog.w(TAG, "Speaker ${speaker.name} unter ${speaker.baseUrl} nicht erreichbar", e)
             forgetAddresses(speaker.baseUrl)
             throw LocalSonosException("Der Speaker „${speaker.name ?: uuid}“ ist im WLAN gerade nicht erreichbar.")
         }
@@ -470,7 +469,7 @@ class LocalSonosClient(context: Context) : SonosControl {
         } catch (e: LocalSonosException) {
             throw e
         } catch (e: IOException) {
-            Log.w(TAG, "Speaker unter $base nicht erreichbar", e)
+            AppLog.w(TAG, "Speaker unter $base nicht erreichbar", e)
             forgetAddresses(base)
             throw LocalSonosException("Der Sonos-Speaker im WLAN antwortet gerade nicht.")
         }
@@ -541,7 +540,7 @@ class LocalSonosClient(context: Context) : SonosControl {
      */
     suspend fun loadCovers(addressHint: String?): LocalCovers? {
         val base = speakerBaseUrl ?: baseUrlFrom(addressHint) ?: knownAddresses.firstOrNull() ?: discoverSpeaker() ?: run {
-            Log.d(TAG, "Kein Sonos-Speaker im Heimnetz gefunden")
+            AppLog.d(TAG, "Kein Sonos-Speaker im Heimnetz gefunden")
             return null
         }
         return try {
@@ -557,12 +556,12 @@ class LocalSonosClient(context: Context) : SonosControl {
                 playlist.copy(artUrl = art, freshArtUrl = null, artists = artists)
             }
             rememberAddress(base)
-            Log.d(TAG, "Lokal ${favorites.size} Favoriten, ${playlists.size} Playlisten von $base")
+            AppLog.d(TAG, "Lokal ${favorites.size} Favoriten, ${playlists.size} Playlisten von $base")
             LocalCovers(favorites, playlists)
         } catch (e: Exception) {
             // Speaker nicht mehr unter der Adresse erreichbar → beim nächsten Mal neu suchen
             speakerBaseUrl = null
-            Log.w(TAG, "Lokale Abfrage bei $base fehlgeschlagen", e)
+            AppLog.w(TAG, "Lokale Abfrage bei $base fehlgeschlagen", e)
             null
         }
     }
@@ -573,7 +572,7 @@ class LocalSonosClient(context: Context) : SonosControl {
      */
     suspend fun playlistTracks(playlistId: String, addressHint: String?): List<PlaylistTrackInfo>? {
         val base = speakerBaseUrl ?: baseUrlFrom(addressHint) ?: knownAddresses.firstOrNull() ?: discoverSpeaker() ?: run {
-            Log.d(TAG, "Kein Sonos-Speaker im Heimnetz gefunden")
+            AppLog.d(TAG, "Kein Sonos-Speaker im Heimnetz gefunden")
             return null
         }
         return try {
@@ -585,7 +584,7 @@ class LocalSonosClient(context: Context) : SonosControl {
         } catch (e: Exception) {
             // Nicht erreichbar → beim nächsten Mal neu suchen; hat er abgelehnt, ist er aber da
             if (e !is LocalSonosException) speakerBaseUrl = null
-            Log.w(TAG, "Titel der Playlist $playlistId nicht von $base geladen", e)
+            AppLog.w(TAG, "Titel der Playlist $playlistId nicht von $base geladen", e)
             null
         }
     }
@@ -626,7 +625,7 @@ class LocalSonosClient(context: Context) : SonosControl {
         } catch (e: LocalSonosException) {
             throw e
         } catch (e: IOException) {
-            Log.w(TAG, "Speaker ${coordinator.name} unter ${coordinator.baseUrl} nicht erreichbar", e)
+            AppLog.w(TAG, "Speaker ${coordinator.name} unter ${coordinator.baseUrl} nicht erreichbar", e)
             throw LocalSonosException("Der Speaker „${coordinator.name ?: playerName ?: playerId}“ ist im WLAN gerade nicht erreichbar.")
         }
     }
@@ -672,7 +671,7 @@ class LocalSonosClient(context: Context) : SonosControl {
                 "NumberOfTracks" to count.toString()
             )
         }
-        Log.d(TAG, "„$albumName“: ${keep.size} von $queueLength Titeln der Playlist „$playlistName“ in der Warteschlange")
+        AppLog.d(TAG, "„$albumName“: ${keep.size} von $queueLength Titeln der Playlist „$playlistName“ in der Warteschlange")
 
         transport(base, "SetAVTransportURI", "CurrentURI" to "x-rincon-queue:${coordinator.uuid}#0", "CurrentURIMetaData" to "")
         // Wiederholen bleibt aus, sonst liefe das Album in Dauerschleife
@@ -691,13 +690,19 @@ class LocalSonosClient(context: Context) : SonosControl {
     private suspend fun zoneTopology(addressHint: String?): List<ZoneMember> {
         val remembered = knownAddresses.take(MAX_PROBED_ADDRESSES)
         val candidates = (listOfNotNull(speakerBaseUrl, baseUrlFrom(addressHint), hintedBaseUrl) + remembered).distinct()
+        // Adressen, unter denen niemand geantwortet hat — fürs Protokoll, falls es woanders doch klappt
+        val silent = mutableListOf<String>()
         for (base in candidates) {
             try {
-                zoneMembers(base, probeHttp).takeIf { it.isNotEmpty() }?.let { return remember(base, it) }
+                zoneMembers(base, probeHttp).takeIf { it.isNotEmpty() }?.let {
+                    logReachedElsewhere(silent, base)
+                    return remember(base, it)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
-                Log.d(TAG, "Speaker unter $base antwortet nicht: ${e.message}")
+                AppLog.w(TAG, "Speaker unter $base antwortet nicht", e)
+                silent += base
             }
             if (speakerBaseUrl == base) speakerBaseUrl = null
         }
@@ -707,11 +712,17 @@ class LocalSonosClient(context: Context) : SonosControl {
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
-            Log.w(TAG, "Zonen-Topologie von $found nicht geladen", e)
+            AppLog.w(TAG, "Zonen-Topologie von $found nicht geladen", e)
             throw NoSpeakerInWifiException()
         }
         if (members.isEmpty()) throw NoSpeakerInWifiException()
+        logReachedElsewhere(silent, found)
         return remember(found, members)
+    }
+
+    private fun logReachedElsewhere(silent: List<String>, base: String) {
+        if (silent.isEmpty()) return
+        AppLog.resolved(TAG, "Unter ${silent.joinToString()} antwortete kein Speaker — unter $base ist einer erreichbar")
     }
 
     /** Unter [base] hat ein Speaker geantwortet → für das nächste Mal merken, auch über einen Neustart hinweg. */
@@ -779,7 +790,7 @@ class LocalSonosClient(context: Context) : SonosControl {
         try {
             block()
         } catch (e: LocalSonosException) {
-            Log.d(TAG, "Übergangen: ${e.message}")
+            AppLog.d(TAG, "Übergangen: ${e.message}")
             null
         }
 
@@ -803,7 +814,7 @@ class LocalSonosClient(context: Context) : SonosControl {
             val found = first ?: if (fromMdns) ssdp.await() else mdns.await()
             mdns.cancel()
             ssdp.cancel()
-            found?.also { Log.d(TAG, "Speaker im WLAN gefunden: $it") }
+            found?.also { AppLog.d(TAG, "Speaker im WLAN gefunden: $it") }
         }
     }
 
@@ -830,7 +841,7 @@ class LocalSonosClient(context: Context) : SonosControl {
                     if (sentAt == 0L || now - sentAt >= SSDP_RESEND_MS) {
                         targets.forEach { target ->
                             runCatching { socket.send(DatagramPacket(request, request.size, target)) }
-                                .onFailure { Log.d(TAG, "SSDP-Anfrage an ${target.hostString} nicht gesendet: ${it.message}") }
+                                .onFailure { AppLog.d(TAG, "SSDP-Anfrage an ${target.hostString} nicht gesendet: ${it.message}") }
                         }
                         sentAt = now
                     }
@@ -847,7 +858,7 @@ class LocalSonosClient(context: Context) : SonosControl {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.d(TAG, "SSDP-Suche fehlgeschlagen: ${e.message}")
+            AppLog.d(TAG, "SSDP-Suche fehlgeschlagen: ${e.message}")
             null
         }
     }
@@ -875,7 +886,7 @@ class LocalSonosClient(context: Context) : SonosControl {
             } ?: return
             val listener = object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                    Log.d(TAG, "mDNS: Speaker nicht aufgelöst ($errorCode), nächster")
+                    AppLog.d(TAG, "mDNS: Speaker nicht aufgelöst ($errorCode), nächster")
                     synchronized(lock) { resolving = false }
                     resolveNext()
                 }
@@ -895,7 +906,7 @@ class LocalSonosClient(context: Context) : SonosControl {
                 @Suppress("DEPRECATION")
                 nsdManager.resolveService(next, listener)
             } catch (e: Exception) {
-                Log.d(TAG, "mDNS: Auflösen nicht gestartet: ${e.message}")
+                AppLog.d(TAG, "mDNS: Auflösen nicht gestartet: ${e.message}")
                 synchronized(lock) { resolving = false }
                 resolveNext()
             }
@@ -905,7 +916,7 @@ class LocalSonosClient(context: Context) : SonosControl {
             override fun onDiscoveryStarted(serviceType: String) = Unit
             override fun onDiscoveryStopped(serviceType: String) = Unit
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-                Log.w(TAG, "mDNS-Suche nicht gestartet ($errorCode)")
+                AppLog.w(TAG, "mDNS-Suche nicht gestartet ($errorCode)")
                 if (continuation.isActive) continuation.resume(null)
             }
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
@@ -921,7 +932,7 @@ class LocalSonosClient(context: Context) : SonosControl {
         try {
             nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discovery)
         } catch (e: Exception) {
-            Log.w(TAG, "mDNS-Suche nicht gestartet: ${e.message}")
+            AppLog.w(TAG, "mDNS-Suche nicht gestartet: ${e.message}")
             if (continuation.isActive) continuation.resume(null)
         }
     }
@@ -1005,7 +1016,7 @@ class LocalSonosClient(context: Context) : SonosControl {
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 val code = runCatching { textOf(text, "errorCode")?.trim() }.getOrNull()
-                Log.w(TAG, "UPnP $action bei $base: HTTP ${response.code}, Fehler $code")
+                AppLog.w(TAG, "UPnP $action bei $base: HTTP ${response.code}, Fehler $code")
                 throw LocalSonosException("Der Speaker hat „$action“ abgelehnt (HTTP ${response.code}, Fehler ${code ?: "?"})", code)
             }
             text
@@ -1052,7 +1063,7 @@ class LocalSonosClient(context: Context) : SonosControl {
             }
             fields
         }.getOrElse {
-            Log.d(TAG, "DIDL nicht lesbar: ${it.message}")
+            AppLog.d(TAG, "DIDL nicht lesbar: ${it.message}")
             emptyMap()
         }
     }
